@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<AssemblyName>unpackrat-unity-probe</AssemblyName>
+		<RootNamespace>Unpackrat.UnityProbe</RootNamespace>
+		<IsAotCompatible>true</IsAotCompatible>
+		<PublishAot>true</PublishAot>
+		<NativeLib>Shared</NativeLib>
+		<StaticRuntime>true</StaticRuntime>
+		<StripSymbols>false</StripSymbols>
+		<InvariantTimezone>true</InvariantTimezone>
+		<BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+		<UseSystemResourceKeys>true</UseSystemResourceKeys>
+		<EventSourceSupport>false</EventSourceSupport>
+		<MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+		<IlcDisableReflection>true</IlcDisableReflection>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="$(VendorRoot)\AssetRipper.Import\AssetRipper.Import.csproj" />
+		<ProjectReference Include="$(VendorRoot)\AssetRipper.Processing\AssetRipper.Processing.csproj" />
+		<ProjectReference Include="$(VendorRoot)\AssetRipper.Export.Modules.Textures\AssetRipper.Export.Modules.Textures.csproj" />
+		<ProjectReference Include="$(VendorRoot)\AssetRipper.Export.Modules.Models\AssetRipper.Export.Modules.Models.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="UnityProbe.Tests" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!--
+			Exact PNG/JPEG reader used only to normalise a small cropped bitmap back to a fixed
+			four-byte RGBA buffer. Pinned to the cached 2.30.15 release; it is a pure managed port
+			of stb_image with no native binaries, licensed Public Domain or MIT.
+		-->
+		<PackageReference Include="StbImageSharp" Version="2.30.15" />
+	</ItemGroup>
+
+	<!-- The mature, pinned Fmod5Sharp decoder used directly by the AudioClip adapter. This is the
+	     same exact library version (3.1.0) the pinned AssetRipper Audio export module references. -->
+	<ItemGroup>
+		<PackageReference Include="Fmod5Sharp" Version="3.1.0" />
+	</ItemGroup>
+
+	<!-- Direct exact-version pin overriding the transitive Microsoft.Bcl.Memory 9.0.0 that
+	     Fmod5Sharp 3.1.0 brings in. 9.0.14 is the first 9.x release fixing GHSA-73j8-2gch-69rq
+	     (malformed Base64Url decoding out-of-bounds read / DoS) and stays on the compatible 9.x line. -->
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Bcl.Memory" Version="9.0.14" />
+	</ItemGroup>
+
+</Project>

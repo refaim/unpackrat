@@ -172,6 +172,17 @@
       "packageNameTemplate": "godotengine/godot",
       "datasourceTemplate": "github-tags",
       "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(?:\\.(?<patch>\\d+))?-stable$"
+    },
+    {
+      "customType": "regex",
+      "description": "Watch published AssetRipper releases for the NativeAOT prototype; sourceRevision is the actual snapshot pin, not the release commit.",
+      "managerFilePatterns": ["/^experiments/unity-nativeaot/upstream\\.json$/"],
+      "matchStrings": ["\"releaseWatchBaseline\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "assetripper",
+      "packageNameTemplate": "AssetRipper/AssetRipper",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
     }
   ]
 }

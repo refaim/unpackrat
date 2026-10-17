@@ -1,0 +1,129 @@
+# assetripper-stream-ownership.patch
+#
+# Unity Observer: AssetRipper vendored-source stream-ownership fixes.
+# Source pin: AssetRipper/AssetRipper @ beeb50ee1c223e856c860caa338e5309404956a3
+# (see experiments/unity-nativeaot/upstream.json sourceRevision).
+#
+# Touches four files under Source/:
+#   Source/AssetRipper.IO.Files/FileContainer.cs
+#   Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs
+#   Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
+#   Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs
+#
+# Apply to a clean pin tree with: git apply -p1 assetripper-stream-ownership.patch
+
+diff --git a/Source/AssetRipper.IO.Files/FileContainer.cs b/Source/AssetRipper.IO.Files/FileContainer.cs
+index 8325599..75e07e1 100644
+--- a/Source/AssetRipper.IO.Files/FileContainer.cs
++++ b/Source/AssetRipper.IO.Files/FileContainer.cs
+@@ -1,6 +1,7 @@
+ using AssetRipper.IO.Files.CompressedFiles;
+ using AssetRipper.IO.Files.ResourceFiles;
+ using AssetRipper.IO.Files.SerializedFiles;
++using AssetRipper.IO.Files.Streams.Smart;
+ 
+ namespace AssetRipper.IO.Files;
+ 
+@@ -110,9 +111,28 @@ public abstract class FileContainer : FileBase
+ 		{
+ 			ResourceFile[] resourceFiles = m_resourceFiles.ToArray();
+ 			m_resourceFiles.Clear();
+-			for (int i = 0; i < resourceFiles.Length; i++)
++			try
+ 			{
+-				AddFile(SchemeReader.ReadFile(resourceFiles[i]));
++				for (int i = 0; i < resourceFiles.Length; i++)
++				{
++					// Each raw entry is replaced by whatever its bytes parse to. The parse reads
++					// through a scoped reference, so the produced file keeps its own reference and
++					// stays usable, while releasing the scoped reference cannot free the entry
++					// before the parse has finished.
++					ResourceFile resource = resourceFiles[i];
++					using SmartStream reference = resource.Stream.CreateReference();
++					AddFile(SchemeReader.ReadFile(reference, resource.FilePath, resource.Name));
++				}
++			}
++			finally
++			{
++				// The whole snapshot was taken out of the live list above, so release every original
++				// here regardless of which entry threw: a classification failure must not drop the
++				// trailing originals without freeing their streams.
++				foreach (ResourceFile resource in resourceFiles)
++				{
++					resource.Dispose();
++				}
+ 			}
+ 		}
+ 	}
+diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs
+index b7e566a..0fdeb9c 100644
+--- a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs
++++ b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs
+@@ -154,7 +154,9 @@ public sealed class FileStreamBundleFile : FileContainer
+ 		{
+ 			try
+ 			{
+-				SmartStream entryStream = blockReader.ReadEntry(entry);
++				// ResourceFile takes its own reference, so release the local one; otherwise the
++				// entry stream the block reader produced would outlive the entry that owns it.
++				using SmartStream entryStream = blockReader.ReadEntry(entry);
+ 				AddResourceFile(new ResourceFile(entryStream, FilePath, entry.Path));
+ 			}
+ 			catch (Exception ex)
+diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
+index f6e1bea..80558dc 100644
+--- a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
++++ b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
+@@ -4,13 +4,13 @@ public sealed partial class SmartStream : Stream
+ {
+ 	private SmartStream()
+ 	{
+-		RefCounter = new();
++		RefCounter = new(System.IO.Stream.Null);
+ 	}
+ 
+ 	private SmartStream(Stream baseStream)
+ 	{
+ 		Stream = baseStream ?? throw new ArgumentNullException(nameof(baseStream));
+-		RefCounter = new();
++		RefCounter = new(baseStream);
+ 		RefCounter++;
+ 	}
+ 
+@@ -187,7 +187,9 @@ public sealed partial class SmartStream : Stream
+ 			RefCounter--;
+ 			if (RefCounter.IsZero)
+ 			{
+-				Stream.Dispose();
++				// The counter owns the original backing stream, so the last reference closes the
++				// file even when that reference is a child slice rather than the original root.
++				RefCounter.Owner.Dispose();
+ 			}
+ 			Stream = null;
+ 		}
+diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs
+index 657eff4..a20e713 100644
+--- a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs
++++ b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs
+@@ -4,6 +4,11 @@ public partial class SmartStream
+ {
+ 	private class SmartRefCount
+ 	{
++		public SmartRefCount(System.IO.Stream owner)
++		{
++			Owner = owner;
++		}
++
+ 		public static SmartRefCount operator ++(SmartRefCount _this)
+ 		{
+ 			_this.RefCount++;
+@@ -33,6 +38,9 @@ public partial class SmartStream
+ 
+ 		public bool IsZero => RefCount == 0;
+ 
++		/// <summary>The original backing stream, disposed when the last reference is released.</summary>
++		public System.IO.Stream Owner { get; }
++
+ 		public int RefCount
+ 		{
+ 			get;

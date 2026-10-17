@@ -134,6 +134,16 @@ message rather than being skipped.
   and Godot-fork QOA static-library overlays. vcpkg verifies downloaded header hashes before building;
   the decoder implementations no longer expand inside first-party adapter translation units.
 
+`build.ps1 build -Module unity -Arch x86,x64 -Config Release` is an opt-in experimental route: the
+driver prepares the pinned AssetRipper source through the `gh` CLI, applies the reviewed patch,
+builds the MSVC Observer static library, runs the ordinary SDK NativeAOT publish with the vcpkg
+YY-Thunks XP object and drops one `unity.so` with its `unity.pdb` into `out/native/bin/<arch>/Release`.
+The selection is optional and Release-only, its vendored tree carries a revision/patch receipt so a
+stale copy fails instead of silently drifting, and the default build still folds exactly the four
+native modules with no CI stage change. Unity packaging is opt-in as well: only a `package` run that
+selects `-Module unity` emits its archives, and the default package selection stays the four native
+modules.
+
 ## Dependency monitoring
 
 `.github/dependabot.yml` enables weekly vcpkg version updates on Monday at 09:00

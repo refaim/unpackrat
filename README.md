@@ -39,6 +39,31 @@ plaintext MD5 verification. Games are never launched. If recovery cannot find a 
 its 64 hexadecimal digits in Observer's password dialog. An EXE without an embedded pack can open
 its same-stem sibling `.pck`. Encrypted resources are decrypted in either presentation mode.
 
+Unity support is an experimental candidate on the development branch, not a published release, and
+no Unity module release listing is offered yet. Local candidate builds are experimental manual-test
+builds shared directly, not public downloads. Open one selected Unity `.assets`, `.bundle`
+or `data.unity3d` file; UnityFS internal bundles are handled automatically. Sibling `resS` and
+resource files, and the other dependencies the selected file references, are resolved for that
+selected file, while resources owned by unrelated dependencies are not added, so keep the sidecar
+files next to the selected file. Whole-game catalogues and code decompilation are not offered.
+
+Each entry converts on demand to its own output file. `Texture2D` and `Sprite` become PNG; `Sprite`
+crops its atlas region and handles packing, flips, 90-degree rectangles, a transparent canvas and a
+tight mask. `TextAsset` keeps its original bytes as `.bin`, which does not mean plain text only.
+`AudioClip` uses the mature Fmod5Sharp decoder: FSB5 single-sample PCM and ADPCM export to WAV and
+Vorbis to Ogg, legacy stored sound bytes are preserved, and unsupported FSB5 banks or codecs keep
+their raw `.fsb`. Embedded fonts export to TTF/OTF/TTC, `VideoClip` and `MovieTexture` keep their
+stored container (OGV for `MovieTexture`), and `Mesh` geometry becomes GLB, without a reconstructed
+scene, materials or animations.
+
+Original hierarchy paths are kept when present, with literal `{Type}` folders as a fallback.
+DisplayedSize and PackedSize report the original source payload length (0 means unknown); converted
+output may differ. An unsupported downscale value beyond 0 or 1, a tight mask that cannot be read,
+or a source geometry budget refusal fails that one entry's export, so not every variant or Unity
+version is guaranteed. External code, `MonoBehaviour`, `ScriptableObject`, `Material` and
+`AnimationClip` are outside this resource feature. The candidate targets a single DLL with no
+separate .NET runtime to install, and local builds remain experimental manual-test builds.
+
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
 
@@ -67,8 +92,8 @@ module.
 |---------|---------|---------|
 | [nlohmann/json](https://github.com/nlohmann/json) | [MIT](licenses/json.txt) | Tests only |
 | [catchorg/Catch2](https://github.com/catchorg/Catch2) | [BSL-1.0](licenses/Catch2.txt) | Tests only |
-| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt) plus [GPL-3.0](licenses/GPL-3.0.txt) | Ren'Py, RPG Maker, Zanzarah, Godot |
-| [YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks) | [MIT](licenses/YY-Thunks.txt) | Ren'Py, RPG Maker, Zanzarah, Godot |
+| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt) plus [GPL-3.0](licenses/GPL-3.0.txt) | Ren'Py, RPG Maker, Zanzarah, Godot, Unity |
+| [YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks) | [MIT](licenses/YY-Thunks.txt) | Ren'Py, RPG Maker, Zanzarah, Godot, Unity |
 | [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash) | [BSD-2-Clause](licenses/xxHash.txt) | Tests only |
 | [zlib-ng](https://github.com/zlib-ng/zlib-ng) | [Zlib](licenses/zlib-ng.txt) | Ren'Py, Godot |
 | [godotengine/godot](https://github.com/godotengine/godot) | [MIT](licenses/godot.txt) | Godot |
@@ -83,6 +108,7 @@ module.
 | [Zydis](https://github.com/zyantific/zydis) | [MIT](licenses/zydis.txt) | Godot |
 | [Zycore](https://github.com/zyantific/zycore-c) | [MIT](licenses/zycore.txt) | Godot |
 | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (mbedcrypto only) | [Apache-2.0](licenses/mbedcrypto.txt) | Godot |
+| [AssetRipper](https://github.com/AssetRipper/AssetRipper) (GPL-3.0) and the .NET runtime | [GPL-3.0 / MIT](licenses/Unity.txt) | Unity |
 
 The bcdec, dr_libs and QOA decoders are restored through [local vcpkg overlay ports](build/vcpkg/ports/README.md)
 as static libraries. Their source revisions and downloaded header hashes are pinned there. QOA uses the header

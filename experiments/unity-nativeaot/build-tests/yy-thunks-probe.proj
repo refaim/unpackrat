@@ -1,0 +1,23 @@
+<!--
+  Standalone MSBuild probe that imports the REAL Unity NativeAOT experiment
+  targets and invokes a chosen real target so a test can observe its effects.
+
+  It is intentionally project-flavor agnostic: it does not import an SDK, so
+  the only target logic present is whatever the imported real targets define.
+
+  Parameters (all supplied on the command line):
+    RealTargets   absolute path to experiments/unity-nativeaot/Directory.Build.targets
+    ProbeTargetA  first real target to invoke (may be empty)
+    ProbeTargetB  second real target to invoke (may be empty)
+    ProbeOut      absolute path of the file that receives @(LinkerArg), one per line
+
+  Invoked with:
+    MSBuild.exe yy-thunks-probe.proj /t:CaptureFlags /p:...
+-->
+<Project>
+  <Import Project="$(RealTargets)" />
+
+  <Target Name="CaptureFlags" DependsOnTargets="$(ProbeTargetA);$(ProbeTargetB)">
+    <WriteLinesToFile File="$(ProbeOut)" Lines="@(LinkerArg)" Overwrite="true" />
+  </Target>
+</Project>

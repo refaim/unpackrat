@@ -1,0 +1,143 @@
+<Project>
+  <!--
+    Unity NativeAOT experiment: link the Visual Studio static UCRT instead of the
+    dynamically linked ucrt.lib.
+
+    Microsoft.NETCore.Native.Windows.targets runs SetupOSSpecificProps and, when the
+    marker "$(IlcSdkPath)debugucrt.txt" is absent, hard-codes the dynamic-UCRT pair:
+
+        /NODEFAULTLIB:libucrt.lib   (drop the static CRT)
+        /DEFAULTLIB:ucrt.lib        (pull the import lib -> api-ms-win-crt-*.dll)
+
+    <StaticRuntime>true</StaticRuntime> is not consumed on this path, so the only
+    reliable place to swap the pair is immediately after that target has populated
+    @(LinkerArg), and before LinkNative folds @(LinkerArg) into @(CustomLinkerArg).
+
+    Scope guard: Windows NativeAOT publish only. Ordinary managed builds never run
+    SetupOSSpecificProps, and non-Windows targets do not set _targetOS=win, so both
+    are left untouched.
+  -->
+  <Target Name="UnityNativeAotStaticUcrt"
+          AfterTargets="SetupOSSpecificProps"
+          Condition="'$(PublishAot)' == 'true' and '$(_targetOS)' == 'win'">
+    <ItemGroup>
+      <LinkerArg Remove="/NODEFAULTLIB:libucrt.lib" />
+      <LinkerArg Remove="/DEFAULTLIB:ucrt.lib" />
+      <LinkerArg Include="/NODEFAULTLIB:ucrt.lib" />
+      <LinkerArg Include="/DEFAULTLIB:libucrt.lib" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    Optional manual YY-Thunks link for a Windows NativeAOT shared DLL, x86 OR x64.
+
+    Enable by passing an absolute path to an already-existing
+    YY_Thunks_for_WinXP.obj on the command line, for example:
+
+        dotnet publish -c Release -r win-x64 \
+          -p:UnityYYThunksObject=C:\path\to\objs\x64\YY_Thunks_for_WinXP.obj
+
+    This target acquires nothing: no download, no filesystem search, no vcpkg
+    install, and no upstream update. The object is validated and appended for both
+    supported architectures; if the property is empty (the default), the build is
+    not a PublishAot Windows native image, the architecture is neither x86 nor x64,
+    or the library is not a shared library, the target is skipped, so ordinary
+    managed builds, static native libraries, non-Windows targets and unsupported
+    architectures keep their current behavior. When the property is set but the
+    file is missing, the build fails here, before the native link runs.
+
+    The flags mirror the verified production policy in build/unpackrat-vista.props:
+
+      x86 (target XP 5.01): /ENTRY:DllMainCRTStartupForYY_Thunks@12 and the
+        double-underscored original-entry alias. link.exe prepends the x86 leading
+        underscore to the entry symbol itself, so /ENTRY must use the undecorated
+        DllMainCRTStartupForYY_Thunks@12 form (a leading underscore double-decorates
+        and leaves the symbol unresolved). The alias target symbol keeps its @12
+        decoration and the original DllMainCRTStartup carries the leading underscore.
+
+      x64 (target XP x64 / NT 5.2 SP1): the undecorated /ENTRY:DllMainCRTStartupForYY_Thunks
+        and the C-name /ALTERNATENAME:YY_ThunksOriginalDllMainCRTStartup=_DllMainCRTStartup
+        (x64 symbols are undecorated).
+  -->
+  <Target Name="UnityNativeAotYYThunks"
+          AfterTargets="SetupOSSpecificProps"
+          Condition="'$(PublishAot)' == 'true' and '$(_targetOS)' == 'win' and ('$(_targetArchitecture)' == 'x86' or '$(_targetArchitecture)' == 'x64') and '$(NativeLib)' == 'Shared' and '$(UnityYYThunksObject)' != ''">
+    <Error Condition="!Exists('$(UnityYYThunksObject)')"
+           Text="UnityYYThunksObject='$(UnityYYThunksObject)' does not exist. Point it at an existing absolute path to the matching-architecture YY_Thunks_for_WinXP.obj; no automatic download, search, or build is performed." />
+    <ItemGroup>
+      <!--
+        Register the object as a NativeLibrary *tracking input* as well. LinkNative
+        is incremental on Inputs="$(NativeObject);@(NativeLibrary)", and this target
+        runs after SetupOSSpecificProps has already expanded @(NativeLibrary) into
+        @(LinkerArg), so the manual LinkerArg below stays (no duplicate argument)
+        while a changed object now makes LinkNative rerun instead of being skipped.
+      -->
+      <NativeLibrary Include="$(UnityYYThunksObject)" />
+      <LinkerArg Include="&quot;$(UnityYYThunksObject)&quot;" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(_targetArchitecture)' == 'x86'">
+      <LinkerArg Include="/ENTRY:DllMainCRTStartupForYY_Thunks@12" />
+      <LinkerArg Include="/ALTERNATENAME:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12" />
+      <LinkerArg Include="/SUBSYSTEM:WINDOWS,5.01" />
+      <LinkerArg Include="/OSVERSION:5.1" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(_targetArchitecture)' == 'x64'">
+      <LinkerArg Include="/ENTRY:DllMainCRTStartupForYY_Thunks" />
+      <LinkerArg Include="/ALTERNATENAME:YY_ThunksOriginalDllMainCRTStartup=_DllMainCRTStartup" />
+      <LinkerArg Include="/SUBSYSTEM:WINDOWS,5.02" />
+      <LinkerArg Include="/OSVERSION:5.2" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    Optional MSVC Observer adapter for a Windows NativeAOT shared DLL.
+
+    Enable by passing the absolute path to an already-built UnityObserver.lib
+    (ConfigurationType=StaticLibrary) on the command line, for example:
+
+        dotnet publish -c Release -r win-x64 \
+          -p:UnityObserverLibrary=C:\path\to\UnityObserver.lib
+
+    The library is appended to @(LinkerArg), the same supported seam this file
+    already uses for the static UCRT swap and YY-Thunks, and which
+    Microsoft.NETCore.Native.targets folds into @(CustomLinkerArg) immediately
+    before it writes link.rsp and runs link.exe. The two Observer entry points
+    are exported explicitly because the adapter is a static library, so nothing
+    in the AOT object graph references them on its own; the exports also root
+    dll.cpp, archive.cpp and the Unity extractor, so no WHOLEARCHIVE is needed.
+    x86 exports the stdcall decorations (LoadSubModule@4 / UnloadSubModule@0);
+    x64 symbols are undecorated.
+
+    The target acquires nothing: no download, no filesystem search and no build
+    of the library itself. When the property is empty (the default), the build
+    is not a PublishAot Windows native image, the architecture is neither x86
+    nor x64, or the library is not a shared library, the target is skipped, so
+    ordinary managed builds, static native libraries, non-Windows targets and
+    unsupported architectures keep their current behavior. When the property is
+    set but the file is missing, the build fails here, before the native link.
+  -->
+  <Target Name="UnityNativeAotObserverAdapter"
+          AfterTargets="SetupOSSpecificProps"
+          Condition="'$(PublishAot)' == 'true' and '$(_targetOS)' == 'win' and ('$(_targetArchitecture)' == 'x86' or '$(_targetArchitecture)' == 'x64') and '$(NativeLib)' == 'Shared' and '$(UnityObserverLibrary)' != ''">
+    <Error Condition="!Exists('$(UnityObserverLibrary)')"
+           Text="UnityObserverLibrary='$(UnityObserverLibrary)' does not exist. Point it at the absolute path of the matching-architecture UnityObserver.lib; no automatic build, download, search, or library creation is performed." />
+    <ItemGroup>
+      <!--
+        The library is both a linker argument and a NativeLibrary tracking input.
+        SetupOSSpecificProps has already run, so adding it to @(NativeLibrary) here
+        only registers the dependency for LinkNative's incremental Inputs; it can
+        never duplicate the @(LinkerArg) entry added just below.
+      -->
+      <NativeLibrary Include="$(UnityObserverLibrary)" />
+      <LinkerArg Include="&quot;$(UnityObserverLibrary)&quot;" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(_targetArchitecture)' == 'x86'">
+      <LinkerArg Include="/EXPORT:LoadSubModule=_LoadSubModule@4" />
+      <LinkerArg Include="/EXPORT:UnloadSubModule=_UnloadSubModule@0" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(_targetArchitecture)' == 'x64'">
+      <LinkerArg Include="/EXPORT:LoadSubModule" />
+      <LinkerArg Include="/EXPORT:UnloadSubModule" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{6B2F4C11-9A3E-4E27-8E5D-2C1A9F0B7D41}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>UnityObserver</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <unpackratUnityObserverRoot>$(MSBuildProjectDirectory)\..\..\..</unpackratUnityObserverRoot>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(unpackratUnityObserverRoot)\out\unity-observer-adapter\native\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(unpackratUnityObserverRoot)\out\unity-observer-adapter\native\obj\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>UnityObserver</TargetName>
+    <TargetExt>.lib</TargetExt>
+    <!-- This experimental project is built in a restricted sandbox where MSBuild's
+         FileTracker (which probes long file paths) is denied access. Incremental
+         FileTracker bookkeeping is not needed for a one-shot adapter build. -->
+    <TrackFileAccess Condition="'$(TrackFileAccess)' == ''">false</TrackFileAccess>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp23</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ConformanceMode>true</ConformanceMode>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <DebugInformationFormat>OldStyle</DebugInformationFormat>
+      <MultiProcessorCompilation>false</MultiProcessorCompilation>
+      <PreprocessorDefinitions>NOMINMAX;WINVER=0x0600;_WIN32_WINNT=0x0600;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(unpackratUnityObserverRoot)\src;$(MSBuildProjectDirectory)\..\native;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Lib>
+      <AdditionalOptions>/IGNORE:4221 %(AdditionalOptions)</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(unpackratUnityObserverRoot)\src\dll.cpp" />
+    <ClCompile Include="$(unpackratUnityObserverRoot)\src\archive.cpp" />
+    <ClCompile Include="UnityExtractor.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(unpackratUnityObserverRoot)\src\api.h" />
+    <ClInclude Include="$(unpackratUnityObserverRoot)\src\archive.h" />
+    <ClInclude Include="$(unpackratUnityObserverRoot)\src\modules\extractor.h" />
+    <ClInclude Include="$(MSBuildProjectDirectory)\..\native\unity_backend.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

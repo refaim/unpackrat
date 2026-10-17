@@ -1,0 +1,21 @@
+Version 0.3.0
+-------------
+ * Exports additional resource types, each through its own output file
+   extension: Texture2D and Sprite to PNG, TextAsset to .bin with the original
+   bytes, AudioClip to WAV or Ogg, embedded fonts to TTF/OTF/TTC, VideoClip and
+   MovieTexture to their stored container, and Mesh geometry to GLB.
+ * Keeps the original resource hierarchy with a literal {Type} fallback, and
+   converts entries on demand.
+ * No published release yet: a development-branch candidate; local builds are
+   experimental manual-test builds shared directly, not public downloads.
+
+Version 0.2.0
+-------------
+ * Keeps the original Unity resource hierarchy, with a literal
+   {Texture2D}/{TextAsset} fallback when it is unavailable.
+ * Size and PackedSize report the declared source length (0 means unknown);
+   texture conversion stays lazy.
+
+Version 0.1.0
+-------------
+ * First packaged Unity module.
