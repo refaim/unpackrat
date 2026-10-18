@@ -165,6 +165,101 @@ public sealed class UnityLazyIoTests
 			return null;
 		}
 	}
+	[Theory]
+	[InlineData(false, false)]
+	[InlineData(false, true)]
+	[InlineData(true, false)]
+	[InlineData(true, true)]
+	public void DescriptorReleaseRequiresBothMetadataOnlyAndFactoryOptIn(bool metadataOnly, bool release)
+	{
+		var fixture = Fixture();
+		GuardedStream physical = new(fixture.Bytes, fixture.Offset) { AllowPayload = !metadataOnly };
+		using SmartStream input = SmartStream.CreateOwned(physical);
+		using SerializedFile file = (SerializedFile)SchemeReader.ReadFile(input, "selected.assets", "selected.assets",
+			metadataOnly ? FileReadMode.MetadataOnly : FileReadMode.Eager);
+		int initialPayloadReads = physical.PayloadReads;
+		OwnedDescriptorFactory factory = new(release);
+		using SerializedBundle bundle = new();
+		bundle.AddCollectionFromSerializedFile(file, factory);
+		Assert.Equal(1, factory.Validations);
+		Assert.Equal(1, factory.Descriptors);
+		Assert.Equal(metadataOnly && release ? 0 : 1, file.Objects.Length);
+		Assert.Equal(initialPayloadReads, physical.PayloadReads);
+		physical.AllowPayload = true;
+		using (SmartStream first = factory.Copy.OpenDataStream())
+		using (SmartStream second = factory.Copy.OpenDataStream())
+		{
+			Assert.Equal(fixture.Object[0], first.ReadByte());
+			Assert.Equal(0, second.Position);
+			Assert.Equal(fixture.Object, second.ToArray());
+		}
+		Assert.False(physical.Closed);
+		file.Dispose();
+		input.Dispose();
+		Assert.True(physical.Closed);
+		Assert.Equal(1, physical.DisposeCalls);
+	}
+	private sealed class OwnedDescriptorFactory(bool release) : EagerFactory
+	{
+		public override bool ReleaseSourceObjectDescriptors => release;
+		public int Validations { get; private set; }
+		public int Descriptors { get; private set; }
+		public ObjectInfo Copy { get; private set; }
+		public override void ValidateObjectTable(ReadOnlySpan<ObjectInfo> objects)
+		{
+			Assert.Equal(0, Descriptors);
+			Assert.Equal(1, objects.Length);
+			Validations++;
+		}
+		public override IUnityObjectBase? ReadAsset(AssetInfo info, in ObjectInfo descriptor, IReadOnlyList<SerializedTypeReference> references)
+		{
+			Assert.Equal(1, Validations);
+			Copy = descriptor;
+			Descriptors++;
+			return null;
+		}
+	}
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void FailedObjectTableValidationKeepsItsTableAndNeverReadsAnObjectBody(bool allocationFailure)
+	{
+		var fixture = Fixture();
+		GuardedStream physical = new(fixture.Bytes, fixture.Offset);
+		using SmartStream input = SmartStream.CreateOwned(physical);
+		using SerializedFile file = (SerializedFile)ReadMetadataOnly(input);
+		object original = typeof(SerializedFile).GetField("m_objects", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(file)!;
+		Exception failure = allocationFailure ? new OutOfMemoryException("table sentinel") : new ArgumentException("table sentinel");
+		TableFailureFactory factory = new(failure);
+		using SerializedBundle bundle = new();
+		Assert.Same(failure, Assert.ThrowsAny<Exception>(() => bundle.AddCollectionFromSerializedFile(file, factory)));
+		Assert.Single(bundle.Collections);
+		Assert.Equal(1, factory.Validations);
+		Assert.Equal(0, factory.Bodies);
+		Assert.Equal(0, physical.PayloadReads);
+		Assert.Same(original, typeof(SerializedFile).GetField("m_objects", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(file));
+		Assert.Equal(1, file.Objects.Length);
+	}
+	private sealed class TableFailureFactory(Exception failure) : EagerFactory
+	{
+		public override bool ReleaseSourceObjectDescriptors => true;
+		public int Validations { get; private set; }
+		public override void ValidateObjectTable(ReadOnlySpan<ObjectInfo> objects) { Validations++; throw failure; }
+	}
+	[Fact]
+	public void DefaultObjectTableValidationKeepsLegacyNullFactoryBehavior()
+	{
+		using SmartStream input = SmartStream.CreateMemory(UnityFixtureBuilder.SerializedRepeatedTextAssets(2));
+		using SerializedFile file = (SerializedFile)ReadMetadataOnly(input);
+		ObjectInfo[] table = (ObjectInfo[])typeof(SerializedFile).GetField("m_objects", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(file)!;
+		table[0].FileID = 0; table[1].FileID = 0;
+		EagerFactory factory = new();
+		using SerializedBundle bundle = new();
+		var collection = bundle.AddCollectionFromSerializedFile(file, factory);
+		Assert.Empty(collection);
+		Assert.Equal(2, factory.Bodies);
+		Assert.Equal(2, file.Objects.Length);
+	}
 	[Fact]
 	public void ReadOnlySlicesEnforceBoundsRestoreSourceAndReportClosedState()
 	{

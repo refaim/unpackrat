@@ -48,7 +48,7 @@ internal enum UnityEntryKind
 /// <see cref="OutputExtension"/> is the immutable, dotless lower-case output extension fixed at
 /// catalogue time and never changed afterwards.
 /// </remarks>
-internal sealed record UnityCatalogEntry(int Index, UnityEntryKind Kind, int CollectionIndex, long PathId, string Name, long SourceSize, string OriginalPath, string OutputExtension);
+internal readonly record struct UnityCatalogEntry(int Index, UnityEntryKind Kind, int CollectionIndex, long PathId, string Name, long SourceSize, string OriginalPath, string OutputExtension);
 
 /// <summary>
 /// The one narrowing rule for a declared, unsigned source payload length. A length is immutable

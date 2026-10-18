@@ -313,6 +313,146 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 	}
 
 	[Fact]
+	public void StaticScalarCapturesUseTheirSchemaSlotsWithoutHashingPathsDuringRead()
+	{
+		const int count = 512;
+		const int payloadLength = 1024 * 1024;
+		const long marker = -123456789;
+		long payloadStart = 0;
+		using MemoryStream encoded = Data(w =>
+		{
+			for (int i = 0; i < count; i++) w.Write((long)i * 17);
+			w.Write(payloadLength); payloadStart = w.BaseStream.Position;
+			w.Write(new byte[payloadLength]); w.Write(marker);
+		});
+		var template = Root(
+			Field("m_RenderDataKey", AssetValueType.None,
+				Enumerable.Range(0, count).Select(i => Field($"data[{i}]", AssetValueType.Int64)).ToArray()),
+			Field("ignoredPayload", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)),
+			Field("m_Width", AssetValueType.Int64));
+		UnityProjection.State state = new(template);
+		OrdinalHashObserver comparer = new();
+		var observedSlots = new System.Collections.Generic.Dictionary<string, UnityProjection.Slot>(state.Slots, comparer);
+		// Observe the real dictionary's work without a production counter or changing its key semantics.
+		var storage = typeof(UnityProjection.State).GetField("<Slots>k__BackingField",
+			System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+		Assert.NotNull(storage);
+		storage.SetValue(state, observedSlots);
+		int control = comparer.HashCalls;
+		Assert.True(state.Slots.ContainsKey("m_Width"));
+		Assert.True(comparer.HashCalls > control);
+		using ScalarPayloadGuard input = new(encoded.ToArray(), payloadStart, payloadLength);
+		for (int pass = 0; pass < 2; pass++)
+		{
+			input.Position = 0;
+			int before = comparer.HashCalls;
+			UnityProjection projection = UnityProjection.Read(input, template, false, state);
+			int captureHashes = comparer.HashCalls - before;
+			for (int i = 0; i < count; i++) Assert.Equal((long)i * 17, projection.Number($"m_RenderDataKey/data[{i}]"));
+			Assert.Equal(marker, projection.Number("m_Width"));
+			Assert.Equal(count + 1, projection.Keys.Count());
+			Assert.Equal(0, input.PayloadReads);
+			Assert.True(captureHashes == 0,
+				$"{count + 1} fixed scalar captures hashed their path keys {captureHashes} times; schema slots must be bound before reading object values.");
+		}
+	}
+
+	private sealed class OrdinalHashObserver : System.Collections.Generic.IEqualityComparer<string>
+	{
+		public int HashCalls { get; private set; }
+		public bool Equals(string? left, string? right) => StringComparer.Ordinal.Equals(left, right);
+		public int GetHashCode(string value)
+		{
+			HashCalls++;
+			return StringComparer.Ordinal.GetHashCode(value);
+		}
+	}
+
+	[Fact]
+	public void DynamicAtlasByteRangesKeepPerEntryNamesAndLastWritesWithoutReadingPayloads()
+	{
+		var payloads = new System.Collections.Generic.List<UnityProjection.ByteRange>();
+		var expected = new System.Collections.Generic.List<UnityProjection.ByteRange>();
+		using MemoryStream encoded = Data(w =>
+		{
+			w.Write(2);
+			for (int entry = 0; entry < 2; entry++)
+			{
+				w.Write(11L + entry);
+				for (int duplicate = 0; duplicate < 2; duplicate++)
+				{
+					int length = entry + duplicate + 2;
+					w.Write(length);
+					UnityProjection.ByteRange range = new(w.BaseStream.Position, length);
+					payloads.Add(range);
+					if (duplicate == 1) expected.Add(range);
+					w.Write(Enumerable.Repeat((byte)(31 + entry + duplicate), length).ToArray());
+				}
+			}
+		});
+		AssetTypeTemplateField BytesField() => Field("texture", AssetValueType.ByteArray,
+			Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8));
+		var template = Root(Field("m_RenderDataMap", AssetValueType.None,
+			Field("Array", AssetValueType.Array, Field("size", AssetValueType.Int32),
+				Field("data", AssetValueType.None, Field("first", AssetValueType.Int64),
+					Field("second", AssetValueType.None, BytesField(), BytesField())))));
+		template.Type = "SpriteAtlas";
+		UnityProjection.State state = new(template);
+		byte[] bytes = encoded.ToArray();
+		using (RangePayloadGuard control = new(bytes, payloads))
+		{
+			control.Position = payloads[0].Offset;
+			Assert.Throws<InvalidOperationException>(() => control.ReadByte());
+		}
+		using RangePayloadGuard input = new(bytes, payloads);
+		UnityProjection first = UnityProjection.Read(input, template, false, state);
+		using (MemoryStream empty = Data(w => w.Write(0)))
+		{
+			UnityProjection absent = UnityProjection.Read(empty, template, false, state);
+			Assert.Empty(absent.Keys);
+			Assert.Equal(default, absent.Bytes("m_RenderDataMap/Array/data#0/second/texture"));
+		}
+		input.Position = 0;
+		UnityProjection reused = UnityProjection.Read(input, template, false, state);
+		string[] keys = ["m_RenderDataMap/Array/data#0/first", "m_RenderDataMap/Array/data#0/second/texture",
+			"m_RenderDataMap/Array/data#1/first", "m_RenderDataMap/Array/data#1/second/texture"];
+		foreach (UnityProjection projection in new[] { first, reused })
+		{
+			Assert.Equal(keys, projection.Keys);
+			for (int entry = 0; entry < 2; entry++)
+			{
+				Assert.Equal(11L + entry, projection.Number(keys[entry * 2]));
+				string path = keys[entry * 2 + 1];
+				Assert.Equal(expected[entry], projection.Bytes(path));
+				Assert.Equal(0, projection.Number(path));
+				Assert.Equal(string.Empty, projection.Text(path));
+			}
+			Assert.Equal(default, projection.Bytes("m_RenderDataMap/Array/data#2/second/texture"));
+		}
+		Assert.Equal(0, input.PayloadReads);
+		Assert.Equal(input.Length, input.Position);
+	}
+
+	private sealed class RangePayloadGuard(byte[] bytes, System.Collections.Generic.IReadOnlyList<UnityProjection.ByteRange> payloads) : MemoryStream(bytes, false)
+	{
+		public int PayloadReads { get; private set; }
+		private void Check(int count)
+		{
+			foreach (UnityProjection.ByteRange payload in payloads)
+			{
+				if (count > 0 && Position < payload.Offset + payload.Length && Position + count > payload.Offset)
+				{
+					PayloadReads++;
+					throw new InvalidOperationException("Borrowed byte-range payload was read.");
+				}
+			}
+		}
+		public override int Read(byte[] buffer, int offset, int count) { Check(count); return base.Read(buffer, offset, count); }
+		public override int Read(Span<byte> buffer) { Check(buffer.Length); return base.Read(buffer); }
+		public override int ReadByte() { Check(1); return base.ReadByte(); }
+	}
+
+	[Fact]
 	public void RetainedStaticMetadataUsesCompactIndependentValues()
 	{
 		var template = Root(Field("m_Name", AssetValueType.String), Field("m_Width", AssetValueType.Int64),

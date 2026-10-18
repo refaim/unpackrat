@@ -669,7 +669,7 @@ internal sealed class UnityGraph(
 	IReadOnlyList<SmartStream> rootStreams,
 	UnitySource.LazyAssetFactory factory) : IUnityGraph
 {
-	public IReadOnlyList<IUnityGraphCollection> Collections { get; } = Build(selectedCollections, factory);
+	public IReadOnlyList<IUnityGraphCollection> Collections { get; } = Build(root, selectedCollections, factory);
 
 	/// <summary>Dependency collections loaded for reference resolution but excluded from the catalog.</summary>
 	public int DependencyCollectionCount { get; } = dependencyCollectionCount;
@@ -686,13 +686,14 @@ internal sealed class UnityGraph(
 		UnitySource.DisposeRoots(rootStreams);
 	}
 
-	private static IUnityGraphCollection[] Build(IReadOnlyList<SerializedAssetCollection> collections, UnitySource.LazyAssetFactory factory)
+	private static IUnityGraphCollection[] Build(GameBundle root, IReadOnlyList<SerializedAssetCollection> collections, UnitySource.LazyAssetFactory factory)
 	{
 		UnityGraphCollection[] views = new UnityGraphCollection[collections.Count];
 		for (int i = 0; i < collections.Count; i++)
 		{
 			views[i] = new UnityGraphCollection(collections[i], factory);
 		}
+		factory.ReleaseProjectedMetadata(root.FetchAssets());
 		return views;
 	}
 }

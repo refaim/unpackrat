@@ -48,8 +48,8 @@ public sealed class UnityLoaderSelectionTests
 		File.WriteAllBytes(selected, bundled ? UnityFixtureBuilder.CompressedBundle(("CAB-selected", selectedBytes)) : selectedBytes);
 
 		IUnityGraph graph = UnitySource.OpenGraph(selected);
-		// Keep the script's identity placeholder, so the upstream collection still checks path IDs.
-		Assert.Equal(3, Assert.Single(graph.Collections).Assets.Count);
+		// The unused script is skipped after the complete source ID table has been validated.
+		Assert.Equal(2, Assert.Single(graph.Collections).Assets.Count);
 		using UnitySession session = UnitySession.FromGraph(graph);
 		UnityCatalogEntry entry = Assert.Single(session.Entries);
 		Assert.Equal("hero", entry.Name);

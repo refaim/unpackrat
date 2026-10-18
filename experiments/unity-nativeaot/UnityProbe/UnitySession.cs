@@ -31,24 +31,36 @@ internal sealed class UnitySession : IDisposable
 	{
 		ArgumentNullException.ThrowIfNull(graph);
 
-		List<UnityCatalogEntry> entries = new();
-		List<IProbeAsset> exportTargets = new();
+		// Graph views are stable snapshots. Count eligibility without touching metadata so each
+		// immutable row is captured once directly into its final array, without growing/copying it.
+		int count = 0;
+		foreach (IUnityGraphCollection collection in graph.Collections)
+		{
+			foreach (IProbeAsset asset in collection.Assets)
+			{
+				if (asset is IProbeTexture or IProbeText or IProbeResource) count = checked(count + 1);
+			}
+		}
+		UnityCatalogEntry[] entries = new UnityCatalogEntry[count];
+		IProbeAsset[] exportTargets = new IProbeAsset[count];
+		int index = 0;
 		for (int collectionIndex = 0; collectionIndex < graph.Collections.Count; collectionIndex++)
 		{
 			foreach (IProbeAsset asset in graph.Collections[collectionIndex].Assets)
 			{
-				UnityCatalogEntry? entry = Describe(asset, entries.Count, collectionIndex);
+				UnityCatalogEntry? entry = Describe(asset, index, collectionIndex);
 				if (entry is null)
 				{
 					continue;
 				}
 
-				entries.Add(entry);
-				exportTargets.Add(asset);
+				entries[index] = entry.Value;
+				exportTargets[index] = asset;
+				index++;
 			}
 		}
 
-		return new UnitySession(graph, entries.ToArray(), exportTargets.ToArray());
+		return new UnitySession(graph, entries, exportTargets);
 	}
 
 	/// <summary>The catalogue in stable session order.</summary>

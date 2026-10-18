@@ -1,3 +1,19 @@
+Version 0.3.2
+-------------
+ * Skips unsupported objects while retaining dependencies needed for resource
+   exports and original paths. Zero and duplicate object IDs are still rejected.
+ * Releases redundant source-object descriptors after importing the lazy graph.
+ * Prebinds metadata fields to storage slots, avoiding repeated path lookups
+   while reading their values.
+ * Reuses resource identities as export views and stores immutable catalogue
+   values in arrays sized to the entry count, avoiding separate wrapper objects.
+ * Releases temporary projections and atlas indexes across the graph, including
+   dependencies, after all selected resource views have been built.
+ * Hole House diagnostics measured 134.6 MB of live managed data. Fresh-process
+   native peak commit increased from 469.0 to 503.6 MB after this compaction;
+   opening timings stayed similar.
+ * Remains an experimental candidate for manual testing.
+
 Version 0.3.1
 -------------
  * Builds the resource catalogue from metadata. Resource bodies are parsed

@@ -488,7 +488,17 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs b/Sou
  
  	public FormatVersion Generation { get; private set; }
  	public UnityVersion Version { get; private set; }
-@@ -97,9 +98,22 @@
+@@ -59,6 +60,9 @@
+ 	public EndianType EndianType { get; private set; }
+ 	public ReadOnlySpan<FileIdentifier> Dependencies => m_dependencies;
+ 	public ReadOnlySpan<ObjectInfo> Objects => m_objects;
++	/// <summary>Detaches the table after an importing factory has retained its descriptor values.</summary>
++	/// <remarks>The file still owns its payload source, types, references and dependencies.</remarks>
++	public void ReleaseObjectDescriptors() => m_objects = null;
+ 	public ReadOnlySpan<SerializedType> Types => m_types;
+ 	public ReadOnlySpan<LocalSerializedObjectIdentifier> ScriptTypes => m_scriptTypes;
+ 	public ReadOnlySpan<SerializedTypeReference> RefTypes => m_refTypes;
+@@ -97,9 +101,22 @@
  			stream.Position = header.FileSize - header.MetadataSize;
  		}
  		SerializedFileMetadata metadata = new();
@@ -792,10 +802,17 @@ diff --git a/Source/AssetRipper.IO.Files/WebFiles/WebFile.cs b/Source/AssetRippe
 diff --git a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs b/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
 --- a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
 +++ b/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
-@@ -6,5 +6,9 @@
+@@ -6,5 +6,16 @@
  
  public abstract class AssetFactoryBase
  {
++	/// <summary>Opt in only when successful reads retain every descriptor needed later.</summary>
++	/// <remarks>The collection releases only metadata-only source tables, after all assets are added.</remarks>
++	public virtual bool ReleaseSourceObjectDescriptors => false;
++
++	/// <summary>Validates a complete source table before any object is read; default behavior is unchanged.</summary>
++	public virtual void ValidateObjectTable(ReadOnlySpan<ObjectInfo> objects) { }
++
 +	public virtual IUnityObjectBase? ReadAsset(AssetInfo assetInfo, in ObjectInfo objectInfo,
 +		IReadOnlyList<SerializedTypeReference> referenceTypes)
 +		=> ReadAsset(assetInfo, objectInfo.ObjectData, objectInfo.Type, referenceTypes);
@@ -805,7 +822,13 @@ diff --git a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs b/Source/AssetRipp
 diff --git a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs b/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
 --- a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
 +++ b/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
-@@ -78,7 +78,7 @@
+@@ -73,16 +73,21 @@
+ 
+ 	private static void ReadData(SerializedAssetCollection collection, SerializedFile file, AssetFactoryBase factory)
+ 	{
++		factory.ValidateObjectTable(file.Objects);
+ 		SerializedTypeReference[] referenceTypes = file.RefTypes.ToArray();
+ 		foreach (ObjectInfo objectInfo in file.Objects)
  		{
  			int classID = objectInfo.TypeID < 0 ? 114 : objectInfo.TypeID;
  			AssetInfo assetInfo = new AssetInfo(collection, objectInfo.FileID, classID);
@@ -814,3 +837,11 @@ diff --git a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs 
  			if (asset is not null)
  			{
  				collection.AddAsset(asset);
+ 			}
+ 		}
++		if (file.ReadMode == AssetRipper.IO.Files.FileReadMode.MetadataOnly && factory.ReleaseSourceObjectDescriptors)
++		{
++			file.ReleaseObjectDescriptors();
++		}
+ 	}
+ }

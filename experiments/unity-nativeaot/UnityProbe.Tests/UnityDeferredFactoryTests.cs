@@ -7,7 +7,10 @@ using AssetRipper.Assets.Generics;
 using AssetRipper.Assets.IO;
 using AssetRipper.Assets.Metadata;
 using AssetRipper.Import.AssetCreation;
+using AssetRipper.IO.Files;
+using AssetRipper.IO.Files.SerializedFiles;
 using AssetRipper.IO.Files.SerializedFiles.Parser;
+using AssetRipper.IO.Files.Streams.Smart;
 using AssetRipper.Primitives;
 using AssetRipper.SourceGenerated.Classes.ClassID_0;
 using AssetRipper.SourceGenerated.Enums;
@@ -18,20 +21,32 @@ namespace Unpackrat.UnityProbe.Tests;
 
 public sealed class UnityDeferredFactoryTests
 {
+	private sealed class BodyReadGuard(byte[] bytes) : MemoryStream(bytes, false)
+	{
+		public bool ForbidReads { get; set; }
+		public int Attempts { get; private set; }
+		public override int Read(byte[] buffer, int offset, int count)
+		{
+			if (ForbidReads) { Attempts++; throw new InvalidOperationException("Resource body must remain unread."); }
+			return base.Read(buffer, offset, count);
+		}
+		public override int Read(Span<byte> buffer)
+		{
+			if (ForbidReads) { Attempts++; throw new InvalidOperationException("Resource body must remain unread."); }
+			return base.Read(buffer);
+		}
+	}
 	private sealed class Reader : AssetFactoryBase
 	{
 		public int Calls;
 		public override IUnityObjectBase? ReadAsset(AssetInfo info, ReadOnlyArraySegment<byte> data, SerializedType? type, IReadOnlyList<SerializedTypeReference> refs)
 		{ Calls++; return new UnknownObject(info, data.ToArray()); }
 	}
-	[Theory]
-	[InlineData(114)]
-	[InlineData(1)]
-	[InlineData(123456789)]
-	public void IgnoredClassesRetainOrdinaryObjectIdentityWithoutReadingTheirBodies(int classId)
+	[Fact]
+	public void UnreadableKnownResourceRetainsOrdinaryObjectIdentityWithoutFullDeserialization()
 	{
 		var collection = AssetCreator.CreateCollection(UnityVersion.V_2022);
-		AssetInfo info = new(collection, 7, classId);
+		AssetInfo info = new(collection, 7, 49);
 		Reader inner = new(); UnitySource.LazyAssetFactory factory = new(inner);
 		ObjectInfo descriptor = new() { ObjectData = [0xFF] };
 		IUnityObjectBase identity = factory.ReadAsset(info, in descriptor, [])!;
@@ -51,7 +66,7 @@ public sealed class UnityDeferredFactoryTests
 		AssetInfo info = new(AssetCreator.CreateCollection(UnityVersion.Parse("3.4.0f1")), 7, 49);
 		Reader inner = new(); UnitySource.LazyAssetFactory factory = new(inner);
 		ObjectInfo descriptor = new() { ObjectData = [0xFF] };
-		Assert.IsAssignableFrom<IUnityObjectBase>(factory.ReadAsset(info, in descriptor, []));
+		Assert.Null(factory.ReadAsset(info, in descriptor, []));
 		Assert.Equal(0, inner.Calls);
 	}
 
@@ -98,18 +113,37 @@ public sealed class UnityDeferredFactoryTests
 		Assert.Equal(new byte[] { 1, 2, 3 }, result.RawData); Assert.Equal(1, inner.Calls);
 	}
 
-	[Fact]
-	public void AResourceInterfaceWithoutACanonicalSchemaDoesNotInventAProjection()
+	[Theory]
+	[InlineData("2022.1.0f1")]
+	[InlineData("5.4.1p1")]
+	public void AResourceInterfaceWithoutACanonicalSchemaRetainsItsIdentityWithoutReadingItsBody(string version)
 	{
 		// Model a future generated resource subclass whose schema is absent from the pinned TPK.
-		var collection = AssetCreator.CreateCollection(UnityVersion.V_2022);
+		var collection = AssetCreator.CreateCollection(UnityVersion.Parse(version));
 		AssetInfo future = new(collection, 7, 123456789);
 		var definition = AssetCreator.CreateTextAsset(collection);
 		var method = typeof(UnitySource.LazyAssetFactory).GetMethod("BuildShape", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
 		object shape = method.Invoke(null, [future, definition, collection.Version])!;
 		Assert.Equal(UnityEntryKind.Text, shape.GetType().GetProperty("Kind")!.GetValue(shape));
 		Assert.Null(shape.GetType().GetProperty("Template")!.GetValue(shape));
-	}	[Theory]
+		Reader inner = new(); UnitySource.LazyAssetFactory factory = new(inner);
+		var cache = (System.Collections.IDictionary)typeof(UnitySource.LazyAssetFactory)
+			.GetField("shapes", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(factory)!;
+		cache.Add((future.ClassID, collection.Version, collection.Flags.IsRelease()), shape);
+		using BodyReadGuard physical = new(UnityFixtureBuilder.SerializedTextAsset("future", "payload"));
+		using SmartStream input = SmartStream.CreateOwned(physical);
+		using SerializedFile file = (SerializedFile)SchemeReader.ReadFile(input, "future.assets", "future.assets", FileReadMode.MetadataOnly);
+		ObjectInfo descriptor = file.Objects[0];
+		physical.ForbidReads = true;
+		IUnityObjectBase identity = factory.ReadAsset(future, in descriptor, [])!;
+		Assert.Equal(future, identity.AssetInfo);
+		Assert.Empty(Assert.IsAssignableFrom<INamed>(identity).Name.String);
+		Assert.Null(identity.GetType().GetProperty("Projection")!.GetValue(identity));
+		Assert.Equal(0, inner.Calls);
+		Assert.Equal(0, physical.Attempts);
+	}
+
+	[Theory]
 	[InlineData(49)]
 	[InlineData(114)]
 	public void PatchVersionUnreadableOrIgnoredObjectsNeverFallBackToFullResourceReads(int classId)
@@ -117,7 +151,8 @@ public sealed class UnityDeferredFactoryTests
 		AssetInfo info = new(AssetCreator.CreateCollection(UnityVersion.Parse("5.4.1p1")), 7, classId);
 		Reader inner = new(); UnitySource.LazyAssetFactory factory = new(inner);
 		ObjectInfo descriptor = new() { ObjectData = [0xFF, 0xFF, 0xFF, 0xFF] };
-		Assert.IsAssignableFrom<IUnityObjectBase>(factory.ReadAsset(info, in descriptor, []));
+		if (classId == 114) Assert.Null(factory.ReadAsset(info, in descriptor, []));
+		else Assert.IsAssignableFrom<IUnityObjectBase>(factory.ReadAsset(info, in descriptor, []));
 		Assert.Equal(0, inner.Calls);
 	}
 }

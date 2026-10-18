@@ -14,6 +14,7 @@ internal sealed class UnityProjection
 	internal readonly record struct ByteRange(long Offset, int Length);
 	internal enum ValueKind { Number, Text, Bytes }
 	internal readonly record struct Slot(ValueKind Kind, int Index);
+	internal readonly record struct Capture(string Path, Slot Slot);
 	private readonly State state;
 	private readonly Dictionary<string, object>? values;
 	private readonly long[] numbers;
@@ -55,20 +56,20 @@ internal sealed class UnityProjection
 		index = 0;
 		return false;
 	}
-	private void SetText(string path, string value)
+	private void SetText(Capture capture, string? dynamicPath, string value)
 	{
-		if (values is not null) values[path] = value;
-		else texts[state.Slots[path].Index] = value;
+		if (values is not null) values[dynamicPath ?? capture.Path] = value;
+		else texts[capture.Slot.Index] = value;
 	}
-	private void SetNumber(string path, long value)
+	private void SetNumber(Capture capture, string? dynamicPath, long value)
 	{
-		if (values is not null) values[path] = value;
-		else numbers[state.Slots[path].Index] = value;
+		if (values is not null) values[dynamicPath ?? capture.Path] = value;
+		else numbers[capture.Slot.Index] = value;
 	}
-	private void SetBytes(string path, ByteRange value)
+	private void SetBytes(Capture capture, string? dynamicPath, ByteRange value)
 	{
-		if (values is not null) values[path] = value;
-		else ranges[state.Slots[path].Index] = value;
+		if (values is not null) values[dynamicPath ?? capture.Path] = value;
+		else ranges[capture.Slot.Index] = value;
 	}
 
 	internal static AssetTypeTemplateField Template(TypeTreeNodeStruct node, int depth = 0)
@@ -113,8 +114,8 @@ internal sealed class UnityProjection
 			if (names[1] == "m_RenderDataMap" && name == "data" && names[depth - 1] == "Array") name += "#" + indices[depth - 1]++;
 			names[depth] = name;
 			indices[depth] = 0;
-			bool capture = state.Paths.TryGetValue(field, out string? fixedPath);
-			string? capturedPath = capture ? state.DynamicPaths ? PathOf(names, depth) : fixedPath : null;
+			bool capture = state.Paths.TryGetValue(field, out Capture binding);
+			string? dynamicPath = capture && state.DynamicPaths ? PathOf(names, depth) : null;
 			if (field.ValueType == AssetValueType.ManagedReferencesRegistry)
 				throw new InvalidDataException("Managed-reference projection is unsupported.");
 			if (field.IsArray && field.ValueType != AssetValueType.ByteArray)
@@ -130,17 +131,16 @@ internal sealed class UnityProjection
 				long position = reader.Position;
 				int length = reader.ReadInt32();
 				if (length < 0 || length > bounded.Length - reader.Position) throw new InvalidDataException("Invalid Unity byte range.");
-				string path = capturedPath ?? string.Empty;
-				if (capture && field.ValueType == AssetValueType.String && !path.Equals("m_Script", StringComparison.Ordinal))
+				if (capture && binding.Slot.Kind == ValueKind.Text)
 				{
 					if (length > 1_048_576) throw new InvalidDataException("Unity metadata string is too long.");
-					result.SetText(path, reader.ReadStringLength(length));
+					result.SetText(binding, dynamicPath, reader.ReadStringLength(length));
 					// Continuing traversal leaves advancement and alignment to the iterator.
 					if (!lastField) reader.Position = position;
 				}
 				else
 				{
-					if (capture) result.SetBytes(path, new ByteRange(reader.Position, length));
+					if (capture) result.SetBytes(binding, dynamicPath, new ByteRange(reader.Position, length));
 					reader.Position = position;
 				}
 			}
@@ -163,7 +163,7 @@ internal sealed class UnityProjection
 				// Peeking avoids a temporary AssetTypeValueField/Value tree. The mature iterator
 				// still advances and aligns every scalar when ReadNext is called.
 				reader.Position = position;
-				result.SetNumber(capturedPath!, number);
+				result.SetNumber(binding, dynamicPath, number);
 			}
 			if (lastField) break;
 		}
@@ -186,7 +186,7 @@ internal sealed class UnityProjection
 	{
 		public string[] Names { get; } = new string[130];
 		public int[] Indices { get; } = new int[130];
-		public Dictionary<AssetTypeTemplateField, string> Paths { get; } = [];
+		public Dictionary<AssetTypeTemplateField, Capture> Paths { get; } = [];
 		public AssetTypeValueIterator? Iterator { get; set; }
 		public AssetTypeTemplateField? LastField { get; private set; }
 		public bool DynamicPaths { get; }
@@ -211,18 +211,22 @@ internal sealed class UnityProjection
 				if (Wanted(Names, depth))
 				{
 					string path = PathOf(Names, depth);
-					Paths.Add(field, path);
 					ValueKind kind = field.ValueType == AssetValueType.String && path != "m_Script" ? ValueKind.Text
 						: field.ValueType is AssetValueType.String or AssetValueType.ByteArray ? ValueKind.Bytes : ValueKind.Number;
+					Slot slot;
 					if (Slots.TryGetValue(path, out Slot existing))
 					{
 						if (existing.Kind != kind) DictionaryStorage = true;
+						// Conflicting kinds use dictionary storage, but each field retains its own kind.
+						slot = new(kind, existing.Index);
 					}
 					else
 					{
 						int index = kind switch { ValueKind.Text => TextCount++, ValueKind.Bytes => RangeCount++, _ => NumberCount++ };
-						Slots.Add(path, new(kind, index));
+						slot = new(kind, index);
+						Slots.Add(path, slot);
 					}
+					Paths.Add(field, new(path, slot));
 					// Fixed, unrepeated paths are all visited in schema order on a successful read.
 					// Repeated arrays can be empty or first encounter keys in a different order;
 					// keep the mature dictionary's presence, insertion order and last-write semantics.

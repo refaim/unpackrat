@@ -33,11 +33,13 @@ namespace Unpackrat.UnityProbe;
 
 internal static partial class UnitySource
 {
-	// Identities remain ordinary Unity objects so upstream PPtr and original-path processing
-	// keep their established semantics. NullObject/UnknownObject are filtered out by PPtr lookup.
+	// Retained resource/atlas identities remain ordinary Unity objects for upstream PPtr and
+	// original-path processing. Unsupported shapes are skipped after complete source ID validation.
 
-	private sealed class DeferredObject(AssetInfo info, ObjectInfo data, IReadOnlyList<SerializedTypeReference> references, Shape shape) : UnityObjectBase(info), IObject, INamed
+	private sealed class DeferredObject(AssetInfo info, ObjectInfo data, IReadOnlyList<SerializedTypeReference> references, Shape shape, LazyAssetFactory owner) : UnityObjectBase(info), IObject, INamed, IProbeResource
 	{
+		private long sourceSize;
+		private string extension = string.Empty;
 		public Utf8String Name { get; set; } = Utf8String.Empty;
 		public uint HideFlags_C0 { get; set; }
 		public HideFlags HideFlags_C0E { get => (HideFlags)HideFlags_C0; set => HideFlags_C0 = (uint)value; }
@@ -47,6 +49,18 @@ internal static partial class UnitySource
 		public Shape Shape { get; } = shape;
 		public UnityProjection? Projection { get; set; }
 		public Dictionary<(ulong, ulong, ulong, ulong, long), (int FileId, long PathId)>? AtlasTextures { get; set; }
+		UnityEntryKind IProbeResource.Kind => Shape.Kind.GetValueOrDefault();
+		long IProbeResource.PathId => PathID;
+		string IProbeResource.Name => Name.String;
+		string? IProbeResource.OriginalPath => OriginalPath;
+		long IProbeResource.SourceSize => sourceSize;
+		string IProbeResource.OutputExtension => extension;
+		byte[]? IProbeResource.ExportData() => owner.Export(this);
+		public void CaptureResourceMetadata(long size, string outputExtension)
+		{
+			sourceSize = size;
+			extension = outputExtension;
+		}
 	}
 
 	private sealed record Shape(UnityEntryKind? Kind, bool Atlas, AssetTypeTemplateField? Template, IAudioClip? Audio)
@@ -56,7 +70,18 @@ internal static partial class UnitySource
 
 	internal sealed class LazyAssetFactory(AssetFactoryBase fullReader) : AssetFactoryBase
 	{
+		public override bool ReleaseSourceObjectDescriptors => true;
 		private readonly Dictionary<(int ClassId, UnityVersion Version, bool Release), Shape> shapes = [];
+
+		public override void ValidateObjectTable(ReadOnlySpan<ObjectInfo> objects)
+		{
+			HashSet<long> ids = new(objects.Length);
+			foreach (ref readonly ObjectInfo descriptor in objects)
+			{
+				if (descriptor.FileID == 0 || !ids.Add(descriptor.FileID))
+					throw new ArgumentException("Source object path IDs must be nonzero and unique.", nameof(objects));
+			}
+		}
 
 		public override IUnityObjectBase? ReadAsset(AssetInfo info, ReadOnlyArraySegment<byte> bytes, SerializedType? type, IReadOnlyList<SerializedTypeReference> references)
 			=> fullReader.ReadAsset(info, bytes, type, references);
@@ -64,9 +89,11 @@ internal static partial class UnitySource
 		public override IUnityObjectBase? ReadAsset(AssetInfo info, in ObjectInfo descriptor, IReadOnlyList<SerializedTypeReference> references)
 		{
 			if (info.ClassID is 142 or 147) return fullReader.ReadAsset(info, descriptor.ObjectData, descriptor.Type, references);
+			Shape shape = GetShape(info, info.Collection.Version);
+			if (shape.Kind is null && !shape.Atlas) return null;
 			bool patch = info.Collection.Version.Type == UnityVersionType.Patch
 				&& !SpecialFileNames.IsDefaultResourceOrBuiltinExtra(info.Collection.Name);
-			DeferredObject identity = Project(info, descriptor, references, GetShape(info, info.Collection.Version), patch);
+			DeferredObject identity = Project(info, descriptor, references, shape, patch);
 			if (patch && identity.Projection is null && identity.Shape.Template is not null)
 			{
 				UnityVersion original = info.Collection.Version;
@@ -76,9 +103,9 @@ internal static partial class UnitySource
 			return identity;
 		}
 
-		private static DeferredObject Project(AssetInfo info, in ObjectInfo descriptor, IReadOnlyList<SerializedTypeReference> references, Shape shape, bool validateLayout)
+		private DeferredObject Project(AssetInfo info, in ObjectInfo descriptor, IReadOnlyList<SerializedTypeReference> references, Shape shape, bool validateLayout)
 		{
-			DeferredObject identity = new(info, descriptor, references, shape);
+			DeferredObject identity = new(info, descriptor, references, shape, this);
 			if (shape.Template is not null)
 			{
 				try
@@ -126,6 +153,18 @@ internal static partial class UnitySource
 
 		public IReadOnlyList<IProbeAsset> Describe(AssetCollection collection)
 			=> collection.Select(asset => asset is DeferredObject deferred ? Describe(deferred) : Wrap([asset]).Single()).ToArray();
+
+		public void ReleaseProjectedMetadata(IEnumerable<IUnityObjectBase> assets)
+		{
+			foreach (IUnityObjectBase asset in assets)
+			{
+				if (asset is DeferredObject identity)
+				{
+					identity.Projection = null;
+					identity.AtlasTextures = null;
+				}
+			}
+		}
 
 		private IProbeAsset Describe(DeferredObject identity)
 		{
@@ -188,7 +227,8 @@ internal static partial class UnitySource
 					size = fromAtlas ? 0 : TextureSize(texture.Projection!); extension = "png"; break;
 
 			}
-			return new DeferredResource(this, identity, kind, size, extension);
+			identity.CaptureResourceMetadata(size, extension);
+			return identity;
 		}
 
 		private static UnityProjection.ByteRange Range(UnityProjection fields, string root)
@@ -237,8 +277,9 @@ internal static partial class UnitySource
 				? atlas.Collection.TryGetAsset(pointer.FileId, pointer.PathId) as DeferredObject : null;
 		}
 
-		private byte[]? Export(DeferredObject identity)
+		internal byte[]? Export(IProbeResource exportTarget)
 		{
+			DeferredObject identity = (DeferredObject)exportTarget;
 			List<DeferredObject> replaced = [];
 			try
 			{
@@ -279,15 +320,5 @@ internal static partial class UnitySource
 			return full;
 		}
 
-		private sealed class DeferredResource(LazyAssetFactory owner, DeferredObject identity, UnityEntryKind kind, long size, string extension) : IProbeResource
-		{
-			public UnityEntryKind Kind => kind;
-			public long PathId => identity.PathID;
-			public string Name => identity.Name.String;
-			public string? OriginalPath => identity.OriginalPath;
-			public long SourceSize => size;
-			public string OutputExtension => extension;
-			public byte[]? ExportData() => owner.Export(identity);
-		}
 	}
 }
