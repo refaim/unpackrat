@@ -5,6 +5,9 @@ using System.Linq;
 using AssetRipper.Assets;
 using AssetRipper.Assets.Bundles;
 using AssetRipper.Assets.Collections;
+using AssetRipper.Assets.Generics;
+using AssetRipper.Assets.IO;
+using AssetRipper.Assets.Metadata;
 using AssetRipper.Export.Modules.Textures;
 using AssetRipper.Import.AssetCreation;
 using AssetRipper.Import.Configuration;
@@ -32,8 +35,8 @@ using AssetRipper.SourceGenerated.Extensions;
 namespace Unpackrat.UnityProbe;
 
 /// <summary>
-/// Adapter from the AssetRipper asset graph to <see cref="IProbeAsset"/>. This is the only file
-/// that references AssetRipper types; everything upstream of it stays third-party free.
+/// Partial adapter from the AssetRipper asset graph to <see cref="IProbeAsset"/>. These adapter files
+/// confine AssetRipper types; everything upstream stays third-party free.
 /// </summary>
 internal static partial class UnitySource
 {
@@ -278,7 +281,7 @@ internal static partial class UnitySource
 	/// <see cref="OutOfMemoryException"/> can be injected at the reader boundary and observed to
 	/// escape unchanged. It is never part of the exported surface.
 	/// </summary>
-	internal static IUnityGraph OpenGraph(string path, Func<string, FileBase>? readFile)
+	internal static IUnityGraph OpenGraph(string path, Func<string, FileBase>? readFile, AssetFactoryBase? fullReader = null)
 	{
 		ArgumentNullException.ThrowIfNull(path);
 
@@ -302,7 +305,7 @@ internal static partial class UnitySource
 
 		string directory = DependencyDirectory(path);
 		IAssemblyManager manager = new BaseManager(static _ => { });
-		GameAssetFactory factory = new(manager);
+		LazyAssetFactory factory = new(fullReader ?? new UnityAssetFactory(new GameAssetFactory(manager)));
 		GameBundle root = new() { ResourceProvider = new SiblingResourceProvider(directory) };
 		List<FileBase> owned = [];
 		try
@@ -319,7 +322,7 @@ internal static partial class UnitySource
 			new OriginalPathProcessor(BundledAssetsExportMode.DirectExport)
 				.Process(new GameData(root, root.GetMaxUnityVersion(), manager, null));
 			int dependencyCollections = root.FetchAssetCollections().Count() - selectedCollections;
-			return new UnityGraph(root, selected, selection.Collections, dependencyCollections, owned, roots);
+			return new UnityGraph(root, selected, selection.Collections, dependencyCollections, owned, roots, factory);
 		}
 		catch (Exception exception)
 		{
@@ -361,12 +364,12 @@ internal static partial class UnitySource
 		{
 			using (stream)
 			{
-				return SchemeReader.ReadFile(stream, MultiFileStream.GetFilePath(path), MultiFileStream.GetFileName(path));
+				return SchemeReader.ReadFile(stream, MultiFileStream.GetFilePath(path), MultiFileStream.GetFileName(path), FileReadMode.MetadataOnly);
 			}
 		}
 
 		roots.Add(stream);
-		return SchemeReader.ReadFile(stream, MultiFileStream.GetFilePath(path), MultiFileStream.GetFileName(path));
+		return SchemeReader.ReadFile(stream, MultiFileStream.GetFilePath(path), MultiFileStream.GetFileName(path), FileReadMode.MetadataOnly);
 	}
 
 	/// <summary>Releases the root input streams once the tree that reads through them is gone.</summary>
@@ -481,7 +484,7 @@ internal static partial class UnitySource
 	/// Turns the selected file or container into its own collections, returning exactly those
 	/// collection references as the catalogue candidates before any dependency is loaded.
 	/// </summary>
-	private static Selection SelectSelected(GameBundle root, GameAssetFactory factory, FileBase selected)
+	private static Selection SelectSelected(GameBundle root, AssetFactoryBase factory, FileBase selected)
 	{
 		Selection selection = new();
 		if (selected is SerializedFile serializedFile)
@@ -507,7 +510,7 @@ internal static partial class UnitySource
 	/// catalogue; each distinct name is visited once, every produced file is owned by the caller,
 	/// and the number of parsed identifiers is bounded before anything is enqueued or read.
 	/// </summary>
-	private static void LoadDeclaredDependencies(GameBundle root, GameAssetFactory factory, string directory, Selection selection, Func<string, FileBase> readFile, List<FileBase> owned)
+	private static void LoadDeclaredDependencies(GameBundle root, AssetFactoryBase factory, string directory, Selection selection, Func<string, FileBase> readFile, List<FileBase> owned)
 	{
 		Queue<FileIdentifier> pending = new();
 		HashSet<string> visited = new();
@@ -566,7 +569,7 @@ internal static partial class UnitySource
 	/// kept, and later disposed with the graph, once it has been attached successfully. A memory
 	/// shortage is released and rethrown rather than swallowed.
 	/// </summary>
-	private static void LoadDependency(GameBundle root, GameAssetFactory factory, string dependencyPath, Queue<FileIdentifier> pending, Func<string, FileBase> readFile, List<FileBase> owned)
+	private static void LoadDependency(GameBundle root, AssetFactoryBase factory, string dependencyPath, Queue<FileIdentifier> pending, Func<string, FileBase> readFile, List<FileBase> owned)
 	{
 		FileBase dependency;
 		try
@@ -607,7 +610,7 @@ internal static partial class UnitySource
 	/// Adds a loaded dependency file to the graph so references can resolve, returning the internal
 	/// serialized files whose own declared dependencies should still be followed.
 	/// </summary>
-	private static IReadOnlyList<SerializedFile> AddDependencyFile(GameBundle root, GameAssetFactory factory, FileBase file)
+	private static IReadOnlyList<SerializedFile> AddDependencyFile(GameBundle root, AssetFactoryBase factory, FileBase file)
 	{
 		switch (file)
 		{
@@ -640,6 +643,22 @@ internal static partial class UnitySource
 	}
 }
 
+/// <summary>
+/// Avoids deserializing unused component structures while retaining their identities for the
+/// upstream collection's path-ID checks. Raw serialized bytes stay owned by the parsed file;
+/// the placeholder neither copies them nor retains a separately parsed script structure.
+/// Every other class, including resource subclasses and future classes, uses the pinned reader.
+/// </summary>
+internal sealed class UnityAssetFactory(AssetFactoryBase inner) : AssetFactoryBase
+{
+	public override IUnityObjectBase? ReadAsset(AssetInfo assetInfo, ReadOnlyArraySegment<byte> assetData, SerializedType? assetType, IReadOnlyList<SerializedTypeReference> referenceTypes)
+	{
+		return assetInfo.ClassID == 114 // MonoBehaviour; negative script IDs are normalised upstream.
+			? new UnknownObject(assetInfo, [])
+			: inner.ReadAsset(assetInfo, assetData, assetType, referenceTypes);
+	}
+}
+
 /// <summary>Project-owned graph over the selected collections of a loaded root bundle.</summary>
 internal sealed class UnityGraph(
 	GameBundle root,
@@ -647,9 +666,10 @@ internal sealed class UnityGraph(
 	IReadOnlyList<SerializedAssetCollection> selectedCollections,
 	int dependencyCollectionCount,
 	IReadOnlyList<FileBase> ownedFiles,
-	IReadOnlyList<SmartStream> rootStreams) : IUnityGraph
+	IReadOnlyList<SmartStream> rootStreams,
+	UnitySource.LazyAssetFactory factory) : IUnityGraph
 {
-	public IReadOnlyList<IUnityGraphCollection> Collections { get; } = Build(selectedCollections);
+	public IReadOnlyList<IUnityGraphCollection> Collections { get; } = Build(selectedCollections, factory);
 
 	/// <summary>Dependency collections loaded for reference resolution but excluded from the catalog.</summary>
 	public int DependencyCollectionCount { get; } = dependencyCollectionCount;
@@ -666,20 +686,20 @@ internal sealed class UnityGraph(
 		UnitySource.DisposeRoots(rootStreams);
 	}
 
-	private static IUnityGraphCollection[] Build(IReadOnlyList<SerializedAssetCollection> collections)
+	private static IUnityGraphCollection[] Build(IReadOnlyList<SerializedAssetCollection> collections, UnitySource.LazyAssetFactory factory)
 	{
 		UnityGraphCollection[] views = new UnityGraphCollection[collections.Count];
 		for (int i = 0; i < collections.Count; i++)
 		{
-			views[i] = new UnityGraphCollection(collections[i]);
+			views[i] = new UnityGraphCollection(collections[i], factory);
 		}
 		return views;
 	}
 }
 
 /// <summary>Project-owned view of one selected collection and its asset views.</summary>
-internal sealed class UnityGraphCollection(AssetCollection collection) : IUnityGraphCollection
+internal sealed class UnityGraphCollection(AssetCollection collection, UnitySource.LazyAssetFactory factory) : IUnityGraphCollection
 {
 	public string Identity => collection.Name;
-	public IReadOnlyList<IProbeAsset> Assets { get; } = UnitySource.Wrap(collection).ToList();
+	public IReadOnlyList<IProbeAsset> Assets { get; } = factory.Describe(collection);
 }

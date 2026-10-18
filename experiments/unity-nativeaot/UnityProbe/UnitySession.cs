@@ -13,14 +13,14 @@ internal sealed class UnitySession : IDisposable
 {
 	private readonly IUnityGraph graph;
 	private readonly UnityCatalogEntry[] entries;
-	private readonly Candidate[] candidates;
+	private readonly IProbeAsset[] exportTargets;
 	private bool disposed;
 
-	private UnitySession(IUnityGraph graph, UnityCatalogEntry[] entries, Candidate[] candidates)
+	private UnitySession(IUnityGraph graph, UnityCatalogEntry[] entries, IProbeAsset[] exportTargets)
 	{
 		this.graph = graph;
 		this.entries = entries;
-		this.candidates = candidates;
+		this.exportTargets = exportTargets;
 	}
 
 	/// <summary>Opens the selected file or bundle at <paramref name="path"/> for on-demand export.</summary>
@@ -32,23 +32,23 @@ internal sealed class UnitySession : IDisposable
 		ArgumentNullException.ThrowIfNull(graph);
 
 		List<UnityCatalogEntry> entries = new();
-		List<Candidate> candidates = new();
+		List<IProbeAsset> exportTargets = new();
 		for (int collectionIndex = 0; collectionIndex < graph.Collections.Count; collectionIndex++)
 		{
 			foreach (IProbeAsset asset in graph.Collections[collectionIndex].Assets)
 			{
-				Candidate? candidate = Candidate.Describe(asset);
-				if (candidate is null)
+				UnityCatalogEntry? entry = Describe(asset, entries.Count, collectionIndex);
+				if (entry is null)
 				{
 					continue;
 				}
 
-				entries.Add(new UnityCatalogEntry(entries.Count, candidate.Kind, collectionIndex, candidate.PathId, candidate.Name, candidate.SourceSize, candidate.OriginalPath, candidate.OutputExtension));
-				candidates.Add(candidate);
+				entries.Add(entry);
+				exportTargets.Add(asset);
 			}
 		}
 
-		return new UnitySession(graph, entries.ToArray(), candidates.ToArray());
+		return new UnitySession(graph, entries.ToArray(), exportTargets.ToArray());
 	}
 
 	/// <summary>The catalogue in stable session order.</summary>
@@ -62,12 +62,20 @@ internal sealed class UnitySession : IDisposable
 	public bool Export(int index, Stream destination)
 	{
 		ArgumentNullException.ThrowIfNull(destination);
-		if (disposed || index < 0 || index >= candidates.Length)
+		if (disposed || index < 0 || index >= exportTargets.Length)
 		{
 			return false;
 		}
 
-		byte[]? payload = candidates[index].Materialise();
+		IProbeAsset asset = exportTargets[index];
+		// Describe admits only these interfaces. Preserve its precedence for overlapping views;
+		// the remaining accepted target is a resource, with no per-entry delegate or metadata copy.
+		byte[]? payload = asset switch
+		{
+			IProbeTexture texture => texture.RenderPng(),
+			IProbeText text => text.ReadData(),
+			_ => ((IProbeResource)asset).ExportData(),
+		};
 		if (payload is null)
 		{
 			return false;
@@ -88,22 +96,19 @@ internal sealed class UnitySession : IDisposable
 		graph.Dispose();
 	}
 
-	/// <summary>One catalogued asset together with the conversion deferred until export.</summary>
-	private sealed record Candidate(UnityEntryKind Kind, long PathId, string Name, long SourceSize, string OriginalPath, string OutputExtension, Func<byte[]?> Materialise)
+	/// <summary>Captures immutable metadata once, without allocating an export wrapper or delegate.</summary>
+	private static UnityCatalogEntry? Describe(IProbeAsset asset, int index, int collectionIndex) => asset switch
 	{
-		public static Candidate? Describe(IProbeAsset asset) => asset switch
-		{
-			IProbeTexture texture => new Candidate(UnityEntryKind.Texture, texture.PathId, texture.Name, KnownSourceSize(texture.SourceSize), texture.OriginalPath ?? string.Empty, OutputExtensions.TexturePng, texture.RenderPng),
-			IProbeText text => new Candidate(UnityEntryKind.Text, text.PathId, text.Name, KnownSourceSize(text.SourceSize), text.OriginalPath ?? string.Empty, OutputExtensions.TextBin, text.ReadData),
-			IProbeResource resource => new Candidate(resource.Kind, resource.PathId, resource.Name, KnownSourceSize(resource.SourceSize), resource.OriginalPath ?? string.Empty, resource.OutputExtension, resource.ExportData),
-			_ => null,
-		};
+		IProbeTexture texture => new(index, UnityEntryKind.Texture, collectionIndex, texture.PathId, texture.Name, KnownSourceSize(texture.SourceSize), texture.OriginalPath ?? string.Empty, OutputExtensions.TexturePng),
+		IProbeText text => new(index, UnityEntryKind.Text, collectionIndex, text.PathId, text.Name, KnownSourceSize(text.SourceSize), text.OriginalPath ?? string.Empty, OutputExtensions.TextBin),
+		IProbeResource resource => new(index, resource.Kind, collectionIndex, resource.PathId, resource.Name, KnownSourceSize(resource.SourceSize), resource.OriginalPath ?? string.Empty, resource.OutputExtension),
+		_ => null,
+	};
 
-		/// <summary>
-		/// Clamps a declared length to the immutable catalogue contract: a negative value (which a
-		/// test provider may report) is normalised to the unknown sentinel zero, and a real
-		/// non-negative length is kept unchanged.
-		/// </summary>
-		private static long KnownSourceSize(long declared) => declared < 0 ? 0 : declared;
-	}
+	/// <summary>
+	/// Clamps a declared length to the immutable catalogue contract: a negative value (which a
+	/// test provider may report) is normalised to the unknown sentinel zero, and a real
+	/// non-negative length is kept unchanged.
+	/// </summary>
+	private static long KnownSourceSize(long declared) => declared < 0 ? 0 : declared;
 }

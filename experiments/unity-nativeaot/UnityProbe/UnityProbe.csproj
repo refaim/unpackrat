@@ -17,6 +17,18 @@
 		<IlcDisableReflection>true</IlcDisableReflection>
 	</PropertyGroup>
 
+	<!-- Use adaptive Server GC with memory conservation for the shared x64 module.
+	     A fixed HeapCount disables adaptation. The SDK embeds these runtime defaults;
+	     MaxHeapCount is an adaptive policy input, not an instantaneous heap-count claim. -->
+	<PropertyGroup Condition="'$(PublishAot)' == 'true' and '$(NativeLib)' == 'Shared' and '$(RuntimeIdentifier)' == 'win-x64'">
+		<ServerGarbageCollection>true</ServerGarbageCollection>
+	</PropertyGroup>
+	<ItemGroup Condition="'$(PublishAot)' == 'true' and '$(NativeLib)' == 'Shared' and '$(RuntimeIdentifier)' == 'win-x64'">
+		<RuntimeHostConfigurationOption Include="System.GC.MaxHeapCount" Value="4" />
+		<RuntimeHostConfigurationOption Include="System.GC.DynamicAdaptationMode" Value="1" />
+		<RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<ProjectReference Include="$(VendorRoot)\AssetRipper.Import\AssetRipper.Import.csproj" />
 		<ProjectReference Include="$(VendorRoot)\AssetRipper.Processing\AssetRipper.Processing.csproj" />
@@ -35,6 +47,8 @@
 			of stb_image with no native binaries, licensed Public Domain or MIT.
 		-->
 		<PackageReference Include="StbImageSharp" Version="2.30.15" />
+		<!-- Bounded catalogue projection; MIT, pure managed, no native runtime dependency. -->
+		<PackageReference Include="AssetsTools.NET" Version="3.0.5" />
 	</ItemGroup>
 
 	<!-- The mature, pinned Fmod5Sharp decoder used directly by the AudioClip adapter. This is the

@@ -3137,4 +3137,38 @@ states the license as follows, reproduced verbatim:
 # License
 Public Domain or MIT
 
+==============================================================================
+AssetsTools.NET 3.0.5 (MIT)
+==============================================================================
+
+The unpackrat Unity module references AssetsTools.NET 3.0.5 for selective metadata
+reading. NuGet package: https://www.nuget.org/packages/AssetsTools.NET/3.0.5
+Upstream project: https://github.com/nesrak1/AssetsTools.NET
+The package declares the MIT license. The copyright and license notice below are
+reproduced verbatim from the upstream LICENSE at the 3.0.5 version-update commit:
+https://github.com/nesrak1/AssetsTools.NET/blob/471bad9a9f24c14db4900ce63e30d24d5a4b60ef/LICENSE
+The NuGet package does not record a repository commit.
+
+MIT License
+
+Copyright (c) 2020 nesrak1
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 

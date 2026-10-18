@@ -183,6 +183,16 @@
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Watch the lazy Unity metadata reader's exact NuGet package pin.",
+      "managerFilePatterns": ["/^experiments/unity-nativeaot/UnityProbe/UnityProbe\\.csproj$/"],
+      "matchStrings": ["<PackageReference\\s+(?:[^>]*?\\s)?Include\\s*=\\s*\"AssetsTools\\.NET\"[^>]*?\\sVersion\\s*=\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "AssetsTools.NET",
+      "packageNameTemplate": "AssetsTools.NET",
+      "datasourceTemplate": "nuget",
+      "versioningTemplate": "nuget"
     }
   ]
 }

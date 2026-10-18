@@ -24,7 +24,7 @@ import main  # noqa: E402
 
 
 UNITY = "unity"
-UNITY_VERSION = "0.3.0"
+UNITY_VERSION = "0.3.1"
 MODULES_UNDER_TEST = ("renpy", "rpgmaker", "zanzarah", "godot")
 
 UNITY_SO_X86 = b"\x7fELF unity shared object x86 fixture\n"
@@ -213,7 +213,7 @@ class UnityCliTests(UnityFixtureCase):
 class UnityShippedTreeTests(unittest.TestCase):
     """The real ``src/modules/unity`` registration must match the shipped layout."""
 
-    def test_version_is_the_experimental_minor_release(self) -> None:
+    def test_version_is_the_experimental_patch_release(self) -> None:
         self.assertEqual(main.read_version(REPOSITORY_ROOT, UNITY), UNITY_VERSION)
 
     def test_observer_registration_uses_the_module_binary_and_a_narrow_filter(self) -> None:

@@ -191,7 +191,7 @@ internal static partial class UnitySource
 		/// bin. A payload's compression-format enum is a codec hint, not container proof, so it never
 		/// selects an extension on its own.
 		/// </summary>
-		private static AudioPayload DescribeModern(byte[]? prefix, long sourceSize, ulong declared)
+		public static AudioPayload DescribeModern(byte[]? prefix, long sourceSize, ulong declared)
 		{
 			if (prefix is { } header && AudioDecodePolicy.IsFsb5(header))
 			{

@@ -76,6 +76,32 @@ internal static class UnityFixtureBuilder
 	};
 
 	/// <summary>A serialized asset file holding one named TextAsset and optional declared dependencies.</summary>
+	public static byte[] SerializedDefaultNamedClass(int classId, string name)
+	{
+		UnityVersion version = UnityVersion.V_2022;
+		ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
+		var asset = AssetRipper.SourceGenerated.AssetFactory.CreateSerialized(new AssetRipper.Assets.Metadata.AssetInfo(collection, 1, classId), version)!;
+		((AssetRipper.Assets.INamed)asset).Name = new Utf8String(name);
+		if (asset is ITexture2D texture)
+		{
+			texture.Width_C28 = 1; texture.Height_C28 = 1; texture.ImageCount_C28 = 1;
+			texture.Format_C28E = TextureFormat.RGBA32; texture.ImageData_C28 = [10, 20, 30, 255];
+		}
+		SerializedFileBuilder builder = NewBuilder(version, classId);
+		builder.Objects.Add(new ObjectInfo { FileID = 1, TypeID = classId, ClassID = unchecked((short)classId),
+			SerializedTypeIndex = 0, Type = builder.Types[0], ObjectData = WriteAssetBytes(collection, asset) });
+		return Serialize(builder.Build());
+	}
+
+	public static byte[] SerializedRepeatedTextAssets(int count)
+	{
+		SerializedFileBuilder builder = NewBuilder(TextAssetClassId);
+		for (int i = 1; i <= count; i++)
+			builder.Objects.Add(new ObjectInfo { FileID = i, TypeID = TextAssetClassId, ClassID = TextAssetClassId,
+				SerializedTypeIndex = 0, Type = builder.Types[0], ObjectData = TextAssetData("notes", "payload") });
+		return Serialize(builder.Build());
+	}
+
 	public static byte[] SerializedTextAsset(string name, string payload, long pathId = 1, params string[] dependencies)
 	{
 		SerializedFileBuilder builder = NewBuilder(TextAssetClassId);
@@ -269,7 +295,7 @@ internal static class UnityFixtureBuilder
 	/// TextAsset itself. Loading it makes AssetRipper's own original-path processor record a real
 	/// "Assets/Resources/..." path for that asset through the resource-manager container.
 	/// </summary>
-	public static byte[] SerializedResourceManagerTextAsset(string resourcePath, string name, string payload)
+	public static byte[] SerializedResourceManagerTextAsset(string resourcePath, string name, string payload, int? monoBehaviourClassId = null, long monoBehaviourPathId = 3, params string[] dependencies)
 	{
 		UnityVersion version = UnityVersion.Parse("2021.3.0f1");
 		ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
@@ -305,6 +331,33 @@ internal static class UnityFixtureBuilder
 			Type = builder.Types[1],
 			ObjectData = managerData,
 		});
+		if (monoBehaviourClassId is { } classId)
+		{
+			// The format writer supplies a real MonoBehaviour layout. Negative scripted class IDs
+			// are normalised to 114 by the upstream collection reader before reaching our factory.
+			var script = AssetRipper.SourceGenerated.Classes.ClassID_114.MonoBehaviour.Create(
+				new AssetRipper.Assets.Metadata.AssetInfo(collection, monoBehaviourPathId, 114));
+			WithTypes(builder, classId);
+			builder.Objects.Add(new ObjectInfo
+			{
+				FileID = monoBehaviourPathId,
+				TypeID = classId,
+				ClassID = 114,
+				SerializedTypeIndex = 2,
+				Type = builder.Types[2],
+				ObjectData = WriteAssetBytes(collection, script),
+			});
+		}
+		foreach (string dependency in dependencies)
+		{
+			builder.Dependencies.Add(new FileIdentifier
+			{
+				Type = AssetType.Serialized,
+				AssetPath = Utf8String.Empty,
+				PathNameOrigin = dependency,
+				PathName = SpecialFileNames.FixFileIdentifier(dependency),
+			});
+		}
 		return Serialize(builder.Build());
 	}
 
@@ -497,9 +550,11 @@ internal static class UnityFixtureBuilder
 		bool linksTexture = true,
 		long texturePathId = 1,
 		long spritePathId = 2,
+		string? layoutVersion = null,
+		string? headerVersion = null,
 		params string[] dependencies)
 	{
-		UnityVersion version = UnityVersion.Parse("2021.3.0f1");
+		UnityVersion version = UnityVersion.Parse(layoutVersion ?? "2021.3.0f1");
 		ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
 
 		ITexture2D texture = CreateTexture(collection, name + "_texture", textureData, textureWidth, textureHeight);
@@ -510,8 +565,7 @@ internal static class UnityFixtureBuilder
 		sprite.Rect.Y = spriteRectY;
 		sprite.Rect.Width = spriteRectWidth;
 		sprite.Rect.Height = spriteRectHeight;
-		sprite.Pivot.X = 0.5f;
-		sprite.Pivot.Y = 0.5f;
+		if (sprite.Has_Pivot()) { sprite.Pivot.X = 0.5f; sprite.Pivot.Y = 0.5f; }
 		sprite.PixelsToUnits = pixelsToUnits;
 		ISpriteRenderData renderData = sprite.RD;
 		if (linksTexture)
@@ -527,6 +581,7 @@ internal static class UnityFixtureBuilder
 		renderData.TextureRectOffset.X = offsetX;
 		renderData.TextureRectOffset.Y = offsetY;
 		renderData.SettingsRaw = settingsRaw;
+		if (layoutVersion is not null) { renderData.UvTransform.Z = 1f; renderData.UvTransform.W = 1f; }
 		if (tightMesh is not null)
 		{
 			SetTightMesh(renderData, tightMesh);
@@ -535,7 +590,7 @@ internal static class UnityFixtureBuilder
 		byte[] textureObjectData = WriteAssetBytes(collection, texture);
 		byte[] spriteObjectData = WriteAssetBytes(collection, sprite);
 
-		SerializedFileBuilder builder = NewBuilder(version, Texture2DClassId, SpriteClassId);
+		SerializedFileBuilder builder = NewBuilder(UnityVersion.Parse(headerVersion ?? version.ToString()), Texture2DClassId, SpriteClassId);
 		builder.Objects.Add(new ObjectInfo
 		{
 			FileID = texturePathId,
@@ -593,13 +648,19 @@ internal static class UnityFixtureBuilder
 		uint settingsRaw,
 		long spriteKeyValue,
 		long atlasKeyValue,
-		bool linkAtlasTexture = true)
+		bool linkAtlasTexture = true, int leadingAtlasEntries = 0)
 	{
 		UnityVersion version = UnityVersion.Parse("2021.3.0f1");
 		ProcessedAssetCollection atlasCollection = AssetCreator.CreateCollection(version);
 		ITexture2D atlasTexture = CreateTexture(atlasCollection, "atlas_texture", atlasPixels, atlasWidth, atlasHeight);
 		ISpriteAtlas atlas = AssetCreator.CreateSpriteAtlas(atlasCollection);
 		atlas.Name = new Utf8String("hero_atlas");
+
+		for (int i = 0; i < leadingAtlasEntries; i++)
+		{
+			var unusedEntry = atlas.RenderDataMap.AddNew();
+			SetRenderDataKey(unusedEntry.Key, -i - 1);
+		}
 
 		AccessPairBase<AssetPair<GUID, long>, ISpriteAtlasData> entry = atlas.RenderDataMap.AddNew();
 		SetRenderDataKey(entry.Key, atlasKeyValue);

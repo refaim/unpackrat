@@ -1,3 +1,14 @@
+Version 0.3.1
+-------------
+ * Builds the resource catalogue from metadata. Resource bodies are parsed
+   only when extracted, together with the dependencies needed for that export.
+ * Reads UnityFS bundle data by block instead of loading every internal file
+   in full. Resource types, original paths and declared sizes are preserved.
+ * Stores catalogue metadata compactly and uses adaptive Server GC with memory
+   conservation on x64 to reduce memory use across repeated archive opens.
+ * The x86 candidate passed 11 resource fixtures on Windows XP SP3.
+ * Remains an experimental candidate for manual testing.
+
 Version 0.3.0
 -------------
  * Exports additional resource types, each through its own output file
