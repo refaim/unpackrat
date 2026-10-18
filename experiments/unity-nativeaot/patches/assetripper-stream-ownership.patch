@@ -165,7 +165,7 @@ diff --git a/Source/AssetRipper.IO.Files/Streams/OwnedReadOnlyRange.cs b/Source/
 new file mode 100644
 --- /dev/null
 +++ b/Source/AssetRipper.IO.Files/Streams/OwnedReadOnlyRange.cs
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,89 @@
 +using AssetRipper.IO.Files.Streams.Smart;
 +
 +namespace AssetRipper.IO.Files.Streams;
@@ -177,6 +177,13 @@ new file mode 100644
 +	private bool disposed;
 +
 +	private void CheckOpen() => ObjectDisposedException.ThrowIf(disposed, this);
++	internal (SmartStream Source, object Gate, long Offset) CreateSliceSource(long childOffset)
++	{
++		CheckOpen();
++		long composedOffset = checked(offset + childOffset);
++		// Lease the captured view, not its physical owner; preserve its exact synchronization gate.
++		return (source.CreateReference(), gate, composedOffset);
++	}
 +	public override bool CanRead => !disposed;
 +	public override bool CanSeek => !disposed;
 +	public override bool CanWrite => false;
@@ -267,7 +274,7 @@ diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs b/Source/A
  		RefCounter++;
  	}
  
-@@ -38,6 +38,53 @@
+@@ -38,6 +38,61 @@
  	public static SmartStream CreateMemory()
  	{
  		return new SmartStream(new MemoryStream());
@@ -303,11 +310,19 @@ diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs b/Source/A
 +		ThrowIfNull();
 +		if (offset < 0 || length < 0 || offset > Length || length > Length - offset)
 +			throw new ArgumentOutOfRangeException(nameof(length));
-+		SmartStream? owned = CreateReference();
++		object sourceGate = RefCounter.Owner;
++		SmartStream? owned;
++		if (Stream is OwnedReadOnlyRange parent)
++		{
++			// Descendants lease the captured source/view directly: its RefCount grows while
++			// the parent range's RefCount stays unchanged. Preserve the exact source view and gate.
++			(owned, sourceGate, offset) = parent.CreateSliceSource(offset);
++		}
++		else owned = CreateReference();
 +		Stream? range = null;
 +		try
 +		{
-+			range = createRange(owned, RefCounter.Owner, offset, length);
++			range = createRange(owned, sourceGate, offset, length);
 +			SmartStream result = createWrapper(range);
 +			owned = null;
 +			range = null;
@@ -321,7 +336,7 @@ diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs b/Source/A
  	}
  
  	public static SmartStream CreateMemory(byte[] buffer)
-@@ -187,7 +234,9 @@
+@@ -187,7 +242,9 @@
  			RefCounter--;
  			if (RefCounter.IsZero)
  			{

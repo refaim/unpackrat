@@ -412,6 +412,12 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 			Assert.Empty(absent.Keys);
 			Assert.Equal(default, absent.Bytes("m_RenderDataMap/Array/data#0/second/texture"));
 		}
+		// Fail after entering data#0 so the next read must reset dynamic path indices too.
+		using (MemoryStream malformed = Data(w => { w.Write(2); w.Write(99L); w.Write(-1); }))
+		{
+			Assert.Throws<InvalidDataException>(() => UnityProjection.Read(malformed, template, false, state));
+			Assert.True(malformed.CanRead);
+		}
 		input.Position = 0;
 		UnityProjection reused = UnityProjection.Read(input, template, false, state);
 		string[] keys = ["m_RenderDataMap/Array/data#0/first", "m_RenderDataMap/Array/data#0/second/texture",
@@ -433,6 +439,32 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		Assert.Equal(input.Length, input.Position);
 	}
 
+	[Fact]
+	public void AtlasFieldsNamedDataAreIndexedOnlyWhenTheirParentIsAnArray()
+	{
+		var template = Root(Field("m_RenderDataMap", AssetValueType.None,
+			Field("data", AssetValueType.Int64),
+			Field("Array", AssetValueType.Array, Field("size", AssetValueType.Int32),
+				Field("data", AssetValueType.None, Field("first", AssetValueType.Int64)))));
+		template.Type = "SpriteAtlas";
+		UnityProjection.State state = new(template);
+		using MemoryStream original = Data(w => { w.Write(11L); w.Write(2); w.Write(21L); w.Write(22L); });
+		UnityProjection first = UnityProjection.Read(original, template, false, state, validateLayout: true);
+		using MemoryStream changed = Data(w => { w.Write(31L); w.Write(1); w.Write(41L); });
+		UnityProjection second = UnityProjection.Read(changed, template, false, state, validateLayout: true);
+		Assert.Equal(new[] { "m_RenderDataMap/data", "m_RenderDataMap/Array/data#0/first", "m_RenderDataMap/Array/data#1/first" }, first.Keys);
+		Assert.Equal(11, first.Number("m_RenderDataMap/data"));
+		Assert.Equal(21, first.Number("m_RenderDataMap/Array/data#0/first"));
+		Assert.Equal(22, first.Number("m_RenderDataMap/Array/data#1/first"));
+		Assert.Equal(new[] { "m_RenderDataMap/data", "m_RenderDataMap/Array/data#0/first" }, second.Keys);
+		Assert.Equal(31, second.Number("m_RenderDataMap/data"));
+		Assert.Equal(41, second.Number("m_RenderDataMap/Array/data#0/first"));
+		Assert.Equal(0, second.Number("m_RenderDataMap/Array/data#1/first"));
+		Assert.Equal(0, first.Number("m_RenderDataMap/data#0"));
+		Assert.Equal(0, second.Number("m_RenderDataMap/data#0"));
+		Assert.Equal(original.Length, original.Position);
+		Assert.Equal(changed.Length, changed.Position);
+	}
 	private sealed class RangePayloadGuard(byte[] bytes, System.Collections.Generic.IReadOnlyList<UnityProjection.ByteRange> payloads) : MemoryStream(bytes, false)
 	{
 		public int PayloadReads { get; private set; }
@@ -452,6 +484,271 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		public override int ReadByte() { Check(1); return base.ReadByte(); }
 	}
 
+	[Fact]
+	public void RepeatedScalarProjectionReusesItsReaderWithinABoundedAllocationBudget()
+	{
+		const int count = 4096;
+		var template = Root(Field("m_Width", AssetValueType.Int32));
+		UnityProjection.State state = new(template);
+		using MemoryStream input = Data(w => w.Write(173));
+		Assert.Equal(173, UnityProjection.Read(input, template, false, state, validateLayout: true).Number("m_Width"));
+		long totalWidth = 0;
+		long before = GC.GetAllocatedBytesForCurrentThread();
+		for (int i = 0; i < count; i++)
+		{
+			input.Position = 0;
+			totalWidth += UnityProjection.Read(input, template, false, state, validateLayout: true).Number("m_Width");
+		}
+		long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+		Assert.Equal(count * 173L, totalWidth);
+		output.WriteLine($"{count} scalar projections allocated {allocated} bytes ({allocated / count} per object).");
+		Assert.True(allocated <= count * 192L,
+			$"{count} scalar projections allocated {allocated} bytes; per-shape reader scratch must be reused while each result keeps independent scalar storage.");
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void ProjectionScratchReleasesItsBorrowedInputAfterSuccessOrFailure(bool truncated)
+	{
+		var template = Root(Field("m_Width", AssetValueType.Int32));
+		UnityProjection.State state = new(template);
+		WeakReference source = ReadAndWatchBorrowedInput(template, state, truncated);
+		GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+		Assert.False(source.IsAlive, "A live shape must not retain an input after projection finishes or fails.");
+		using MemoryStream next = Data(w => w.Write(257));
+		Assert.Equal(257, UnityProjection.Read(next, template, false, state, validateLayout: true).Number("m_Width"));
+		Assert.True(next.CanRead);
+		GC.KeepAlive(state);
+	}
+
+	[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+	private static WeakReference ReadAndWatchBorrowedInput(AssetTypeTemplateField template, UnityProjection.State state, bool truncated)
+	{
+		using MemoryStream input = new(truncated ? new byte[] { 7 } : new byte[] { 7, 0, 0, 0 }, false);
+		WeakReference watched = new(input);
+		if (truncated) Assert.Throws<EndOfStreamException>(() => UnityProjection.Read(input, template, false, state, validateLayout: true));
+		else Assert.Equal(7, UnityProjection.Read(input, template, false, state, validateLayout: true).Number("m_Width"));
+		Assert.True(input.CanRead, "Projection only borrows its input; the caller owns disposal.");
+		return watched;
+	}
+
+	[Fact]
+	public void ReusedReaderChangesInputAndEndianWithoutChangingRetainedValuesOrReadingPayloads()
+	{
+		var template = Root(Field("m_Name", AssetValueType.String), Field("m_Width", AssetValueType.Int32),
+			Field("image data", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)),
+			Field("m_Height", AssetValueType.Int32));
+		UnityProjection.State state = new(template);
+		UnityProjection[] retained = new UnityProjection[3];
+		string[] names = ["hé中", "x", "last"];
+		for (int pass = 0; pass < retained.Length; pass++)
+		{
+			bool bigEndian = pass == 1;
+			long payloadStart = 0;
+			byte[] name = Encoding.UTF8.GetBytes(names[pass]);
+			using MemoryStream encoded = Data(w =>
+			{
+				void Integer(int value) => w.Write(bigEndian ? System.Buffers.Binary.BinaryPrimitives.ReverseEndianness(value) : value);
+				Integer(name.Length); w.Write(name);
+				while ((w.BaseStream.Position & 3) != 0) w.Write((byte)0);
+				Integer(100 + pass);
+				Integer(7); payloadStart = w.BaseStream.Position; w.Write(new byte[7]);
+				Integer(200 + pass);
+			});
+			using ScalarPayloadGuard input = new(encoded.ToArray(), payloadStart, 7);
+			retained[pass] = UnityProjection.Read(input, template, bigEndian, state, validateLayout: true);
+			Assert.Equal(0, input.PayloadReads);
+			Assert.True(input.CanRead);
+			Assert.Equal(input.Length, input.Position);
+			Assert.Equal(new UnityProjection.ByteRange(payloadStart, 7), retained[pass].Bytes("image data"));
+		}
+		for (int pass = retained.Length - 1; pass >= 0; pass--)
+		{
+			Assert.Equal(names[pass], retained[pass].Text("m_Name"));
+			Assert.Equal(100 + pass, retained[pass].Number("m_Width"));
+			Assert.Equal(200 + pass, retained[pass].Number("m_Height"));
+			Assert.Equal(7, retained[pass].Bytes("image data").Length);
+		}
+	}
+	[Fact]
+	public void StaticRepeatedMetadataKeepsSchemaKeysAndLastWritesWithoutAllocatingUnusedIndexedPaths()
+	{
+		const int count = 2048, payloadLength = 1024 * 1024;
+		long payloadStart = 0;
+		using MemoryStream encoded = Data(w =>
+		{
+			w.Write(count);
+			for (int i = 0; i < count; i++) w.Write((long)i);
+			w.Write(payloadLength); payloadStart = w.BaseStream.Position; w.Write(new byte[payloadLength]); w.Write(17L);
+		});
+		var template = Root(Field("m_RenderDataMap", AssetValueType.None,
+			Field("Array", AssetValueType.Array, Field("size", AssetValueType.Int32), Field("data", AssetValueType.Int64))),
+			Field("ignoredPayload", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)),
+			Field("m_Width", AssetValueType.Int64));
+		UnityProjection.State state = new(template);
+		byte[] bytes = encoded.ToArray();
+		using ScalarPayloadGuard input = new(bytes, payloadStart, payloadLength);
+		UnityProjection warm = UnityProjection.Read(input, template, false, state, validateLayout: true);
+		Assert.Equal(count - 1, warm.Number("m_RenderDataMap/Array/data"));
+		input.Position = 0;
+		long before = GC.GetAllocatedBytesForCurrentThread();
+		UnityProjection first = UnityProjection.Read(input, template, false, state, validateLayout: true);
+		long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+		System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(4 + (count - 1) * 8), 7777L);
+		input.Position = 0;
+		UnityProjection second = UnityProjection.Read(input, template, false, state, validateLayout: true);
+		Assert.Equal(new[] { "m_RenderDataMap/Array/data", "m_Width" }, first.Keys);
+		Assert.Equal(first.Keys, second.Keys);
+		Assert.Equal(count - 1, first.Number("m_RenderDataMap/Array/data"));
+		Assert.Equal(7777, second.Number("m_RenderDataMap/Array/data"));
+		Assert.Equal(17, first.Number("m_Width"));
+		Assert.Equal(0, first.Number("m_RenderDataMap/Array/data#0"));
+		Assert.Equal(0, input.PayloadReads);
+		Assert.Equal(input.Length, input.Position);
+		output.WriteLine($"{count} static repeated captures allocated {allocated} bytes.");
+		Assert.True(allocated <= count * 48L,
+			$"{count} static repeated captures allocated {allocated} bytes; repeated schema values must retain last writes without building unused per-element indexed path names.");
+	}
+	[Theory]
+	[InlineData(32, 256)]
+	[InlineData(1024, 2400)]
+	public void RetainedCapturedNamesAvoidTemporaryUtf8ArraysWithinABoundedAllocationBudget(int length, int perObjectBudget)
+	{
+		const int count = 4096;
+		string expected = new('n', length);
+		using MemoryStream encoded = Data(w => { w.Write(length); w.Write(Encoding.UTF8.GetBytes(expected)); });
+		var template = Root(Field("m_Name", AssetValueType.String));
+		UnityProjection.State state = new(template);
+		Assert.Equal(expected, UnityProjection.Read(encoded, template, false, state).Text("m_Name"));
+		UnityProjection[] retained = new UnityProjection[count];
+		long before = GC.GetAllocatedBytesForCurrentThread();
+		for (int i = 0; i < count; i++)
+		{
+			encoded.Position = 0;
+			retained[i] = UnityProjection.Read(encoded, template, false, state);
+		}
+		long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+		Assert.All(retained, projection => Assert.Equal(expected, projection.Text("m_Name")));
+		output.WriteLine($"{count} captured names of {length} UTF8 bytes allocated {allocated} bytes ({allocated / count} per object).");
+		Assert.True(allocated <= count * (long)perObjectBudget,
+			$"{count} captured names of {length} UTF8 bytes allocated {allocated} bytes; decoding metadata names must not allocate a temporary byte array for every retained string.");
+	}
+
+	[Theory]
+	[InlineData(0)]
+	[InlineData(256)]
+	[InlineData(257)]
+	[InlineData(1_048_576)]
+	public void CapturedTextBoundariesKeepAlignmentPayloadGuardsAndIndependentValues(int length)
+	{
+		string expected = new('x', length);
+		long payloadStart = 0;
+		using MemoryStream encoded = Data(w =>
+		{
+			w.Write(length); w.Write(Encoding.UTF8.GetBytes(expected));
+			while ((w.BaseStream.Position & 3) != 0) w.Write((byte)0);
+			w.Write(1024); payloadStart = w.BaseStream.Position; w.Write(new byte[1024]); w.Write(713);
+		});
+		var template = Root(Field("m_Name", AssetValueType.String),
+			Field("ignoredPayload", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)),
+			Field("m_Width", AssetValueType.Int32));
+		UnityProjection.State state = new(template);
+		using ScalarPayloadGuard input = new(encoded.ToArray(), payloadStart, 1024);
+		UnityProjection first = UnityProjection.Read(input, template, false, state, validateLayout: true);
+		using MemoryStream empty = Data(w => { w.Write(0); w.Write(0); w.Write(911); });
+		UnityProjection next = UnityProjection.Read(empty, template, false, state, validateLayout: true);
+		Assert.Equal(expected, first.Text("m_Name"));
+		Assert.Equal(string.Empty, next.Text("m_Name"));
+		Assert.Equal(713, first.Number("m_Width"));
+		Assert.Equal(911, next.Number("m_Width"));
+		Assert.Equal(0, input.PayloadReads);
+		Assert.Equal(input.Length, input.Position);
+	}
+
+	[Theory]
+	[InlineData(5, 3)]
+	[InlineData(257, 255)]
+	public void CapturedTextKeepsMatureEarlyEofPrefixAndMalformedUtf8Replacement(int declaredLength, int available)
+	{
+		byte[] payload = Enumerable.Repeat((byte)'a', available).ToArray();
+		payload[^1] = 0xE2;
+		using MemoryStream encoded = Data(w => { w.Write(declaredLength); w.Write(payload); });
+		using PartialTextStream control = new(encoded.ToArray(), 4L + declaredLength);
+		using AssetsFileReader mature = new(control);
+		Assert.Equal(declaredLength, mature.ReadInt32());
+		string expected = mature.ReadStringLength(declaredLength);
+		Assert.EndsWith("\uFFFD", expected);
+		using PartialTextStream input = new(encoded.ToArray(), 4L + declaredLength);
+		UnityProjection result = UnityProjection.Read(input, Root(Field("m_Name", AssetValueType.String)), false);
+		Assert.Equal(expected, result.Text("m_Name"));
+		Assert.Equal(4 + available, input.Position);
+		Assert.True(input.CanRead);
+	}
+
+	[Fact]
+	public void CapturedTextCombinesShortReadsWithoutChangingMalformedUtf8Replacement()
+	{
+		byte[] payload = [0x68, 0xC3, 0xA9, 0xE4, 0xB8, 0xAD, 0xE2, 0x28, 0xA1];
+		using MemoryStream encoded = Data(w => { w.Write(payload.Length); w.Write(payload); });
+		using PartialTextStream input = new(encoded.ToArray(), encoded.Length);
+		Assert.Equal("hé中\uFFFD(\uFFFD", UnityProjection.Read(input, Root(Field("m_Name", AssetValueType.String)), false).Text("m_Name"));
+		Assert.Equal(encoded.Length, input.Position);
+	}
+
+	[Fact]
+	public void FailedOversizedCapturedTextReturnsItsPooledBufferAndReusableStateRecovers()
+	{
+		var template = Root(Field("m_Name", AssetValueType.String));
+		UnityProjection.State state = new(template);
+		using MemoryStream encoded = Data(w => { w.Write(1024); w.Write(new byte[1024]); });
+		using PartialTextStream input = new(encoded.ToArray(), encoded.Length) { Failure = new IOException("UTF8 read sentinel") };
+		using PoolObserver observer = new();
+		Assert.Same(input.Failure, Assert.Throws<IOException>(() => UnityProjection.Read(input, template, false, state)));
+		Assert.True(input.CanRead);
+		Assert.NotEmpty(observer.Rented);
+		Assert.All(observer.Rented, id => Assert.Contains(id, observer.Returned));
+		using MemoryStream next = Data(w => { w.Write(4); w.Write(Encoding.UTF8.GetBytes("next")); });
+		Assert.Equal("next", UnityProjection.Read(next, template, false, state).Text("m_Name"));
+		observer.Dispose();
+		int observed = observer.Rented.Count;
+		byte[] control = System.Buffers.ArrayPool<byte>.Shared.Rent(1024);
+		System.Buffers.ArrayPool<byte>.Shared.Return(control);
+		Assert.Equal(observed, observer.Rented.Count);
+	}
+
+	private sealed class PartialTextStream(byte[] bytes, long declaredLength) : MemoryStream(bytes, false)
+	{
+		public IOException? Failure { get; init; }
+		public override long Length => declaredLength;
+		public override int Read(Span<byte> buffer)
+		{
+			if (Position >= 4 && Failure is { } error) throw error;
+			if (buffer.IsEmpty) return 0;
+			int next = base.ReadByte();
+			if (next < 0) return 0;
+			buffer[0] = (byte)next;
+			return 1;
+		}
+		public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+	}
+
+	private sealed class PoolObserver : System.Diagnostics.Tracing.EventListener
+	{
+		private readonly int thread = Environment.CurrentManagedThreadId;
+		public System.Collections.Generic.List<int> Rented { get; } = new(8);
+		public System.Collections.Generic.List<int> Returned { get; } = new(8);
+		protected override void OnEventSourceCreated(System.Diagnostics.Tracing.EventSource source)
+		{
+			if (source.Name == "System.Buffers.ArrayPoolEventSource") EnableEvents(source, System.Diagnostics.Tracing.EventLevel.Verbose);
+		}
+		protected override void OnEventWritten(System.Diagnostics.Tracing.EventWrittenEventArgs data)
+		{
+			if (Environment.CurrentManagedThreadId != thread || data.Payload is not { Count: >= 2 } payload || payload[0] is not int id || payload[1] is not int length || length != 1024) return;
+			if (data.EventName == "BufferRented" && Rented.Count < 8) Rented.Add(id);
+			if (data.EventName == "BufferReturned" && Returned.Count < 8) Returned.Add(id);
+		}
+	}
 	[Fact]
 	public void RetainedStaticMetadataUsesCompactIndependentValues()
 	{

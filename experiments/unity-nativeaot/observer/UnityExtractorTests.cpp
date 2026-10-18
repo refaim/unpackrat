@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <exception>
@@ -185,6 +186,11 @@ namespace
         [[nodiscard]] std::size_t peak_delta() const noexcept
         {
             return g_peak_bytes - baseline_;
+        }
+
+        [[nodiscard]] std::size_t peak_over_current() const noexcept
+        {
+            return g_peak_bytes - g_live_bytes;
         }
 
         heap_window(const heap_window &) = delete;
@@ -1540,6 +1546,107 @@ TEST_CASE("unity adapter: the catalogue metadata budget bounds a deep distinct n
         mod.api.CloseStorage(storage);
         REQUIRE(stub->close_calls == 1);
     }
+}
+
+TEST_CASE("unity adapter: fallback catalogue scratch stays bounded while final files grow", "[unity][unit]")
+{
+    const auto measure = [](const std::uint32_t count) {
+        stub_binding stub;
+        stub->entries.reserve(count);
+        stub->source_sizes.assign(count, 7);
+        for (std::uint32_t index = 0; index < count; ++index) {
+            stub->entries.push_back(text_entry(u"leaf", "payload"));
+        }
+        const temp_archive archive;
+        const loaded_module mod;
+        HANDLE storage = nullptr;
+        REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+
+        bool prepared = false;
+        std::size_t peak = 0;
+        std::size_t transient = 0;
+        {
+            const heap_window window;
+            prepared = mod.api.PrepareFiles(storage) == TRUE;
+            peak = window.peak_delta();
+            transient = window.peak_over_current();
+        }
+        // Fixture setup, assertions and enumeration are outside the tracked window. The
+        // final live catalogue is subtracted so the bound measures temporary duplication,
+        // independent of file-object size and allocator rounding on x86 versus x64.
+        std::printf("unity catalogue heap count=%u peak=%zu retained=%zu transient=%zu\n",
+                    count, peak, peak - transient, transient);
+        REQUIRE(prepared);
+        REQUIRE(stub->export_calls == 0);
+        REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+        REQUIRE(stub->size_query_calls == static_cast<int>(count));
+        REQUIRE(stub->copy_calls == static_cast<int>(count));
+        REQUIRE(stub->entry_path_query_calls == static_cast<int>(count));
+        REQUIRE(stub->entry_path_copy_calls == 0);
+        REQUIRE(stub->source_size_calls == static_cast<int>(count));
+        REQUIRE(stub->entry_extension_query_calls == 0);
+        REQUIRE(stub->entry_extension_copy_calls == 0);
+        for (std::uint32_t index = 0; index < count; ++index) {
+            StorageItemInfo item{};
+            REQUIRE(mod.api.GetItem(storage, static_cast<int>(index), &item) == GET_ITEM_OK);
+            REQUIRE(std::wstring(item.Path) == L"{TextAsset}\\" + std::to_wstring(index) + L"_leaf.bin");
+            REQUIRE(item.Size == 7);
+            REQUIRE(item.PackedSize == 7);
+        }
+        StorageItemInfo end{};
+        REQUIRE(mod.api.GetItem(storage, static_cast<int>(count), &end) == GET_ITEM_NOMOREITEMS);
+        REQUIRE(stub->export_calls == 0);
+        const std::filesystem::path destination = archive.path.wstring() + L".catalogue-out";
+        for (const int index : {0, static_cast<int>(count) - 1}) {
+            REQUIRE(module_extract(mod, storage, index, destination) == SER_SUCCESS);
+            REQUIRE(read_file(destination) == "payload");
+        }
+        REQUIRE(stub->export_calls == 2);
+        remove_file(destination);
+        mod.api.CloseStorage(storage);
+        REQUIRE(stub->close_calls == 1);
+        return transient;
+    };
+
+    const std::size_t small = measure(1024);
+    const std::size_t large = measure(8192);
+    // The extra 7168 fallback rows add final files, not a second retained metadata table.
+    // 64 KiB allows bounded conversion scratch without depending on an exact allocation count.
+    REQUIRE(large <= small + 64U * 1024U);
+}
+
+TEST_CASE("unity adapter: preserved paths defer malformed fallback labels until collision resolution", "[unity][unit]")
+{
+    const temp_archive archive;
+    const loaded_module mod;
+    stub_binding stub;
+    stub->entries = {text_entry(std::u16string(1, char16_t{0xD83D})), text_entry(u"leaf")};
+    HANDLE storage = nullptr;
+    SECTION("a valid preserved path ignores the unusable metadata label")
+    {
+        stub->original_paths = {u"Assets/ok.txt", u""};
+        REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+        REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+        REQUIRE(item_path(mod, storage, 0) == L"Assets\\0_ok.bin");
+        REQUIRE(item_path(mod, storage, 1) == L"{TextAsset}\\1_leaf.bin");
+        REQUIRE(stub->size_query_calls == 2);
+        REQUIRE(stub->copy_calls == 2);
+        REQUIRE(stub->entry_path_query_calls == 2);
+        REQUIRE(stub->entry_path_copy_calls == 1);
+        REQUIRE(stub->source_size_calls == 2);
+        REQUIRE(stub->export_calls == 0);
+    }
+    SECTION("a later directory collision requires the malformed fallback and rejects preparation")
+    {
+        stub->original_paths = {u"Assets/ok.txt", u"Assets/0_ok.bin/nested.txt"};
+        REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+        REQUIRE(mod.api.PrepareFiles(storage) == FALSE);
+        REQUIRE(stub->size_query_calls == 2);
+        REQUIRE(stub->entry_path_query_calls == 2);
+        REQUIRE(stub->export_calls == 0);
+    }
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
 }
 
 TEST_CASE("unity adapter: a stripped extension cannot retain a large allocation", "[unity][unit]")

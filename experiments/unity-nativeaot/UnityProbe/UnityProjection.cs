@@ -1,7 +1,9 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using AssetRipper.Import.Structure.Assembly.TypeTrees;
 using AssetsTools.NET;
 
@@ -11,6 +13,7 @@ namespace Unpackrat.UnityProbe;
 // borrowed byte ranges; no array value or composite value is materialised by the iterator.
 internal sealed class UnityProjection
 {
+	private const int TextScratchLength = 256;
 	internal readonly record struct ByteRange(long Offset, int Length);
 	internal enum ValueKind { Number, Text, Bytes }
 	internal readonly record struct Slot(ValueKind Kind, int Index);
@@ -94,28 +97,51 @@ internal sealed class UnityProjection
 
 	public static UnityProjection Read(Stream input, AssetTypeTemplateField template, bool bigEndian, State? state = null, bool validateLayout = false, bool textureTail = false)
 	{
-		using ProjectionStream bounded = new(input);
-		using AssetsFileReader reader = new(bounded) { BigEndian = bigEndian };
 		state ??= new State(template);
+		ProjectionStream bounded = (ProjectionStream)state.Reader.BaseStream;
+		bounded.Attach(input);
+		try
+		{
+			state.Reader.BigEndian = bigEndian;
+			return Read(template, state, validateLayout, textureTail);
+		}
+		finally
+		{
+			// Scratch survives the object; the borrowed input must not survive this read.
+			bounded.Detach();
+		}
+	}
+
+	private static UnityProjection Read(AssetTypeTemplateField template, State state, bool validateLayout, bool textureTail)
+	{
+		AssetsFileReader reader = state.Reader;
+		ProjectionStream bounded = (ProjectionStream)reader.BaseStream;
 		AssetTypeValueIterator iterator = state.Iterator ??= new(template, reader);
 		iterator.Reset(template, reader);
 		UnityProjection result = new(state);
 		string[] names = state.Names;
 		int[] indices = state.Indices;
 		int steps = 0;
+		// One bounded scratch span per object; field count must never grow stack usage.
+		Span<byte> textScratch = stackalloc byte[TextScratchLength];
 		while (iterator.ReadNext())
 		{
 			if (++steps > 16_000_000) throw new InvalidDataException("Unity projection exceeded its field budget.");
-			int depth = iterator.Depth;
 			// State validates schema depth once; the iterator only visits those bounded nodes.
 			AssetTypeTemplateField field = iterator.TempField;
 			bool lastField = !validateLayout && ReferenceEquals(field, state.LastField);
-			string name = field.Name;
-			if (names[1] == "m_RenderDataMap" && name == "data" && names[depth - 1] == "Array") name += "#" + indices[depth - 1]++;
-			names[depth] = name;
-			indices[depth] = 0;
 			bool capture = state.Paths.TryGetValue(field, out Capture binding);
-			string? dynamicPath = capture && state.DynamicPaths ? PathOf(names, depth) : null;
+			string? dynamicPath = null;
+			// Fixed schemas already bind capture paths; only atlases need runtime path bookkeeping.
+			if (state.DynamicPaths)
+			{
+				int depth = iterator.Depth;
+				string name = field.Name;
+				if (names[1] == "m_RenderDataMap" && name == "data" && names[depth - 1] == "Array") name += "#" + indices[depth - 1]++;
+				names[depth] = name;
+				indices[depth] = 0;
+				if (capture) dynamicPath = PathOf(names, depth);
+			}
 			if (field.ValueType == AssetValueType.ManagedReferencesRegistry)
 				throw new InvalidDataException("Managed-reference projection is unsupported.");
 			if (field.IsArray && field.ValueType != AssetValueType.ByteArray)
@@ -134,7 +160,7 @@ internal sealed class UnityProjection
 				if (capture && binding.Slot.Kind == ValueKind.Text)
 				{
 					if (length > 1_048_576) throw new InvalidDataException("Unity metadata string is too long.");
-					result.SetText(binding, dynamicPath, reader.ReadStringLength(length));
+					result.SetText(binding, dynamicPath, ReadText(reader, length, textScratch));
 					// Continuing traversal leaves advancement and alignment to the iterator.
 					if (!lastField) reader.Position = position;
 				}
@@ -182,11 +208,29 @@ internal sealed class UnityProjection
 		return result;
 	}
 
+	private static string ReadText(AssetsFileReader reader, int length, Span<byte> scratch)
+	{
+		byte[]? rented = null;
+		Span<byte> bytes = length <= scratch.Length ? scratch[..length]
+			: (rented = ArrayPool<byte>.Shared.Rent(length)).AsSpan(0, length);
+		try
+		{
+			// Match ReadBytes: decode the available prefix on early EOF, without reading ahead.
+			int read = reader.BaseStream.ReadAtLeast(bytes, length, throwOnEndOfStream: false);
+			return Encoding.UTF8.GetString(bytes[..read]);
+		}
+		finally
+		{
+			if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
+		}
+	}
 	internal sealed class State
 	{
 		public string[] Names { get; } = new string[130];
 		public int[] Indices { get; } = new int[130];
 		public Dictionary<AssetTypeTemplateField, Capture> Paths { get; } = [];
+		// The reader owns only managed scratch; its stream borrows an input for one Read.
+		public AssetsFileReader Reader { get; } = new(new ProjectionStream(Stream.Null));
 		public AssetTypeValueIterator? Iterator { get; set; }
 		public AssetTypeTemplateField? LastField { get; private set; }
 		public bool DynamicPaths { get; }
@@ -259,6 +303,8 @@ internal sealed class UnityProjection
 	// MemoryStream permits out-of-bounds seeks. The parser sees a strict object-sized view instead.
 	private sealed class ProjectionStream(Stream inner) : Stream
 	{
+		public void Attach(Stream input) => inner = input;
+		public void Detach() => inner = Stream.Null;
 		public override bool CanRead => true;
 		public override bool CanSeek => true;
 		public override bool CanWrite => false;

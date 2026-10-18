@@ -729,23 +729,23 @@ namespace extractor
         const std::uint64_t token = session.token();
         const std::int32_t count = session.count();
 
-        // One read of every entry's metadata, then a catalogue-wide namespace pass, then the
-        // file objects. Reading each entry's metadata exactly once keeps the backend query
-        // counts stable, and the raw name and original-path buffers are transient: only the
-        // bounded fallback label and preserved path of each entry are retained, and every
-        // retained byte is charged against the cumulative metadata budget.
+        // Read each entry's metadata once. Fallback paths use reserved braced roots, so they
+        // cannot collide with directories discovered later and can become final files now.
+        // Only preserved paths need retained metadata until the full namespace is known.
+        // Raw buffers remain transient; the cumulative metadata charge is unchanged even
+        // when a fallback entry's bounded metadata is released immediately.
         struct listed_entry
         {
             std::int32_t index = 0;
             int kind = 0;
             std::wstring label;
             std::wstring extension;
-            std::int64_t source_size = 0;
             std::optional<std::wstring> preserved;
         };
 
-        std::vector<listed_entry> listed;
-        listed.reserve(static_cast<std::size_t>(count));
+        std::vector<listed_entry> pending;
+        std::vector<std::unique_ptr<file>> files;
+        files.reserve(static_cast<std::size_t>(count));
         name_set required_directories;
         std::size_t retained_bytes = 0;
         for (std::int32_t index = 0; index < count; ++index) {
@@ -809,7 +809,6 @@ namespace extractor
             current.index = index;
             current.kind = entry.kind;
             current.label = sanitise_label(name);
-            current.source_size = source_size;
             // The output extension comes from the frozen kind table for the fixed kinds and
             // from the additive ABI getter for the dynamic ones; either way it is bounded
             // and validated before it can shape a virtual path.
@@ -828,22 +827,28 @@ namespace extractor
             if (current.preserved) {
                 record_ancestor_directories(*current.preserved, required_directories, retained_bytes);
             }
-            listed.push_back(std::move(current));
-        }
-
-        std::vector<std::unique_ptr<file>> files;
-        files.reserve(listed.size());
-        for (const listed_entry &current : listed) {
             auto new_file = std::make_unique<file>();
-            new_file->path = virtual_path(current.index, current.kind, current.label, current.preserved,
-                                          required_directories, current.extension);
             // The Size column shows the original source payload length, exactly the same value
             // as PackedSize (unknown0); it is never the predicted PNG length and no conversion
             // runs at listing time.
-            new_file->uncompressed_body_size_in_bytes = current.source_size;
-            new_file->compressed_body_size_in_bytes = current.source_size;
-            new_file->extract = make_extract(token, current.index);
+            new_file->uncompressed_body_size_in_bytes = source_size;
+            new_file->compressed_body_size_in_bytes = source_size;
+            new_file->extract = make_extract(token, index);
+            if (current.preserved) {
+                // Do not convert an unused fallback label: a valid preserved path can ignore
+                // malformed UTF-16 in that label unless a later directory forces fallback.
+                pending.push_back(std::move(current));
+            } else {
+                new_file->path = virtual_path(current.index, current.kind, current.label, current.preserved,
+                                              required_directories, current.extension);
+            }
             files.push_back(std::move(new_file));
+        }
+
+        for (const listed_entry &current : pending) {
+            files[static_cast<std::size_t>(current.index)]->path =
+                virtual_path(current.index, current.kind, current.label, current.preserved,
+                             required_directories, current.extension);
         }
         return files;
     }
