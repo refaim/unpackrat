@@ -30,246 +30,445 @@ namespace
 
     // Frozen golden vectors produced by the authoritative DXLib/uberwolf Huffman_Encode. They pin
     // the decoder to the upstream byte layout without ever invoking the runtime encoder.
-// ---- phrase ----
-// encode 43 bytes -> need=245 written=245
-inline const std::array<std::byte, 43> phrase_plain{{
-    std::byte{0x75},std::byte{0x6e},std::byte{0x70},std::byte{0x61},std::byte{0x63},std::byte{0x6b},std::byte{0x72},std::byte{0x61},std::byte{0x74},std::byte{0x20},std::byte{0x77},std::byte{0x6f},
-    std::byte{0x6c},std::byte{0x66},std::byte{0x72},std::byte{0x70},std::byte{0x67},std::byte{0x20},std::byte{0x68},std::byte{0x75},std::byte{0x66},std::byte{0x66},std::byte{0x6d},std::byte{0x61},
-    std::byte{0x6e},std::byte{0x20},std::byte{0x73},std::byte{0x74},std::byte{0x72},std::byte{0x65},std::byte{0x61},std::byte{0x6d},std::byte{0x69},std::byte{0x6e},std::byte{0x67},std::byte{0x20},
-    std::byte{0x64},std::byte{0x65},std::byte{0x63},std::byte{0x6f},std::byte{0x64},std::byte{0x65},std::byte{0x72},
-}};
+    // ---- phrase ----
+    // encode 43 bytes -> need=245 written=245
+    inline const std::array<std::byte, 43> phrase_plain{{
+        std::byte{0x75}, std::byte{0x6e}, std::byte{0x70}, std::byte{0x61}, std::byte{0x63}, std::byte{0x6b},
+        std::byte{0x72}, std::byte{0x61}, std::byte{0x74}, std::byte{0x20}, std::byte{0x77}, std::byte{0x6f},
+        std::byte{0x6c}, std::byte{0x66}, std::byte{0x72}, std::byte{0x70}, std::byte{0x67}, std::byte{0x20},
+        std::byte{0x68}, std::byte{0x75}, std::byte{0x66}, std::byte{0x66}, std::byte{0x6d}, std::byte{0x61},
+        std::byte{0x6e}, std::byte{0x20}, std::byte{0x73}, std::byte{0x74}, std::byte{0x72}, std::byte{0x65},
+        std::byte{0x61}, std::byte{0x6d}, std::byte{0x69}, std::byte{0x6e}, std::byte{0x67}, std::byte{0x20},
+        std::byte{0x64}, std::byte{0x65}, std::byte{0x63}, std::byte{0x6f}, std::byte{0x64}, std::byte{0x65},
+        std::byte{0x72},
+    }};
 
-inline const std::array<std::byte, 245> phrase_encoded{{
-    std::byte{0x16},std::byte{0xb1},std::byte{0x57},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0xc5},std::byte{0xf4},std::byte{0x35},std::byte{0x7d},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x03},std::byte{0x17},std::byte{0xd0},std::byte{0xd5},std::byte{0xf4},std::byte{0x2a},
-    std::byte{0xfa},std::byte{0x00},std::byte{0xa5},std::byte{0xf4},std::byte{0x02},std::byte{0xd7},std::byte{0xd2},std::byte{0xd7},std::byte{0xd0},std::byte{0x0b},std::byte{0x5f},std::byte{0x4a},
-    std::byte{0x5f},std::byte{0x40},std::byte{0x29},std::byte{0x7d},std::byte{0x29},std::byte{0x7d},std::byte{0x2d},std::byte{0x7d},std::byte{0x00},std::byte{0xbb},std::byte{0xe8},std::byte{0xc5},
-    std::byte{0xf4},std::byte{0x35},std::byte{0x1d},std::byte{0xca},std::byte{0x5f},std::byte{0x40},std::byte{0x2e},std::byte{0xfa},std::byte{0x29},std::byte{0x7d},std::byte{0x2d},std::byte{0x7d},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0xda},std::byte{0xbc},std::byte{0xcf},std::byte{0xde},std::byte{0xca},std::byte{0x04},
-    std::byte{0x72},std::byte{0x75},std::byte{0x0c},std::byte{0x13},std::byte{0x6b},std::byte{0x15},std::byte{0x6e},std::byte{0x8f},std::byte{0x97},std::byte{0xcb},std::byte{0x45},std::byte{0xd3},
-    std::byte{0x30},std::byte{0x3f},std::byte{0x1f},std::byte{0xfd},std::byte{0x3c},
-}};
+    inline const std::array<std::byte, 245> phrase_encoded{{
+        std::byte{0x16}, std::byte{0xb1}, std::byte{0x57}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0xc5}, std::byte{0xf4}, std::byte{0x35},
+        std::byte{0x7d}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x03}, std::byte{0x17}, std::byte{0xd0}, std::byte{0xd5}, std::byte{0xf4}, std::byte{0x2a},
+        std::byte{0xfa}, std::byte{0x00}, std::byte{0xa5}, std::byte{0xf4}, std::byte{0x02}, std::byte{0xd7},
+        std::byte{0xd2}, std::byte{0xd7}, std::byte{0xd0}, std::byte{0x0b}, std::byte{0x5f}, std::byte{0x4a},
+        std::byte{0x5f}, std::byte{0x40}, std::byte{0x29}, std::byte{0x7d}, std::byte{0x29}, std::byte{0x7d},
+        std::byte{0x2d}, std::byte{0x7d}, std::byte{0x00}, std::byte{0xbb}, std::byte{0xe8}, std::byte{0xc5},
+        std::byte{0xf4}, std::byte{0x35}, std::byte{0x1d}, std::byte{0xca}, std::byte{0x5f}, std::byte{0x40},
+        std::byte{0x2e}, std::byte{0xfa}, std::byte{0x29}, std::byte{0x7d}, std::byte{0x2d}, std::byte{0x7d},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xda}, std::byte{0xbc}, std::byte{0xcf}, std::byte{0xde}, std::byte{0xca}, std::byte{0x04},
+        std::byte{0x72}, std::byte{0x75}, std::byte{0x0c}, std::byte{0x13}, std::byte{0x6b}, std::byte{0x15},
+        std::byte{0x6e}, std::byte{0x8f}, std::byte{0x97}, std::byte{0xcb}, std::byte{0x45}, std::byte{0xd3},
+        std::byte{0x30}, std::byte{0x3f}, std::byte{0x1f}, std::byte{0xfd}, std::byte{0x3c},
+    }};
 
-// ---- allsymbols ----
-// encode 256 bytes -> need=453 written=453
-inline const std::array<std::byte, 256> allsymbols_plain{{
-    std::byte{0x00},std::byte{0x01},std::byte{0x02},std::byte{0x03},std::byte{0x04},std::byte{0x05},std::byte{0x06},std::byte{0x07},std::byte{0x08},std::byte{0x09},std::byte{0x0a},std::byte{0x0b},
-    std::byte{0x0c},std::byte{0x0d},std::byte{0x0e},std::byte{0x0f},std::byte{0x10},std::byte{0x11},std::byte{0x12},std::byte{0x13},std::byte{0x14},std::byte{0x15},std::byte{0x16},std::byte{0x17},
-    std::byte{0x18},std::byte{0x19},std::byte{0x1a},std::byte{0x1b},std::byte{0x1c},std::byte{0x1d},std::byte{0x1e},std::byte{0x1f},std::byte{0x20},std::byte{0x21},std::byte{0x22},std::byte{0x23},
-    std::byte{0x24},std::byte{0x25},std::byte{0x26},std::byte{0x27},std::byte{0x28},std::byte{0x29},std::byte{0x2a},std::byte{0x2b},std::byte{0x2c},std::byte{0x2d},std::byte{0x2e},std::byte{0x2f},
-    std::byte{0x30},std::byte{0x31},std::byte{0x32},std::byte{0x33},std::byte{0x34},std::byte{0x35},std::byte{0x36},std::byte{0x37},std::byte{0x38},std::byte{0x39},std::byte{0x3a},std::byte{0x3b},
-    std::byte{0x3c},std::byte{0x3d},std::byte{0x3e},std::byte{0x3f},std::byte{0x40},std::byte{0x41},std::byte{0x42},std::byte{0x43},std::byte{0x44},std::byte{0x45},std::byte{0x46},std::byte{0x47},
-    std::byte{0x48},std::byte{0x49},std::byte{0x4a},std::byte{0x4b},std::byte{0x4c},std::byte{0x4d},std::byte{0x4e},std::byte{0x4f},std::byte{0x50},std::byte{0x51},std::byte{0x52},std::byte{0x53},
-    std::byte{0x54},std::byte{0x55},std::byte{0x56},std::byte{0x57},std::byte{0x58},std::byte{0x59},std::byte{0x5a},std::byte{0x5b},std::byte{0x5c},std::byte{0x5d},std::byte{0x5e},std::byte{0x5f},
-    std::byte{0x60},std::byte{0x61},std::byte{0x62},std::byte{0x63},std::byte{0x64},std::byte{0x65},std::byte{0x66},std::byte{0x67},std::byte{0x68},std::byte{0x69},std::byte{0x6a},std::byte{0x6b},
-    std::byte{0x6c},std::byte{0x6d},std::byte{0x6e},std::byte{0x6f},std::byte{0x70},std::byte{0x71},std::byte{0x72},std::byte{0x73},std::byte{0x74},std::byte{0x75},std::byte{0x76},std::byte{0x77},
-    std::byte{0x78},std::byte{0x79},std::byte{0x7a},std::byte{0x7b},std::byte{0x7c},std::byte{0x7d},std::byte{0x7e},std::byte{0x7f},std::byte{0x80},std::byte{0x81},std::byte{0x82},std::byte{0x83},
-    std::byte{0x84},std::byte{0x85},std::byte{0x86},std::byte{0x87},std::byte{0x88},std::byte{0x89},std::byte{0x8a},std::byte{0x8b},std::byte{0x8c},std::byte{0x8d},std::byte{0x8e},std::byte{0x8f},
-    std::byte{0x90},std::byte{0x91},std::byte{0x92},std::byte{0x93},std::byte{0x94},std::byte{0x95},std::byte{0x96},std::byte{0x97},std::byte{0x98},std::byte{0x99},std::byte{0x9a},std::byte{0x9b},
-    std::byte{0x9c},std::byte{0x9d},std::byte{0x9e},std::byte{0x9f},std::byte{0xa0},std::byte{0xa1},std::byte{0xa2},std::byte{0xa3},std::byte{0xa4},std::byte{0xa5},std::byte{0xa6},std::byte{0xa7},
-    std::byte{0xa8},std::byte{0xa9},std::byte{0xaa},std::byte{0xab},std::byte{0xac},std::byte{0xad},std::byte{0xae},std::byte{0xaf},std::byte{0xb0},std::byte{0xb1},std::byte{0xb2},std::byte{0xb3},
-    std::byte{0xb4},std::byte{0xb5},std::byte{0xb6},std::byte{0xb7},std::byte{0xb8},std::byte{0xb9},std::byte{0xba},std::byte{0xbb},std::byte{0xbc},std::byte{0xbd},std::byte{0xbe},std::byte{0xbf},
-    std::byte{0xc0},std::byte{0xc1},std::byte{0xc2},std::byte{0xc3},std::byte{0xc4},std::byte{0xc5},std::byte{0xc6},std::byte{0xc7},std::byte{0xc8},std::byte{0xc9},std::byte{0xca},std::byte{0xcb},
-    std::byte{0xcc},std::byte{0xcd},std::byte{0xce},std::byte{0xcf},std::byte{0xd0},std::byte{0xd1},std::byte{0xd2},std::byte{0xd3},std::byte{0xd4},std::byte{0xd5},std::byte{0xd6},std::byte{0xd7},
-    std::byte{0xd8},std::byte{0xd9},std::byte{0xda},std::byte{0xdb},std::byte{0xdc},std::byte{0xdd},std::byte{0xde},std::byte{0xdf},std::byte{0xe0},std::byte{0xe1},std::byte{0xe2},std::byte{0xe3},
-    std::byte{0xe4},std::byte{0xe5},std::byte{0xe6},std::byte{0xe7},std::byte{0xe8},std::byte{0xe9},std::byte{0xea},std::byte{0xeb},std::byte{0xec},std::byte{0xed},std::byte{0xee},std::byte{0xef},
-    std::byte{0xf0},std::byte{0xf1},std::byte{0xf2},std::byte{0xf3},std::byte{0xf4},std::byte{0xf5},std::byte{0xf6},std::byte{0xf7},std::byte{0xf8},std::byte{0xf9},std::byte{0xfa},std::byte{0xfb},
-    std::byte{0xfc},std::byte{0xfd},std::byte{0xfe},std::byte{0xff},
-}};
+    // ---- allsymbols ----
+    // encode 256 bytes -> need=453 written=453
+    inline const std::array<std::byte, 256> allsymbols_plain{{
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}, std::byte{0x05},
+        std::byte{0x06}, std::byte{0x07}, std::byte{0x08}, std::byte{0x09}, std::byte{0x0a}, std::byte{0x0b},
+        std::byte{0x0c}, std::byte{0x0d}, std::byte{0x0e}, std::byte{0x0f}, std::byte{0x10}, std::byte{0x11},
+        std::byte{0x12}, std::byte{0x13}, std::byte{0x14}, std::byte{0x15}, std::byte{0x16}, std::byte{0x17},
+        std::byte{0x18}, std::byte{0x19}, std::byte{0x1a}, std::byte{0x1b}, std::byte{0x1c}, std::byte{0x1d},
+        std::byte{0x1e}, std::byte{0x1f}, std::byte{0x20}, std::byte{0x21}, std::byte{0x22}, std::byte{0x23},
+        std::byte{0x24}, std::byte{0x25}, std::byte{0x26}, std::byte{0x27}, std::byte{0x28}, std::byte{0x29},
+        std::byte{0x2a}, std::byte{0x2b}, std::byte{0x2c}, std::byte{0x2d}, std::byte{0x2e}, std::byte{0x2f},
+        std::byte{0x30}, std::byte{0x31}, std::byte{0x32}, std::byte{0x33}, std::byte{0x34}, std::byte{0x35},
+        std::byte{0x36}, std::byte{0x37}, std::byte{0x38}, std::byte{0x39}, std::byte{0x3a}, std::byte{0x3b},
+        std::byte{0x3c}, std::byte{0x3d}, std::byte{0x3e}, std::byte{0x3f}, std::byte{0x40}, std::byte{0x41},
+        std::byte{0x42}, std::byte{0x43}, std::byte{0x44}, std::byte{0x45}, std::byte{0x46}, std::byte{0x47},
+        std::byte{0x48}, std::byte{0x49}, std::byte{0x4a}, std::byte{0x4b}, std::byte{0x4c}, std::byte{0x4d},
+        std::byte{0x4e}, std::byte{0x4f}, std::byte{0x50}, std::byte{0x51}, std::byte{0x52}, std::byte{0x53},
+        std::byte{0x54}, std::byte{0x55}, std::byte{0x56}, std::byte{0x57}, std::byte{0x58}, std::byte{0x59},
+        std::byte{0x5a}, std::byte{0x5b}, std::byte{0x5c}, std::byte{0x5d}, std::byte{0x5e}, std::byte{0x5f},
+        std::byte{0x60}, std::byte{0x61}, std::byte{0x62}, std::byte{0x63}, std::byte{0x64}, std::byte{0x65},
+        std::byte{0x66}, std::byte{0x67}, std::byte{0x68}, std::byte{0x69}, std::byte{0x6a}, std::byte{0x6b},
+        std::byte{0x6c}, std::byte{0x6d}, std::byte{0x6e}, std::byte{0x6f}, std::byte{0x70}, std::byte{0x71},
+        std::byte{0x72}, std::byte{0x73}, std::byte{0x74}, std::byte{0x75}, std::byte{0x76}, std::byte{0x77},
+        std::byte{0x78}, std::byte{0x79}, std::byte{0x7a}, std::byte{0x7b}, std::byte{0x7c}, std::byte{0x7d},
+        std::byte{0x7e}, std::byte{0x7f}, std::byte{0x80}, std::byte{0x81}, std::byte{0x82}, std::byte{0x83},
+        std::byte{0x84}, std::byte{0x85}, std::byte{0x86}, std::byte{0x87}, std::byte{0x88}, std::byte{0x89},
+        std::byte{0x8a}, std::byte{0x8b}, std::byte{0x8c}, std::byte{0x8d}, std::byte{0x8e}, std::byte{0x8f},
+        std::byte{0x90}, std::byte{0x91}, std::byte{0x92}, std::byte{0x93}, std::byte{0x94}, std::byte{0x95},
+        std::byte{0x96}, std::byte{0x97}, std::byte{0x98}, std::byte{0x99}, std::byte{0x9a}, std::byte{0x9b},
+        std::byte{0x9c}, std::byte{0x9d}, std::byte{0x9e}, std::byte{0x9f}, std::byte{0xa0}, std::byte{0xa1},
+        std::byte{0xa2}, std::byte{0xa3}, std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6}, std::byte{0xa7},
+        std::byte{0xa8}, std::byte{0xa9}, std::byte{0xaa}, std::byte{0xab}, std::byte{0xac}, std::byte{0xad},
+        std::byte{0xae}, std::byte{0xaf}, std::byte{0xb0}, std::byte{0xb1}, std::byte{0xb2}, std::byte{0xb3},
+        std::byte{0xb4}, std::byte{0xb5}, std::byte{0xb6}, std::byte{0xb7}, std::byte{0xb8}, std::byte{0xb9},
+        std::byte{0xba}, std::byte{0xbb}, std::byte{0xbc}, std::byte{0xbd}, std::byte{0xbe}, std::byte{0xbf},
+        std::byte{0xc0}, std::byte{0xc1}, std::byte{0xc2}, std::byte{0xc3}, std::byte{0xc4}, std::byte{0xc5},
+        std::byte{0xc6}, std::byte{0xc7}, std::byte{0xc8}, std::byte{0xc9}, std::byte{0xca}, std::byte{0xcb},
+        std::byte{0xcc}, std::byte{0xcd}, std::byte{0xce}, std::byte{0xcf}, std::byte{0xd0}, std::byte{0xd1},
+        std::byte{0xd2}, std::byte{0xd3}, std::byte{0xd4}, std::byte{0xd5}, std::byte{0xd6}, std::byte{0xd7},
+        std::byte{0xd8}, std::byte{0xd9}, std::byte{0xda}, std::byte{0xdb}, std::byte{0xdc}, std::byte{0xdd},
+        std::byte{0xde}, std::byte{0xdf}, std::byte{0xe0}, std::byte{0xe1}, std::byte{0xe2}, std::byte{0xe3},
+        std::byte{0xe4}, std::byte{0xe5}, std::byte{0xe6}, std::byte{0xe7}, std::byte{0xe8}, std::byte{0xe9},
+        std::byte{0xea}, std::byte{0xeb}, std::byte{0xec}, std::byte{0xed}, std::byte{0xee}, std::byte{0xef},
+        std::byte{0xf0}, std::byte{0xf1}, std::byte{0xf2}, std::byte{0xf3}, std::byte{0xf4}, std::byte{0xf5},
+        std::byte{0xf6}, std::byte{0xf7}, std::byte{0xf8}, std::byte{0xf9}, std::byte{0xfa}, std::byte{0xfb},
+        std::byte{0xfc}, std::byte{0xfd}, std::byte{0xfe}, std::byte{0xff},
+    }};
 
-inline const std::array<std::byte, 453> allsymbols_encoded{{
-    std::byte{0x22},std::byte{0x00},std::byte{0x4a},std::byte{0x00},std::byte{0xdf},std::byte{0xe0},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x80},std::byte{0x40},std::byte{0xc0},std::byte{0x20},std::byte{0xa0},std::byte{0x60},
-    std::byte{0xe0},std::byte{0x10},std::byte{0x90},std::byte{0x50},std::byte{0xd0},std::byte{0x30},std::byte{0xb0},std::byte{0x70},std::byte{0xf0},std::byte{0x08},std::byte{0x88},std::byte{0x48},
-    std::byte{0xc8},std::byte{0x28},std::byte{0xa8},std::byte{0x68},std::byte{0xe8},std::byte{0x18},std::byte{0x98},std::byte{0x58},std::byte{0xd8},std::byte{0x38},std::byte{0xb8},std::byte{0x78},
-    std::byte{0xf8},std::byte{0x04},std::byte{0x84},std::byte{0x44},std::byte{0xc4},std::byte{0x24},std::byte{0xa4},std::byte{0x64},std::byte{0xe4},std::byte{0x14},std::byte{0x94},std::byte{0x54},
-    std::byte{0xd4},std::byte{0x34},std::byte{0xb4},std::byte{0x74},std::byte{0xf4},std::byte{0x0c},std::byte{0x8c},std::byte{0x4c},std::byte{0xcc},std::byte{0x2c},std::byte{0xac},std::byte{0x6c},
-    std::byte{0xec},std::byte{0x1c},std::byte{0x9c},std::byte{0x5c},std::byte{0xdc},std::byte{0x3c},std::byte{0xbc},std::byte{0x7c},std::byte{0xfc},std::byte{0x02},std::byte{0x82},std::byte{0x42},
-    std::byte{0xc2},std::byte{0x22},std::byte{0xa2},std::byte{0x62},std::byte{0xe2},std::byte{0x12},std::byte{0x92},std::byte{0x52},std::byte{0xd2},std::byte{0x32},std::byte{0xb2},std::byte{0x72},
-    std::byte{0xf2},std::byte{0x0a},std::byte{0x8a},std::byte{0x4a},std::byte{0xca},std::byte{0x2a},std::byte{0xaa},std::byte{0x6a},std::byte{0xea},std::byte{0x1a},std::byte{0x9a},std::byte{0x5a},
-    std::byte{0xda},std::byte{0x3a},std::byte{0xba},std::byte{0x7a},std::byte{0xfa},std::byte{0x06},std::byte{0x86},std::byte{0x46},std::byte{0xc6},std::byte{0x26},std::byte{0xa6},std::byte{0x66},
-    std::byte{0xe6},std::byte{0x16},std::byte{0x96},std::byte{0x56},std::byte{0xd6},std::byte{0x36},std::byte{0xb6},std::byte{0x76},std::byte{0xf6},std::byte{0x0e},std::byte{0x8e},std::byte{0x4e},
-    std::byte{0xce},std::byte{0x2e},std::byte{0xae},std::byte{0x6e},std::byte{0xee},std::byte{0x1e},std::byte{0x9e},std::byte{0x5e},std::byte{0xde},std::byte{0x3e},std::byte{0xbe},std::byte{0x7e},
-    std::byte{0xfe},std::byte{0x01},std::byte{0x81},std::byte{0x41},std::byte{0xc1},std::byte{0x21},std::byte{0xa1},std::byte{0x61},std::byte{0xe1},std::byte{0x11},std::byte{0x91},std::byte{0x51},
-    std::byte{0xd1},std::byte{0x31},std::byte{0xb1},std::byte{0x71},std::byte{0xf1},std::byte{0x09},std::byte{0x89},std::byte{0x49},std::byte{0xc9},std::byte{0x29},std::byte{0xa9},std::byte{0x69},
-    std::byte{0xe9},std::byte{0x19},std::byte{0x99},std::byte{0x59},std::byte{0xd9},std::byte{0x39},std::byte{0xb9},std::byte{0x79},std::byte{0xf9},std::byte{0x05},std::byte{0x85},std::byte{0x45},
-    std::byte{0xc5},std::byte{0x25},std::byte{0xa5},std::byte{0x65},std::byte{0xe5},std::byte{0x15},std::byte{0x95},std::byte{0x55},std::byte{0xd5},std::byte{0x35},std::byte{0xb5},std::byte{0x75},
-    std::byte{0xf5},std::byte{0x0d},std::byte{0x8d},std::byte{0x4d},std::byte{0xcd},std::byte{0x2d},std::byte{0xad},std::byte{0x6d},std::byte{0xed},std::byte{0x1d},std::byte{0x9d},std::byte{0x5d},
-    std::byte{0xdd},std::byte{0x3d},std::byte{0xbd},std::byte{0x7d},std::byte{0xfd},std::byte{0x03},std::byte{0x83},std::byte{0x43},std::byte{0xc3},std::byte{0x23},std::byte{0xa3},std::byte{0x63},
-    std::byte{0xe3},std::byte{0x13},std::byte{0x93},std::byte{0x53},std::byte{0xd3},std::byte{0x33},std::byte{0xb3},std::byte{0x73},std::byte{0xf3},std::byte{0x0b},std::byte{0x8b},std::byte{0x4b},
-    std::byte{0xcb},std::byte{0x2b},std::byte{0xab},std::byte{0x6b},std::byte{0xeb},std::byte{0x1b},std::byte{0x9b},std::byte{0x5b},std::byte{0xdb},std::byte{0x3b},std::byte{0xbb},std::byte{0x7b},
-    std::byte{0xfb},std::byte{0x07},std::byte{0x87},std::byte{0x47},std::byte{0xc7},std::byte{0x27},std::byte{0xa7},std::byte{0x67},std::byte{0xe7},std::byte{0x17},std::byte{0x97},std::byte{0x57},
-    std::byte{0xd7},std::byte{0x37},std::byte{0xb7},std::byte{0x77},std::byte{0xf7},std::byte{0x0f},std::byte{0x8f},std::byte{0x4f},std::byte{0xcf},std::byte{0x2f},std::byte{0xaf},std::byte{0x6f},
-    std::byte{0xef},std::byte{0x1f},std::byte{0x9f},std::byte{0x5f},std::byte{0xdf},std::byte{0x3f},std::byte{0xbf},std::byte{0x7f},std::byte{0xff},
-}};
+    inline const std::array<std::byte, 453> allsymbols_encoded{{
+        std::byte{0x22}, std::byte{0x00}, std::byte{0x4a}, std::byte{0x00}, std::byte{0xdf}, std::byte{0xe0},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x80}, std::byte{0x40}, std::byte{0xc0}, std::byte{0x20}, std::byte{0xa0}, std::byte{0x60},
+        std::byte{0xe0}, std::byte{0x10}, std::byte{0x90}, std::byte{0x50}, std::byte{0xd0}, std::byte{0x30},
+        std::byte{0xb0}, std::byte{0x70}, std::byte{0xf0}, std::byte{0x08}, std::byte{0x88}, std::byte{0x48},
+        std::byte{0xc8}, std::byte{0x28}, std::byte{0xa8}, std::byte{0x68}, std::byte{0xe8}, std::byte{0x18},
+        std::byte{0x98}, std::byte{0x58}, std::byte{0xd8}, std::byte{0x38}, std::byte{0xb8}, std::byte{0x78},
+        std::byte{0xf8}, std::byte{0x04}, std::byte{0x84}, std::byte{0x44}, std::byte{0xc4}, std::byte{0x24},
+        std::byte{0xa4}, std::byte{0x64}, std::byte{0xe4}, std::byte{0x14}, std::byte{0x94}, std::byte{0x54},
+        std::byte{0xd4}, std::byte{0x34}, std::byte{0xb4}, std::byte{0x74}, std::byte{0xf4}, std::byte{0x0c},
+        std::byte{0x8c}, std::byte{0x4c}, std::byte{0xcc}, std::byte{0x2c}, std::byte{0xac}, std::byte{0x6c},
+        std::byte{0xec}, std::byte{0x1c}, std::byte{0x9c}, std::byte{0x5c}, std::byte{0xdc}, std::byte{0x3c},
+        std::byte{0xbc}, std::byte{0x7c}, std::byte{0xfc}, std::byte{0x02}, std::byte{0x82}, std::byte{0x42},
+        std::byte{0xc2}, std::byte{0x22}, std::byte{0xa2}, std::byte{0x62}, std::byte{0xe2}, std::byte{0x12},
+        std::byte{0x92}, std::byte{0x52}, std::byte{0xd2}, std::byte{0x32}, std::byte{0xb2}, std::byte{0x72},
+        std::byte{0xf2}, std::byte{0x0a}, std::byte{0x8a}, std::byte{0x4a}, std::byte{0xca}, std::byte{0x2a},
+        std::byte{0xaa}, std::byte{0x6a}, std::byte{0xea}, std::byte{0x1a}, std::byte{0x9a}, std::byte{0x5a},
+        std::byte{0xda}, std::byte{0x3a}, std::byte{0xba}, std::byte{0x7a}, std::byte{0xfa}, std::byte{0x06},
+        std::byte{0x86}, std::byte{0x46}, std::byte{0xc6}, std::byte{0x26}, std::byte{0xa6}, std::byte{0x66},
+        std::byte{0xe6}, std::byte{0x16}, std::byte{0x96}, std::byte{0x56}, std::byte{0xd6}, std::byte{0x36},
+        std::byte{0xb6}, std::byte{0x76}, std::byte{0xf6}, std::byte{0x0e}, std::byte{0x8e}, std::byte{0x4e},
+        std::byte{0xce}, std::byte{0x2e}, std::byte{0xae}, std::byte{0x6e}, std::byte{0xee}, std::byte{0x1e},
+        std::byte{0x9e}, std::byte{0x5e}, std::byte{0xde}, std::byte{0x3e}, std::byte{0xbe}, std::byte{0x7e},
+        std::byte{0xfe}, std::byte{0x01}, std::byte{0x81}, std::byte{0x41}, std::byte{0xc1}, std::byte{0x21},
+        std::byte{0xa1}, std::byte{0x61}, std::byte{0xe1}, std::byte{0x11}, std::byte{0x91}, std::byte{0x51},
+        std::byte{0xd1}, std::byte{0x31}, std::byte{0xb1}, std::byte{0x71}, std::byte{0xf1}, std::byte{0x09},
+        std::byte{0x89}, std::byte{0x49}, std::byte{0xc9}, std::byte{0x29}, std::byte{0xa9}, std::byte{0x69},
+        std::byte{0xe9}, std::byte{0x19}, std::byte{0x99}, std::byte{0x59}, std::byte{0xd9}, std::byte{0x39},
+        std::byte{0xb9}, std::byte{0x79}, std::byte{0xf9}, std::byte{0x05}, std::byte{0x85}, std::byte{0x45},
+        std::byte{0xc5}, std::byte{0x25}, std::byte{0xa5}, std::byte{0x65}, std::byte{0xe5}, std::byte{0x15},
+        std::byte{0x95}, std::byte{0x55}, std::byte{0xd5}, std::byte{0x35}, std::byte{0xb5}, std::byte{0x75},
+        std::byte{0xf5}, std::byte{0x0d}, std::byte{0x8d}, std::byte{0x4d}, std::byte{0xcd}, std::byte{0x2d},
+        std::byte{0xad}, std::byte{0x6d}, std::byte{0xed}, std::byte{0x1d}, std::byte{0x9d}, std::byte{0x5d},
+        std::byte{0xdd}, std::byte{0x3d}, std::byte{0xbd}, std::byte{0x7d}, std::byte{0xfd}, std::byte{0x03},
+        std::byte{0x83}, std::byte{0x43}, std::byte{0xc3}, std::byte{0x23}, std::byte{0xa3}, std::byte{0x63},
+        std::byte{0xe3}, std::byte{0x13}, std::byte{0x93}, std::byte{0x53}, std::byte{0xd3}, std::byte{0x33},
+        std::byte{0xb3}, std::byte{0x73}, std::byte{0xf3}, std::byte{0x0b}, std::byte{0x8b}, std::byte{0x4b},
+        std::byte{0xcb}, std::byte{0x2b}, std::byte{0xab}, std::byte{0x6b}, std::byte{0xeb}, std::byte{0x1b},
+        std::byte{0x9b}, std::byte{0x5b}, std::byte{0xdb}, std::byte{0x3b}, std::byte{0xbb}, std::byte{0x7b},
+        std::byte{0xfb}, std::byte{0x07}, std::byte{0x87}, std::byte{0x47}, std::byte{0xc7}, std::byte{0x27},
+        std::byte{0xa7}, std::byte{0x67}, std::byte{0xe7}, std::byte{0x17}, std::byte{0x97}, std::byte{0x57},
+        std::byte{0xd7}, std::byte{0x37}, std::byte{0xb7}, std::byte{0x77}, std::byte{0xf7}, std::byte{0x0f},
+        std::byte{0x8f}, std::byte{0x4f}, std::byte{0xcf}, std::byte{0x2f}, std::byte{0xaf}, std::byte{0x6f},
+        std::byte{0xef}, std::byte{0x1f}, std::byte{0x9f}, std::byte{0x5f}, std::byte{0xdf}, std::byte{0x3f},
+        std::byte{0xbf}, std::byte{0x7f}, std::byte{0xff},
+    }};
 
-// ---- ramp ----
-// encode 288 bytes -> need=311 written=311
-inline const std::array<std::byte, 288> ramp_plain{{
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},
-    std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},
-    std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},
-    std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},
-    std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},std::byte{0x01},
-    std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},
-    std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},
-    std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},
-    std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},std::byte{0x02},
-    std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},
-    std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},
-    std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},
-    std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x03},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},
-    std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},
-    std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},std::byte{0x04},
-    std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},
-    std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},std::byte{0x05},
-    std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},
-    std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x06},std::byte{0x07},std::byte{0x07},std::byte{0x07},std::byte{0x07},std::byte{0x07},std::byte{0x07},std::byte{0x07},std::byte{0x07},
-}};
+    // ---- ramp ----
+    // encode 288 bytes -> need=311 written=311
+    inline const std::array<std::byte, 288> ramp_plain{{
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02},
+        std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02},
+        std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02},
+        std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02},
+        std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02},
+        std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02},
+        std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02},
+        std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02}, std::byte{0x02},
+        std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03},
+        std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03},
+        std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03},
+        std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03},
+        std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03},
+        std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03},
+        std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x03}, std::byte{0x04}, std::byte{0x04},
+        std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04},
+        std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04},
+        std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04},
+        std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04},
+        std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04}, std::byte{0x04},
+        std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05},
+        std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05},
+        std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05},
+        std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05}, std::byte{0x05},
+        std::byte{0x06}, std::byte{0x06}, std::byte{0x06}, std::byte{0x06}, std::byte{0x06}, std::byte{0x06},
+        std::byte{0x06}, std::byte{0x06}, std::byte{0x06}, std::byte{0x06}, std::byte{0x06}, std::byte{0x06},
+        std::byte{0x06}, std::byte{0x06}, std::byte{0x06}, std::byte{0x06}, std::byte{0x07}, std::byte{0x07},
+        std::byte{0x07}, std::byte{0x07}, std::byte{0x07}, std::byte{0x07}, std::byte{0x07}, std::byte{0x07},
+    }};
 
-inline const std::array<std::byte, 311> ramp_encoded{{
-    std::byte{0x22},std::byte{0x40},std::byte{0x3b},std::byte{0x3e},std::byte{0x71},std::byte{0xc7},std::byte{0x6e},std::byte{0x3b},std::byte{0x6e},std::byte{0x39},std::byte{0x6e},std::byte{0x39},
-    std::byte{0x6e},std::byte{0x3b},std::byte{0x6e},std::byte{0x39},std::byte{0x6e},std::byte{0x3b},std::byte{0x6e},std::byte{0x39},std::byte{0x6e},std::byte{0x38},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},
-    std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0xaa},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0xff},std::byte{0xff},
-    std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},
-    std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},
-    std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x49},std::byte{0x92},std::byte{0x24},std::byte{0x49},std::byte{0x92},
-    std::byte{0x24},std::byte{0x49},std::byte{0x92},std::byte{0x24},std::byte{0x49},std::byte{0x92},std::byte{0x24},std::byte{0xbb},std::byte{0xbb},std::byte{0xbb},std::byte{0xbb},std::byte{0xbb},
-    std::byte{0xbb},std::byte{0xbb},std::byte{0xbb},std::byte{0xbb},std::byte{0xbb},std::byte{0xbb},std::byte{0xbb},std::byte{0x73},std::byte{0xce},std::byte{0x39},std::byte{0xe7},std::byte{0x9c},
-    std::byte{0x73},std::byte{0xce},std::byte{0x39},std::byte{0xe7},std::byte{0x9c},std::byte{0xe3},std::byte{0x38},std::byte{0x8e},std::byte{0xe3},std::byte{0x38},std::byte{0x8e},
-}};
+    inline const std::array<std::byte, 311> ramp_encoded{{
+        std::byte{0x22}, std::byte{0x40}, std::byte{0x3b}, std::byte{0x3e}, std::byte{0x71}, std::byte{0xc7},
+        std::byte{0x6e}, std::byte{0x3b}, std::byte{0x6e}, std::byte{0x39}, std::byte{0x6e}, std::byte{0x39},
+        std::byte{0x6e}, std::byte{0x3b}, std::byte{0x6e}, std::byte{0x39}, std::byte{0x6e}, std::byte{0x3b},
+        std::byte{0x6e}, std::byte{0x39}, std::byte{0x6e}, std::byte{0x38}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0xaa}, std::byte{0xaa},
+        std::byte{0xaa}, std::byte{0xaa}, std::byte{0xaa}, std::byte{0xaa}, std::byte{0xaa}, std::byte{0xaa},
+        std::byte{0xaa}, std::byte{0xaa}, std::byte{0xaa}, std::byte{0xaa}, std::byte{0xaa}, std::byte{0xaa},
+        std::byte{0xaa}, std::byte{0xaa}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0x6d}, std::byte{0xdb},
+        std::byte{0xb6}, std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6}, std::byte{0x6d}, std::byte{0xdb},
+        std::byte{0xb6}, std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6}, std::byte{0x6d}, std::byte{0xdb},
+        std::byte{0xb6}, std::byte{0x49}, std::byte{0x92}, std::byte{0x24}, std::byte{0x49}, std::byte{0x92},
+        std::byte{0x24}, std::byte{0x49}, std::byte{0x92}, std::byte{0x24}, std::byte{0x49}, std::byte{0x92},
+        std::byte{0x24}, std::byte{0xbb}, std::byte{0xbb}, std::byte{0xbb}, std::byte{0xbb}, std::byte{0xbb},
+        std::byte{0xbb}, std::byte{0xbb}, std::byte{0xbb}, std::byte{0xbb}, std::byte{0xbb}, std::byte{0xbb},
+        std::byte{0xbb}, std::byte{0x73}, std::byte{0xce}, std::byte{0x39}, std::byte{0xe7}, std::byte{0x9c},
+        std::byte{0x73}, std::byte{0xce}, std::byte{0x39}, std::byte{0xe7}, std::byte{0x9c}, std::byte{0xe3},
+        std::byte{0x38}, std::byte{0x8e}, std::byte{0xe3}, std::byte{0x38}, std::byte{0x8e},
+    }};
 
-// ---- repeat ----
-// encode 200 bytes -> need=224 written=224
-inline const std::array<std::byte, 200> repeat_plain{{
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-    std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},std::byte{0x41},
-}};
+    // ---- repeat ----
+    // encode 200 bytes -> need=224 written=224
+    inline const std::array<std::byte, 200> repeat_plain{{
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41}, std::byte{0x41},
+        std::byte{0x41}, std::byte{0x41},
+    }};
 
-inline const std::array<std::byte, 224> repeat_encoded{{
-    std::byte{0x1f},std::byte{0x20},std::byte{0x56},std::byte{0x40},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0xef},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},
-    std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},
-    std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},std::byte{0xff},
-}};
+    inline const std::array<std::byte, 224> repeat_encoded{{
+        std::byte{0x1f}, std::byte{0x20}, std::byte{0x56}, std::byte{0x40}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0xef}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff},
+    }};
 
-// ---- twosymbols ----
-// encode 128 bytes -> need=223 written=223
-inline const std::array<std::byte, 128> twosymbols_plain{{
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-    std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},std::byte{0x00},std::byte{0x01},
-}};
+    // ---- twosymbols ----
+    // encode 128 bytes -> need=223 written=223
+    inline const std::array<std::byte, 128> twosymbols_plain{{
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x01},
+    }};
 
-inline const std::array<std::byte, 223> twosymbols_encoded{{
-    std::byte{0x1e},std::byte{0x00},std::byte{0x56},std::byte{0x39},std::byte{0xff},std::byte{0xfc},std::byte{0x0f},std::byte{0x7f},std::byte{0xff},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},
-    std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0x00},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},
-    std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},
-    std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},std::byte{0xdb},std::byte{0xb6},std::byte{0x6d},
-}};
+    inline const std::array<std::byte, 223> twosymbols_encoded{{
+        std::byte{0x1e}, std::byte{0x00}, std::byte{0x56}, std::byte{0x39}, std::byte{0xff}, std::byte{0xfc},
+        std::byte{0x0f}, std::byte{0x7f}, std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0xdb}, std::byte{0xb6}, std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6},
+        std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6}, std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6},
+        std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6}, std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6},
+        std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6}, std::byte{0x6d}, std::byte{0xdb}, std::byte{0xb6},
+        std::byte{0x6d},
+    }};
 
     // Boundaries observed in the frozen phrase vector: the header holds the two sizes (MSB-first)
     // followed by 256 weight deltas, and then the LSB-first payload starts on the next byte.
@@ -346,8 +545,8 @@ inline const std::array<std::byte, 223> twosymbols_encoded{{
 
     huffman_reader make_reader(scripted_source &source, std::uint64_t encoded_size, std::uint64_t expected_size)
     {
-        return huffman_reader([&source](std::span<std::byte> destination) { return source(destination); },
-                              encoded_size, expected_size);
+        return huffman_reader([&source](std::span<std::byte> destination) { return source(destination); }, encoded_size,
+                              expected_size);
     }
 
     huffman_reader make_bounded_reader(scripted_source &source, std::uint64_t encoded_size,
@@ -367,7 +566,7 @@ inline const std::array<std::byte, 223> twosymbols_encoded{{
                 break;
             }
             out.insert(out.end(), scratch.begin(), scratch.begin() + static_cast<std::ptrdiff_t>(written));
-            if (out.size() > (std::size_t{1} << 24)) {
+            if (out.size() > (std::size_t{1} << 24u)) {
                 FAIL("decode produced an unbounded number of bytes");
             }
         }
@@ -383,8 +582,7 @@ inline const std::array<std::byte, 223> twosymbols_encoded{{
         }
     }
 
-    template <typename Exception, typename Callable>
-    void require_throws(const Callable &callable)
+    template <typename Exception, typename Callable> void require_throws(const Callable &callable)
     {
         bool threw = false;
         try {
@@ -421,7 +619,7 @@ inline const std::array<std::byte, 223> twosymbols_encoded{{
         {
             for (int i = count - 1; i >= 0; --i) {
                 const unsigned bit = static_cast<unsigned>((value >> static_cast<unsigned>(i)) & 1u);
-                current_ = (current_ << 1) | bit;
+                current_ = (current_ << 1u) | bit;
                 ++pending_;
                 if (pending_ == 8) {
                     bytes_.push_back(static_cast<std::byte>(current_));
@@ -445,7 +643,7 @@ inline const std::array<std::byte, 223> twosymbols_encoded{{
     void write_size(msb_bit_writer &writer, std::uint64_t value)
     {
         unsigned bits = 1;
-        while (bits < 64 && value >= (std::uint64_t{1} << bits)) {
+        while (bits < 64u && value >= (std::uint64_t{1} << bits)) {
             ++bits;
         }
         writer.put(bits - 1, 6);
@@ -455,7 +653,7 @@ inline const std::array<std::byte, 223> twosymbols_encoded{{
     void write_weight(msb_bit_writer &writer, unsigned magnitude, bool negative)
     {
         unsigned bits = 2;
-        while (bits < 16 && static_cast<std::uint64_t>(magnitude) >= (std::uint64_t{1} << bits)) {
+        while (bits < 16u && static_cast<std::uint64_t>(magnitude) >= (std::uint64_t{1} << bits)) {
             bits += 2;
         }
         writer.put(bits / 2 - 1, 3);
@@ -530,11 +728,8 @@ TEST_CASE("wolfrpg huffman honours destination granularity", "[wolfrpg][huffman]
         std::span<const std::byte> encoded;
     };
     const golden vectors[] = {
-        {phrase_plain, phrase_encoded},
-        {allsymbols_plain, allsymbols_encoded},
-        {ramp_plain, ramp_encoded},
-        {repeat_plain, repeat_encoded},
-        {twosymbols_plain, twosymbols_encoded},
+        {phrase_plain, phrase_encoded}, {allsymbols_plain, allsymbols_encoded}, {ramp_plain, ramp_encoded},
+        {repeat_plain, repeat_encoded}, {twosymbols_plain, twosymbols_encoded},
     };
 
     for (const golden &vector : vectors) {
@@ -609,9 +804,8 @@ TEST_CASE("wolfrpg huffman requires the declared payload to be consumed exactly"
         scripted_source source = make_source(data);
         huffman_reader reader = make_reader(source, data.size(), 1);
         std::array<std::byte, 1> out{};
-        require_throws_message<huffman_error>(
-            [&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
-            "wolfrpg huffman payload not fully consumed");
+        require_throws_message<huffman_error>([&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
+                                              "wolfrpg huffman payload not fully consumed");
     }
 
     SECTION("bytes appended outside the declared payload are rejected at construction")
@@ -629,9 +823,8 @@ TEST_CASE("wolfrpg huffman requires the declared payload to be consumed exactly"
         scripted_source source = make_source(present);
         huffman_reader reader = make_reader(source, declared.size(), 1);
         std::array<std::byte, 1> out{};
-        require_throws_message<huffman_error>(
-            [&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
-            "wolfrpg huffman payload not fully consumed");
+        require_throws_message<huffman_error>([&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
+                                              "wolfrpg huffman payload not fully consumed");
     }
 
     SECTION("an empty stream that carries a payload is rejected at construction")
@@ -707,9 +900,8 @@ TEST_CASE("wolfrpg huffman rejects an overfilling source", "[wolfrpg][huffman]")
 {
     scripted_source source = make_source(phrase_encoded);
     source.overfill = true;
-    require_throws_message<huffman_error>(
-        [&] { (void)make_reader(source, source.data.size(), phrase_plain.size()); },
-        "wolfrpg huffman source overfilled");
+    require_throws_message<huffman_error>([&] { (void)make_reader(source, source.data.size(), phrase_plain.size()); },
+                                          "wolfrpg huffman source overfilled");
 }
 
 TEST_CASE("wolfrpg huffman surfaces source failures unchanged", "[wolfrpg][huffman]")
@@ -744,9 +936,8 @@ TEST_CASE("wolfrpg huffman detects a payload that ends early", "[wolfrpg][huffma
     source.limit = phrase_header_bytes + 4;
     huffman_reader reader = make_reader(source, phrase_encoded.size(), phrase_plain.size());
     std::array<std::byte, 43> out{};
-    require_throws_message<huffman_error>(
-        [&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
-        "wolfrpg huffman payload truncated");
+    require_throws_message<huffman_error>([&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
+                                          "wolfrpg huffman payload truncated");
 }
 
 TEST_CASE("wolfrpg huffman rejects a nonempty output that declares no payload", "[wolfrpg][huffman]")
@@ -760,9 +951,8 @@ TEST_CASE("wolfrpg huffman rejects a nonempty output that declares no payload", 
     huffman_reader reader = make_reader(source, data.size(), 256);
     REQUIRE(reader.remaining() == 256);
     std::array<std::byte, 1> out{};
-    require_throws_message<huffman_error>(
-        [&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
-        "wolfrpg huffman payload truncated");
+    require_throws_message<huffman_error>([&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
+                                          "wolfrpg huffman payload truncated");
     REQUIRE(reader.remaining() == 256);
 }
 
@@ -776,14 +966,12 @@ TEST_CASE("wolfrpg huffman latches a physically truncated payload across reads",
     source.limit = phrase_header_bytes + 4;
     huffman_reader reader = make_reader(source, phrase_encoded.size(), phrase_plain.size());
     std::array<std::byte, 43> out{};
-    require_throws_message<huffman_error>(
-        [&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
-        "wolfrpg huffman payload truncated");
+    require_throws_message<huffman_error>([&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
+                                          "wolfrpg huffman payload truncated");
     const std::size_t calls_after_first = source.calls;
     const std::uint64_t remaining_after_first = reader.remaining();
-    require_throws_message<huffman_error>(
-        [&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
-        "wolfrpg huffman payload truncated");
+    require_throws_message<huffman_error>([&] { (void)reader.read(std::span<std::byte>(out.data(), out.size())); },
+                                          "wolfrpg huffman payload truncated");
     REQUIRE(source.calls == calls_after_first);
     REQUIRE(reader.remaining() == remaining_after_first);
 }
@@ -796,7 +984,7 @@ TEST_CASE("wolfrpg huffman supports move construction and assignment", "[wolfrpg
     huffman_reader original = make_reader(phrase, phrase_encoded.size(), phrase_plain.size());
     huffman_reader moved(std::move(original));
     require_bytes(decode_all(moved), phrase_plain);
-    REQUIRE(original.remaining() == 0);
+    REQUIRE(original.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
     REQUIRE(original.read(std::span<std::byte>(probe.data(), probe.size())) == 0);
 
     scripted_source ramp = make_source(ramp_encoded);
@@ -805,7 +993,7 @@ TEST_CASE("wolfrpg huffman supports move construction and assignment", "[wolfrpg
     huffman_reader target = make_reader(repeat, repeat_encoded.size(), repeat_plain.size());
     target = std::move(donor);
     require_bytes(decode_all(target), ramp_plain);
-    REQUIRE(donor.remaining() == 0);
+    REQUIRE(donor.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
     REQUIRE(donor.read(std::span<std::byte>(probe.data(), probe.size())) == 0);
 }
 
@@ -863,9 +1051,8 @@ TEST_CASE("wolfrpg huffman bounded factory rejects a truncated original prefix",
     SECTION("a source that ends inside the original-size prefix")
     {
         scripted_source source = make_source(std::span<const std::byte>(phrase_encoded.data(), std::size_t{1}));
-        require_throws_message<huffman_error>(
-            [&] { (void)make_bounded_reader(source, 1, phrase_plain.size()); },
-            "wolfrpg huffman header truncated");
+        require_throws_message<huffman_error>([&] { (void)make_bounded_reader(source, 1, phrase_plain.size()); },
+                                              "wolfrpg huffman header truncated");
     }
 }
 
@@ -884,11 +1071,11 @@ TEST_CASE("wolfrpg huffman bounded factory rejects an overflow-sized original", 
     SECTION("a wide original just above the bound")
     {
         msb_bit_writer writer;
-        write_size(writer, std::uint64_t{1} << 20);
+        write_size(writer, std::uint64_t{1} << 20u);
         writer.finish();
         scripted_source source = make_source(writer.bytes_);
         require_throws_message<huffman_error>(
-            [&] { (void)make_bounded_reader(source, source.data.size(), (std::uint64_t{1} << 20) - 1); },
+            [&] { (void)make_bounded_reader(source, source.data.size(), (std::uint64_t{1} << 20u) - 1); },
             "wolfrpg huffman original size exceeds bound");
     }
 }
@@ -938,7 +1125,7 @@ TEST_CASE("wolfrpg huffman bounded reader streams partial reads and moves", "[wo
         huffman_reader original = make_bounded_reader(source, phrase_encoded.size(), phrase_plain.size());
         huffman_reader moved(std::move(original));
         require_bytes(decode_all(moved), phrase_plain);
-        REQUIRE(original.remaining() == 0);
+        REQUIRE(original.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
         REQUIRE(original.read(std::span<std::byte>(probe.data(), probe.size())) == 0);
     }
 }
@@ -957,8 +1144,7 @@ TEST_CASE("wolfrpg huffman exact constructor stays exact alongside the bounded f
     require_bytes(decode_all(reader), phrase_plain);
 }
 
-TEST_CASE("wolfrpg huffman bounded factory rejects an oversize original before touching weights",
-          "[wolfrpg][huffman]")
+TEST_CASE("wolfrpg huffman bounded factory rejects an oversize original before touching weights", "[wolfrpg][huffman]")
 {
     // The source hands over exactly the two bytes that carry the original-size prefix for 43 and
     // then throws if asked for anything else. Because the declared original exceeds the bound, the
@@ -980,8 +1166,7 @@ TEST_CASE("wolfrpg huffman bounded factory rejects an oversize original before t
     REQUIRE(source.pos == std::size_t{2});
 }
 
-TEST_CASE("wolfrpg huffman bounded factory confines its pulls to the original-size prefix",
-          "[wolfrpg][huffman]")
+TEST_CASE("wolfrpg huffman bounded factory confines its pulls to the original-size prefix", "[wolfrpg][huffman]")
 {
     // The phrase's 43-byte original is carried by a two-byte prefix at the head of the stream. This
     // source fills whatever it is asked for out of the full encoded vector, so a factory that
@@ -1043,8 +1228,8 @@ TEST_CASE("wolfrpg shared huffman context is exercised directly", "[wolfrpg][huf
     {
         vendor_source source{phrase_encoded, 0, false};
         bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact,
-                             phrase_encoded.size(), phrase_plain.size()) == huffman_status::ok);
+        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, phrase_encoded.size(),
+                             phrase_plain.size()) == huffman_status::ok);
         REQUIRE(decoder.original_size() == phrase_plain.size());
         REQUIRE(decoder.produced() == 0);
         bytes out;
@@ -1067,8 +1252,8 @@ TEST_CASE("wolfrpg shared huffman context is exercised directly", "[wolfrpg][huf
     {
         vendor_source source{phrase_encoded, 0, true};
         bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact,
-                             phrase_encoded.size(), phrase_plain.size()) == huffman_status::source_failure);
+        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, phrase_encoded.size(),
+                             phrase_plain.size()) == huffman_status::source_failure);
     }
 }
 
@@ -1085,8 +1270,8 @@ TEST_CASE("wolfrpg shared huffman context reports a truncated header at every cu
         INFO("cut " << cut);
         vendor_source source{std::span<const std::byte>(phrase_encoded.data(), cut), 0, false};
         bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, cut,
-                             phrase_plain.size()) == huffman_status::header_truncated);
+        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, cut, phrase_plain.size()) ==
+                huffman_status::header_truncated);
     }
 }
 
@@ -1106,8 +1291,8 @@ TEST_CASE("wolfrpg shared huffman context reports field-aligned header truncatio
         writer.finish();
         vendor_source source{std::span<const std::byte>(writer.bytes_.data(), writer.bytes_.size()), 0, false};
         bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, writer.bytes_.size(), 1)
-                == huffman_status::header_truncated);
+        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, writer.bytes_.size(), 1) ==
+                huffman_status::header_truncated);
     }
 
     SECTION("a cut between a weight width field and its sign bit")
@@ -1120,8 +1305,8 @@ TEST_CASE("wolfrpg shared huffman context reports field-aligned header truncatio
         writer.finish();
         vendor_source source{std::span<const std::byte>(writer.bytes_.data(), writer.bytes_.size()), 0, false};
         bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, writer.bytes_.size(), 2)
-                == huffman_status::header_truncated);
+        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, writer.bytes_.size(), 2) ==
+                huffman_status::header_truncated);
     }
 }
 

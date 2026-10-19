@@ -31,15 +31,15 @@ namespace test::support
 
     struct modern_archive_fixture
     {
-        std::string file_name;           // fixture file name under src/tests/fixtures/wolfrpg
-        int mode_index = 0;              // index into the pinned WolfDec::DefaultCryptModes() table
-        std::string mode_name;           // pinned table entry name
-        std::uint16_t crypt_version = 0; // pinned table entry cryptVersion
-        std::vector<std::byte> key;      // full pinned key blob (trailing NUL terminator included)
-        std::string enc_symbol;          // pinned encFunc symbol string
-        std::string dec_symbol;          // pinned decFunc symbol string
-        std::string archive_sha256;      // frozen container digest, lowercase hex
-        std::size_t archive_size = 0;    // frozen container length in bytes
+        std::string file_name;                 // fixture file name under src/tests/fixtures/wolfrpg
+        int mode_index = 0;                    // index into the pinned WolfDec::DefaultCryptModes() table
+        std::string mode_name;                 // pinned table entry name
+        std::uint16_t crypt_version = 0;       // pinned table entry cryptVersion
+        std::vector<std::byte> key;            // full pinned key blob (trailing NUL terminator included)
+        std::string enc_symbol;                // pinned encFunc symbol string
+        std::string dec_symbol;                // pinned decFunc symbol string
+        std::string archive_sha256;            // frozen container digest, lowercase hex
+        std::size_t archive_size = 0;          // frozen container length in bytes
         std::uint64_t archive_fingerprint = 0; // frozen container FNV-1a 64 over the raw bytes
         std::vector<modern_payload> entries;
     };

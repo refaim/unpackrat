@@ -35,14 +35,20 @@ namespace
     {
         const auto error = observed_exception<Error>(operation);
         REQUIRE(error.has_value());
-        CHECK(std::string_view(error->what()) == message);
+        if (!error.has_value()) {
+            return;
+        }
+        CHECK(std::string_view(error.value().what()) == message);
     }
     void require_io_failure(const std::function<void()> &operation)
     {
         const auto error = observed_exception<std::ios_base::failure>(operation);
         REQUIRE(error.has_value());
-        CHECK(error->code() == std::make_error_code(std::io_errc::stream));
-        CHECK_FALSE(std::string_view(error->what()).empty());
+        if (!error.has_value()) {
+            return;
+        }
+        CHECK(error.value().code() == std::make_error_code(std::io_errc::stream));
+        CHECK_FALSE(std::string_view(error.value().what()).empty());
     }
     using unpackrat::wolfrpg::archive;
     using unpackrat::wolfrpg::read_error;
@@ -75,7 +81,7 @@ namespace
     {
         std::string text;
         text.reserve(131072);
-        for (int i = 0; i < 8192; ++i) {
+        for (int i = 0; i < 8192u; ++i) {
             text += "0123456789abcdef";
         }
         return text;
@@ -83,8 +89,9 @@ namespace
 
     void write_u64(std::vector<std::byte> &bytes, const std::size_t offset, const std::uint64_t value)
     {
-        for (int i = 0; i < 8; ++i) {
-            bytes[offset + static_cast<std::size_t>(i)] = static_cast<std::byte>((value >> (8 * i)) & 0xff);
+        for (int i = 0; i < 8u; ++i) {
+            bytes[offset + static_cast<std::size_t>(i)] =
+                static_cast<std::byte>((value >> (8u * static_cast<unsigned>(i))) & 0xffu);
         }
     }
 
@@ -271,7 +278,7 @@ TEST_CASE("malformed headers, counts and paths are rejected", "[wolfrpg][adapter
     SECTION("an absurd root count beyond the metadata budget is rejected")
     {
         test::support::built_archive built = test::support::build_plain_archive(entries);
-        test::support::set_root_file_count(built, built.bytes, 1ULL << 32);
+        test::support::set_root_file_count(built, built.bytes, 1ULL << 32u);
         std::istringstream stream = to_stream(built.bytes);
         require_message<read_error>([&] { (void)(archive::open(stream, "many.wolf")); }, "WolfRPG archive read failed");
     }
@@ -315,7 +322,7 @@ TEST_CASE("reader failures and cancellations keep their identities", "[wolfrpg][
 
     SECTION("a progress exception propagates unchanged")
     {
-        const std::string large(1 << 16, 'p');
+        const std::string large(1U << 16u, 'p');
         const std::array big_entries{
             test::support::synthetic_entry{"large.bin", large, false},
         };
@@ -325,7 +332,9 @@ TEST_CASE("reader failures and cancellations keep their identities", "[wolfrpg][
         REQUIRE(big_reader);
         std::ostringstream output;
         REQUIRE(observed_exception<cancel_signal>([&] {
-                    (void)(big_reader->extract(0, big_stream, output, [](std::int64_t) { throw cancel_signal{}; }));
+                    (void)(big_reader->extract(0, big_stream, output, [](std::int64_t) {
+                        throw cancel_signal{};
+                    })); // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
                 }).has_value());
     }
 
@@ -378,14 +387,14 @@ TEST_CASE("large declared entries are not artificially capped", "[wolfrpg][adapt
 TEST_CASE("extract progress reports per-write byte deltas, not a running total", "[wolfrpg][adapter]")
 {
     const std::string content = byte_pattern(100000);
-    REQUIRE(content.size() > 32768);
+    REQUIRE(content.size() > 32768u);
 
     const auto check_deltas = [](const progress_observation &observation, const std::string &expected) {
         CHECK(observation.output == expected);
-        CHECK(observation.steps.size() > 1);
+        CHECK(observation.steps.size() > 1u);
         std::int64_t total = 0;
         for (const std::int64_t delta : observation.steps) {
-            CHECK(delta > 0);
+            CHECK(delta > 0u);
             CHECK(delta <= 32768);
             total += delta;
         }

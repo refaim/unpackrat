@@ -69,8 +69,8 @@ namespace unpackrat::wolfrpg::codec
     struct lz_reader::state
     {
         state(source_bridge &bridge, const std::uint64_t encoded_size, const std::uint64_t expected_size)
-            : kernel_([&bridge](std::span<std::byte> destination) { return bridge(destination); },
-                      encoded_size, expected_size),
+            : kernel_([&bridge](std::span<std::byte> destination) { return bridge(destination); }, encoded_size,
+                      expected_size),
               history_(history_size(expected_size))
         {
         }
@@ -78,8 +78,7 @@ namespace unpackrat::wolfrpg::codec
         // The smallest ring that still covers min(decoded extent, window) and is never empty.
         [[nodiscard]] static std::size_t history_size(const std::uint64_t expected_size) noexcept
         {
-            const std::uint64_t window =
-                expected_size < max_history_size ? expected_size : max_history_size;
+            const std::uint64_t window = expected_size < max_history_size ? expected_size : max_history_size;
             return static_cast<std::size_t>(window == 0 ? 1 : window);
         }
 

@@ -22,10 +22,12 @@ namespace
         std::memcpy(&header, bytes.data(), sizeof(header));
         DXArchive_VER5::KeyConv(&header, sizeof(header), 0, key.data());
         REQUIRE(header.Version == 5);
-        REQUIRE(name.size() < 12);
+        REQUIRE(name.size() < 12u);
         const auto at = header.FileNameTableStartAddress;
         REQUIRE(at + header.HeadSize <= bytes.size());
-        std::vector<std::byte> metadata(bytes.begin() + at, bytes.begin() + at + header.HeadSize);
+        std::vector<std::byte> metadata(bytes.begin() + static_cast<std::ptrdiff_t>(at),
+                                        bytes.begin() + static_cast<std::ptrdiff_t>(at) +
+                                            static_cast<std::ptrdiff_t>(header.HeadSize));
         DXArchive_VER5::KeyConv(metadata.data(), static_cast<int>(metadata.size()), 0, key.data());
         const std::string original = "hello.txt";
         auto found =
@@ -47,7 +49,7 @@ namespace
         DXArchive_VER5::KeyConv(&header, sizeof(header), 0, key.data());
         std::memcpy(bytes.data(), &header, sizeof(header));
         DXArchive_VER5::KeyConv(metadata.data(), static_cast<int>(metadata.size()), 0, key.data());
-        std::copy(metadata.begin(), metadata.end(), bytes.begin() + at);
+        std::copy(metadata.begin(), metadata.end(), bytes.begin() + static_cast<std::ptrdiff_t>(at));
         return bytes;
     }
     std::istringstream input(const std::vector<std::byte> &bytes)

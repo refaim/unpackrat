@@ -39,8 +39,7 @@ namespace
     class slice_source
     {
       public:
-        explicit slice_source(byte_vector data,
-                              const std::size_t max_chunk = std::numeric_limits<std::size_t>::max())
+        explicit slice_source(byte_vector data, const std::size_t max_chunk = std::numeric_limits<std::size_t>::max())
             : data_(std::move(data)), max_chunk_(max_chunk)
         {
         }
@@ -125,7 +124,8 @@ namespace
         std::size_t operator()(std::span<std::byte> destination)
         {
             if (position_ >= limit_) {
-                throw source_probe_error{7};
+                throw source_probe_error{
+                    7}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std source fault
             }
             const std::size_t count = std::min({destination.size(), limit_ - position_, data_.size() - position_});
             std::memcpy(destination.data(), data_.data() + position_, count);
@@ -164,8 +164,7 @@ namespace
         return text;
     }
 
-    lz_reader make_reader(const byte_vector &data, const std::uint64_t encoded_size,
-                          const std::uint64_t expected_size,
+    lz_reader make_reader(const byte_vector &data, const std::uint64_t encoded_size, const std::uint64_t expected_size,
                           const std::size_t max_chunk = std::numeric_limits<std::size_t>::max())
     {
         return lz_reader(slice_source(data, max_chunk), encoded_size, expected_size);
@@ -207,8 +206,8 @@ namespace
     TEST_CASE("lz_reader decodes a two-byte distance")
     {
         // decoded 8, encoded 17, key 0xFF: "ABCD" then width-1 backref length 4 distance 4
-        const byte_vector stream = bytes({0x08, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF,
-                                          0x41, 0x42, 0x43, 0x44, 0xFF, 0x01, 0x03, 0x00});
+        const byte_vector stream = bytes(
+            {0x08, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42, 0x43, 0x44, 0xFF, 0x01, 0x03, 0x00});
         lz_reader reader = make_reader(stream, 17, 8);
         REQUIRE(ascii(read_exact(reader, 8)) == "ABCDABCD");
     }
@@ -216,8 +215,8 @@ namespace
     TEST_CASE("lz_reader decodes a three-byte distance")
     {
         // decoded 5, encoded 15, key 0xFF: 'X' then width-2 backref length 4 distance 1
-        const byte_vector stream = bytes({0x05, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0xFF,
-                                          0x58, 0xFF, 0x02, 0x00, 0x00, 0x00});
+        const byte_vector stream =
+            bytes({0x05, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0xFF, 0x58, 0xFF, 0x02, 0x00, 0x00, 0x00});
         lz_reader reader = make_reader(stream, 15, 5);
         REQUIRE(ascii(read_exact(reader, 5)) == "XXXXX");
     }
@@ -248,8 +247,8 @@ namespace
     TEST_CASE("lz_reader decodes an overlapping distance-two copy")
     {
         // decoded 10, encoded 17, key 0xFF: "ABCD" then width-1 backref length 6 distance 2
-        const byte_vector stream = bytes({0x0A, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF,
-                                          0x41, 0x42, 0x43, 0x44, 0xFF, 0x11, 0x01, 0x00});
+        const byte_vector stream = bytes(
+            {0x0A, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42, 0x43, 0x44, 0xFF, 0x11, 0x01, 0x00});
         lz_reader reader = make_reader(stream, 17, 10);
         REQUIRE(ascii(read_exact(reader, 10)) == "ABCDCDCDCD");
     }
@@ -301,8 +300,7 @@ namespace
     TEST_CASE("lz_reader rejects a reserved distance width")
     {
         // key 0xFF, code byte 0x03 selects the reserved width 3
-        const byte_vector stream =
-            bytes({0x04, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x00});
+        const byte_vector stream = bytes({0x04, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x00});
         lz_reader reader = make_reader(stream, 12, 4);
         REQUIRE_THROWS_AS(read_exact(reader, 4), lz_error);
     }
@@ -328,8 +326,7 @@ namespace
     TEST_CASE("lz_reader rejects a stream that ends before the declared output")
     {
         // decoded 5, encoded 11, key 0xFF: only "AB" is available
-        const byte_vector stream =
-            bytes({0x05, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42});
+        const byte_vector stream = bytes({0x05, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42});
         lz_reader reader = make_reader(stream, 11, 5);
         REQUIRE_THROWS_AS(read_exact(reader, 5), lz_error);
     }
@@ -337,8 +334,8 @@ namespace
     TEST_CASE("lz_reader rejects trailing encoded bytes")
     {
         // decoded 3 but four literal bytes are present
-        const byte_vector stream = bytes(
-            {0x03, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42, 0x43, 0x44});
+        const byte_vector stream =
+            bytes({0x03, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42, 0x43, 0x44});
         lz_reader reader = make_reader(stream, 13, 3);
         REQUIRE_THROWS_AS(read_exact(reader, 3), lz_error);
     }
@@ -392,8 +389,8 @@ namespace
         lz_reader literal_reader = make_reader(literal, 14, 5, 1);
         REQUIRE(ascii(read_exact(literal_reader, 5)) == "Hello");
 
-        const byte_vector run = bytes({0x08, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF,
-                                       0x41, 0x42, 0x43, 0x44, 0xFF, 0x01, 0x03, 0x00});
+        const byte_vector run = bytes(
+            {0x08, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42, 0x43, 0x44, 0xFF, 0x01, 0x03, 0x00});
         lz_reader run_reader = make_reader(run, 17, 8, 1);
         REQUIRE(ascii(read_exact(run_reader, 8)) == "ABCDABCD");
     }
@@ -425,7 +422,7 @@ namespace
     {
         // decoded 70, encoded 79, key 0xFF, seventy plain literals so the source is refilled twice
         byte_vector stream = bytes({0x46, 0x00, 0x00, 0x00, 0x4F, 0x00, 0x00, 0x00, 0xFF});
-        for (int index = 0; index < 70; ++index) {
+        for (int index = 0; index < 70u; ++index) {
             stream.push_back(std::byte{0x41});
         }
         lz_reader reader(guarded_source(stream, 79), 79, 70);
@@ -449,15 +446,14 @@ namespace
     {
         const byte_vector literal =
             bytes({0x05, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x00, 0xFF, 0x48, 0x65, 0x6C, 0x6C, 0x6F});
-        const byte_vector run =
-            bytes({0x0A, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x28, 0x00});
+        const byte_vector run = bytes({0x0A, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x28, 0x00});
         lz_reader first = make_reader(literal, 14, 5);
         lz_reader second = make_reader(run, 13, 10);
 
         std::string first_text;
         std::string second_text;
         std::array<std::byte, 1> chunk{};
-        for (int index = 0; index < 5; ++index) {
+        for (int index = 0; index < 5u; ++index) {
             REQUIRE(first.read(std::span<std::byte>(chunk)) == 1);
             first_text.push_back(static_cast<char>(std::to_integer<unsigned char>(chunk[0])));
             REQUIRE(second.read(std::span<std::byte>(chunk)) == 1);
@@ -472,8 +468,7 @@ namespace
 
     TEST_CASE("lz_reader is movable mid-stream")
     {
-        const byte_vector run =
-            bytes({0x0A, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x28, 0x00});
+        const byte_vector run = bytes({0x0A, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x28, 0x00});
         lz_reader original = make_reader(run, 13, 10);
         std::array<std::byte, 2> head{};
         REQUIRE(original.read(std::span<std::byte>(head)) == 2);
@@ -494,7 +489,7 @@ namespace
     TEST_CASE("lz_reader decodes a large wrapped stream with a maximum-distance copy")
     {
         constexpr std::uint64_t distance = 16ull * 1024ull * 1024ull; // 16777216
-        constexpr std::uint64_t produced_before_copy = distance + 4;   // 16777220
+        constexpr std::uint64_t produced_before_copy = distance + 4;  // 16777220
         constexpr std::uint64_t decoded_size = produced_before_copy + 4;
         constexpr unsigned key = 0xFF;
         constexpr std::array<unsigned, 3> pattern{0x41, 0x42, 0x43};
@@ -507,11 +502,11 @@ namespace
             const std::uint64_t length = std::min<std::uint64_t>(produced_before_copy - produced, 0x1FFF + 4);
             const std::uint32_t maxconbo = static_cast<std::uint32_t>(length - 4);
             const bool extended = maxconbo >= 0x20;
-            const std::uint32_t code = ((maxconbo & 0x1Fu) << 3) | (extended ? 0x4u : 0u);
+            const std::uint32_t code = ((maxconbo & 0x1Fu) << 3u) | (extended ? 0x4u : 0u);
             tokens.push_back(std::byte{key});
             tokens.push_back(static_cast<std::byte>(code));
             if (extended) {
-                tokens.push_back(static_cast<std::byte>((maxconbo >> 5) & 0xFFu));
+                tokens.push_back(static_cast<std::byte>((maxconbo >> 5u) & 0xFFu));
             }
             tokens.push_back(static_cast<std::byte>(0x02)); // distance 3 -> raw 2
             produced += length;
@@ -527,18 +522,18 @@ namespace
         byte_vector stream(9);
         const std::uint32_t encoded_size = static_cast<std::uint32_t>(9 + tokens.size());
         stream[0] = static_cast<std::byte>(decoded_size & 0xFFu);
-        stream[1] = static_cast<std::byte>((decoded_size >> 8) & 0xFFu);
-        stream[2] = static_cast<std::byte>((decoded_size >> 16) & 0xFFu);
-        stream[3] = static_cast<std::byte>((decoded_size >> 24) & 0xFFu);
+        stream[1] = static_cast<std::byte>((decoded_size >> 8u) & 0xFFu);
+        stream[2] = static_cast<std::byte>((decoded_size >> 16u) & 0xFFu);
+        stream[3] = static_cast<std::byte>((decoded_size >> 24u) & 0xFFu);
         stream[4] = static_cast<std::byte>(encoded_size & 0xFFu);
-        stream[5] = static_cast<std::byte>((encoded_size >> 8) & 0xFFu);
-        stream[6] = static_cast<std::byte>((encoded_size >> 16) & 0xFFu);
-        stream[7] = static_cast<std::byte>((encoded_size >> 24) & 0xFFu);
+        stream[5] = static_cast<std::byte>((encoded_size >> 8u) & 0xFFu);
+        stream[6] = static_cast<std::byte>((encoded_size >> 16u) & 0xFFu);
+        stream[7] = static_cast<std::byte>((encoded_size >> 24u) & 0xFFu);
         stream[8] = std::byte{key};
         stream.insert(stream.end(), tokens.begin(), tokens.end());
 
         lz_reader reader = make_reader(stream, encoded_size, decoded_size);
-        std::vector<std::byte> chunk(64 * 1024);
+        std::vector<std::byte> chunk(std::size_t{64} * 1024);
         std::uint64_t position = 0;
         std::uint64_t mismatches = 0;
         while (position < decoded_size) {
@@ -587,7 +582,7 @@ namespace
 
         // The moved-from source must behave like an exhausted reader instead of dereferencing a
         // null state: remaining() is zero and reads return zero for empty and non-empty spans.
-        REQUIRE(source.remaining() == 0);
+        REQUIRE(source.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
         std::array<std::byte, 1> probe{};
         REQUIRE(source.read(std::span<std::byte>(probe)) == 0);
         REQUIRE(source.read(std::span<std::byte>()) == 0);
@@ -602,8 +597,7 @@ namespace
 
     TEST_CASE("lz_reader move assignment leaves the source as a safe empty reader")
     {
-        const byte_vector run =
-            bytes({0x0A, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x28, 0x00});
+        const byte_vector run = bytes({0x0A, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x28, 0x00});
         const byte_vector literal =
             bytes({0x05, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x00, 0xFF, 0x48, 0x65, 0x6C, 0x6C, 0x6F});
         lz_reader source = make_reader(run, 13, 10);
@@ -612,7 +606,7 @@ namespace
         target = std::move(source);
 
         // Assignment must transfer the state and leave the source as a safe empty reader.
-        REQUIRE(source.remaining() == 0);
+        REQUIRE(source.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
         std::array<std::byte, 1> probe{};
         REQUIRE(source.read(std::span<std::byte>(probe)) == 0);
         REQUIRE(source.read(std::span<std::byte>()) == 0);

@@ -49,10 +49,9 @@ namespace
     constexpr std::array<std::byte, 30> kDefaultClassicPassword = {
         std::byte{0x57}, std::byte{0x4C}, std::byte{0x46}, std::byte{0x52}, std::byte{0x50}, std::byte{0x72},
         std::byte{0x4F}, std::byte{0x21}, std::byte{0x70}, std::byte{0x28}, std::byte{0x3B}, std::byte{0x73},
-        std::byte{0x35}, std::byte{0x28}, std::byte{0x28},
-        std::byte{0x38}, std::byte{0x50}, std::byte{0x40}, std::byte{0x28}, std::byte{0x28}, std::byte{0x55},
-        std::byte{0x46}, std::byte{0x57}, std::byte{0x6C}, std::byte{0x75}, std::byte{0x24}, std::byte{0x23},
-        std::byte{0x35}, std::byte{0x28}, std::byte{0x3D}};
+        std::byte{0x35}, std::byte{0x28}, std::byte{0x28}, std::byte{0x38}, std::byte{0x50}, std::byte{0x40},
+        std::byte{0x28}, std::byte{0x28}, std::byte{0x55}, std::byte{0x46}, std::byte{0x57}, std::byte{0x6C},
+        std::byte{0x75}, std::byte{0x24}, std::byte{0x23}, std::byte{0x35}, std::byte{0x28}, std::byte{0x3D}};
     constexpr std::size_t kDefaultClassicPasswordSize = 30;
 
     constexpr std::array<unsigned char, 7> kKeyLen0 = {0x5C, 0xAE, 0x2B, 0xB1, 0x23, 0xB3, 0xD9};
@@ -115,21 +114,20 @@ namespace
     constexpr std::array<unsigned char, 7> kInterleaveKeyA = {0xAE, 0x49, 0xD6, 0x23, 0x23, 0x62, 0x5A};
     constexpr std::array<unsigned char, 7> kInterleaveKeyB = {0xAE, 0x49, 0xD6, 0x23, 0x60, 0x41, 0xC0};
     constexpr std::array<std::byte, 14> kInterleaveInput = {
-        std::byte{0x80}, std::byte{0x81}, std::byte{0x82}, std::byte{0x83}, std::byte{0x84}, std::byte{0x85},
-        std::byte{0x86}, std::byte{0x87}, std::byte{0x88}, std::byte{0x89}, std::byte{0x8A}, std::byte{0x8B},
-        std::byte{0x8C}, std::byte{0x8D}};
+        std::byte{0x80}, std::byte{0x81}, std::byte{0x82}, std::byte{0x83}, std::byte{0x84},
+        std::byte{0x85}, std::byte{0x86}, std::byte{0x87}, std::byte{0x88}, std::byte{0x89},
+        std::byte{0x8A}, std::byte{0x8B}, std::byte{0x8C}, std::byte{0x8D}};
     constexpr std::array<std::byte, 14> kInterleaveExpected = {
-        std::byte{0x2E}, std::byte{0xC8}, std::byte{0x54}, std::byte{0xA0}, std::byte{0xE4}, std::byte{0xE7},
-        std::byte{0xDC}, std::byte{0x29}, std::byte{0xC1}, std::byte{0x5F}, std::byte{0xA9}, std::byte{0xEB},
-        std::byte{0xCD}, std::byte{0x4D}};
+        std::byte{0x2E}, std::byte{0xC8}, std::byte{0x54}, std::byte{0xA0}, std::byte{0xE4},
+        std::byte{0xE7}, std::byte{0xDC}, std::byte{0x29}, std::byte{0xC1}, std::byte{0x5F},
+        std::byte{0xA9}, std::byte{0xEB}, std::byte{0xCD}, std::byte{0x4D}};
 
     // ---- helpers ----
 
     std::array<std::byte, 7> to_bytes(const std::array<unsigned char, 7> &raw)
     {
         std::array<std::byte, 7> out{};
-        for (std::size_t i = 0; i < out.size(); ++i)
-        {
+        for (std::size_t i = 0; i < out.size(); ++i) {
             out[i] = static_cast<std::byte>(raw[i]);
         }
         return out;
@@ -145,8 +143,7 @@ namespace
     std::vector<std::byte> patterned(std::size_t length)
     {
         std::vector<std::byte> material(length);
-        for (std::size_t i = 0; i < length; ++i)
-        {
+        for (std::size_t i = 0; i < length; ++i) {
             material[i] = static_cast<std::byte>((i * 7u + 3u) & 0xFFu);
         }
         return material;
@@ -186,7 +183,7 @@ namespace
         bool chacha20_;
         std::uint16_t version_;
     };
-}
+} // namespace
 
 TEST_CASE("derive_key matches the pinned KeyCreate for patterned lengths", "[wolfrpg][crypto]")
 {
@@ -203,8 +200,7 @@ TEST_CASE("derive_key matches the pinned KeyCreate for patterned lengths", "[wol
         {1025, kKeyLen1025, "length 1025"},
     }};
 
-    for (const derive_case &entry : cases)
-    {
+    for (const derive_case &entry : cases) {
         INFO(entry.name);
         const std::vector<std::byte> material = patterned(entry.length);
         check_key(wolf::derive_key(material), entry.expected);
@@ -223,8 +219,7 @@ TEST_CASE("derive_key of the mode-3 default password matches the frozen key", "[
     check_key(wolf::derive_key(password), kKeyMode3);
 }
 
-TEST_CASE("derive_key preserves the library DefaultKeyString fallback for short inputs",
-          "[wolfrpg][crypto]")
+TEST_CASE("derive_key preserves the library DefaultKeyString fallback for short inputs", "[wolfrpg][crypto]")
 {
     // A zero-length span must not be forwarded as a nullptr source.
     const std::span<const std::byte> empty{};
@@ -247,8 +242,7 @@ TEST_CASE("derive_key truncates short material at an embedded NUL", "[wolfrpg][c
 
     // Once the material reaches four bytes the library reads the exact bytes, so an
     // embedded NUL is treated as real key material rather than a terminator.
-    const std::array<std::byte, 4> ab_nul_c{std::byte{0x41}, std::byte{0x42}, std::byte{0x00},
-                                            std::byte{0x43}};
+    const std::array<std::byte, 4> ab_nul_c{std::byte{0x41}, std::byte{0x42}, std::byte{0x00}, std::byte{0x43}};
     check_key(wolf::derive_key(ab_nul_c), kKeyABNulC);
 }
 
@@ -284,8 +278,7 @@ TEST_CASE("apply_xor matches the pinned classic KeyConv for every key phase", "[
         {UINT64_MAX, &kXorExpectedPosMax},
     }};
 
-    for (const xor_case &entry : cases)
-    {
+    for (const xor_case &entry : cases) {
         INFO("position " << entry.position);
         std::array<std::byte, 16> data = kXorInput;
         wolf::apply_xor(data, entry.position, cipher);
@@ -306,8 +299,7 @@ TEST_CASE("apply_xor is independent of chunk boundaries", "[wolfrpg][crypto]")
         std::array<std::byte, 16> data = kXorInput;
         std::span<std::byte> view(data);
         std::size_t start = 0;
-        for (const std::size_t stop : split_a)
-        {
+        for (const std::size_t stop : split_a) {
             wolf::apply_xor(view.subspan(start, stop - start), start, cipher);
             start = stop;
         }
@@ -318,8 +310,7 @@ TEST_CASE("apply_xor is independent of chunk boundaries", "[wolfrpg][crypto]")
         std::array<std::byte, 16> data = kXorInput;
         std::span<std::byte> view(data);
         std::size_t start = 0;
-        for (const std::size_t stop : split_b)
-        {
+        for (const std::size_t stop : split_b) {
             wolf::apply_xor(view.subspan(start, stop - start), start, cipher);
             start = stop;
         }
@@ -362,8 +353,7 @@ TEST_CASE("apply_xor is independent of the process-wide DXArchive crypt mode", "
         {"ChaCha20 (0x64)", false, true, 0x64},
     }};
 
-    for (const mode_case &mode : modes)
-    {
+    for (const mode_case &mode : modes) {
         INFO(mode.name);
         mode_guard guard;
         g_newCrypt = mode.new_crypt;
@@ -394,8 +384,7 @@ TEST_CASE("default_classic_password is the exact stable mode-3 key", "[wolfrpg][
 
     REQUIRE(password.size() == kDefaultClassicPasswordSize);
     CHECK(password.data() != nullptr);
-    for (std::size_t i = 0; i < password.size(); ++i)
-    {
+    for (std::size_t i = 0; i < password.size(); ++i) {
         INFO("byte " << i);
         CHECK(password[i] == kDefaultClassicPassword[i]);
     }
@@ -442,21 +431,17 @@ TEST_CASE("derive_key is stable across concurrent first use in a fresh process",
     std::atomic<std::size_t> failures{0};
     std::barrier rendezvous(kThreads);
 
-    for (std::size_t t = 0; t < kThreads; ++t)
-    {
+    for (std::size_t t = 0; t < kThreads; ++t) {
         workers[t] = std::thread([&cases, &results, &failures, &rendezvous, t] {
             // Release every worker into its first derive together, so the process-wide
             // first use of the vendor CRC table is genuinely contended.
             rendezvous.arrive_and_wait();
-            for (std::size_t iter = 0; iter < kIterations; ++iter)
-            {
-                for (std::size_t c = 0; c < cases.size(); ++c)
-                {
+            for (std::size_t iter = 0; iter < kIterations; ++iter) {
+                for (std::size_t c = 0; c < cases.size(); ++c) {
                     const std::vector<std::byte> material = patterned(cases[c].length);
                     const wolf::key derived = wolf::derive_key(material);
                     results[t * cases.size() + c] = derived.bytes;
-                    if (derived.bytes != to_bytes(cases[c].expected))
-                    {
+                    if (derived.bytes != to_bytes(cases[c].expected)) {
                         failures.fetch_add(1, std::memory_order_relaxed);
                     }
                 }
@@ -464,16 +449,13 @@ TEST_CASE("derive_key is stable across concurrent first use in a fresh process",
         });
     }
 
-    for (std::thread &worker : workers)
-    {
+    for (std::thread &worker : workers) {
         worker.join();
     }
 
     CHECK(failures.load() == 0);
-    for (std::size_t t = 0; t < kThreads; ++t)
-    {
-        for (std::size_t c = 0; c < cases.size(); ++c)
-        {
+    for (std::size_t t = 0; t < kThreads; ++t) {
+        for (std::size_t c = 0; c < cases.size(); ++c) {
             INFO("thread " << t << " case " << cases[c].name);
             CHECK(results[t * cases.size() + c] == to_bytes(cases[c].expected));
         }

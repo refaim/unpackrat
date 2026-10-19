@@ -64,14 +64,20 @@ namespace
     {
         const auto error = observed_exception<Error>(operation);
         REQUIRE(error.has_value());
-        CHECK(std::string_view(error->what()) == message);
+        if (!error.has_value()) {
+            return;
+        }
+        CHECK(std::string_view(error.value().what()) == message);
     }
     void require_io_failure(const std::function<void()> &operation)
     {
         const auto error = observed_exception<std::ios_base::failure>(operation);
         REQUIRE(error.has_value());
-        CHECK(error->code() == std::make_error_code(std::io_errc::stream));
-        CHECK_FALSE(std::string_view(error->what()).empty());
+        if (!error.has_value()) {
+            return;
+        }
+        CHECK(error.value().code() == std::make_error_code(std::io_errc::stream));
+        CHECK_FALSE(std::string_view(error.value().what()).empty());
     }
     std::uint8_t sparse_byte(const std::map<std::uint64_t, std::uint8_t> &source, std::uint64_t offset)
     {
@@ -121,38 +127,39 @@ namespace
         result.header[8] = 0x44;
         result.header[9] = 0x99;
 
-        const std::uint32_t header_int = wolfx::detail::utils::combineBytes<4>(result.header, 5);
+        const std::uint32_t header_int = wolfx::detail::utils::combineBytes<4u>(result.header, 5);
         const std::uint32_t seed = wolfx::detail::generator::fnv1(static_blob) ^ header_int;
         result.base_blob = wolfx::detail::generator::generateWolfxDecryptBlob(seed, static_blob,
                                                                               static_cast<std::size_t>(physical_size));
 
-        const std::uint8_t d10 = static_cast<std::uint8_t>((string_id >> 8) & 0xffU);
+        const std::uint8_t d10 = static_cast<std::uint8_t>((string_id >> 8u) & 0xffU);
         const std::uint8_t d11 = static_cast<std::uint8_t>(string_id & 0xffU);
         result.header[10] = static_cast<std::uint8_t>(d10 ^ result.base_blob[0]);
         result.header[11] = static_cast<std::uint8_t>(d11 ^ result.base_blob[1]);
         const std::array<std::uint8_t, 2> xor_bytes = {d10, d11};
 
         const std::uint32_t str_hash = wolfx::detail::generator::fnv1(magic_str);
-        const std::uint32_t tail_value = int_id ^ ((str_hash & 0xFFFF0000U) >> 8) ^ (str_hash & 0xFFFFU);
-        const std::array<std::uint8_t, 3> tail = wolfx::detail::utils::extractBytes<3>(tail_value);
-        for (std::size_t i = 0; i < 3; ++i)
+        const std::uint32_t tail_value = int_id ^ ((str_hash & 0xFFFF0000U) >> 8u) ^ (str_hash & 0xFFFFU);
+        const std::array<std::uint8_t, 3> tail = wolfx::detail::utils::extractBytes<3u>(tail_value);
+        for (std::size_t i = 0; i < 3u; ++i)
             result.header[12 + i] = static_cast<std::uint8_t>(tail[i] ^ result.base_blob[2 + i]);
 
-        for (std::size_t i = 0; i < 5; ++i)
+        for (std::size_t i = 0; i < 5u; ++i)
             result.header[15 + i] = static_cast<std::uint8_t>(0xD0U + i);
 
-        const std::array<std::uint8_t, 3> mod_val = wolfx::detail::utils::extractBytes<3>(int_id);
-        const std::uint32_t int_hash = (magic_int << 13) ^ (73244475U * magic_int);
-        const std::array<std::uint8_t, 4> int_mod = wolfx::detail::utils::extractBytes<4>(int_hash);
+        const std::array<std::uint8_t, 3> mod_val = wolfx::detail::utils::extractBytes<3u>(int_id);
+        const std::uint32_t int_hash = (magic_int << 13u) ^ (73244475U * magic_int);
+        const std::array<std::uint8_t, 4> int_mod = wolfx::detail::utils::extractBytes<4u>(int_hash);
         result.blob = result.base_blob;
         for (std::size_t i = 0; i < blob_size; ++i) {
             const std::uint8_t magic_char =
                 magic_str.empty() ? 0 : static_cast<std::uint8_t>(magic_str[i % magic_str.size()]);
-            result.blob[i] ^=
-                static_cast<std::uint8_t>(xor_bytes[i % 2] ^ magic_char ^ int_mod[i & 3] ^ mod_val[i % 3]);
+            result.blob[i] ^= static_cast<std::uint8_t>(
+                static_cast<unsigned>(xor_bytes[i % 2]) ^ static_cast<unsigned>(magic_char) ^
+                static_cast<unsigned>(int_mod[i & 3u]) ^ static_cast<unsigned>(mod_val[i % 3]));
         }
 
-        for (std::size_t k = 0; k < 5; ++k)
+        for (std::size_t k = 0; k < 5u; ++k)
             result.checksum[k] = static_cast<std::uint8_t>(result.header[15 + k] ^ result.blob[5 + k]);
 
         return result;
@@ -165,7 +172,7 @@ namespace
         crafted result = craft_core(key, magic_str, magic_int, string_id, int_id, physical_size);
         const std::uint64_t data_size = physical_size - result.payload_offset;
         const std::uint64_t final_index = data_size - 1;
-        for (std::size_t i = 0; i < 5; ++i)
+        for (std::size_t i = 0; i < 5u; ++i)
             result.samples[i] = result.payload_offset + static_cast<std::uint64_t>(static_cast<double>(final_index) *
                                                                                    0.25 * static_cast<double>(i));
         return result;
@@ -176,15 +183,15 @@ namespace
     {
         const std::uint64_t physical_size = fixture.payload_offset + payload.size();
         std::vector<std::uint8_t> plain(static_cast<std::size_t>(physical_size));
-        for (std::size_t i = 0; i < 10; ++i)
+        for (std::size_t i = 0; i < 10u; ++i)
             plain[i] = fixture.header[i];
-        for (std::size_t i = 0; i < 5; ++i)
+        for (std::size_t i = 0; i < 5u; ++i)
             plain[10 + i] = static_cast<std::uint8_t>(fixture.header[10 + i] ^ fixture.base_blob[i]);
-        for (std::size_t i = 0; i < 5; ++i)
+        for (std::size_t i = 0; i < 5u; ++i)
             plain[15 + i] = static_cast<std::uint8_t>(fixture.header[15 + i] ^ fixture.blob[5 + i]);
         for (std::size_t i = 0; i < payload.size(); ++i)
             plain[static_cast<std::size_t>(fixture.payload_offset) + i] = static_cast<std::uint8_t>(payload[i]);
-        for (std::size_t k = 0; k < 5; ++k)
+        for (std::size_t k = 0; k < 5u; ++k)
             plain[static_cast<std::size_t>(fixture.samples[k])] = fixture.checksum[k];
         return plain;
     }
@@ -194,7 +201,7 @@ namespace
         std::vector<std::uint8_t> enc = plain;
         for (std::size_t i = 15; i < enc.size(); ++i)
             enc[i] = static_cast<std::uint8_t>(plain[i] ^ fixture.blob[(i - 10) % blob_size]);
-        for (std::size_t i = 10; i < 15; ++i)
+        for (std::size_t i = 10; i < 15u; ++i)
             enc[i] = fixture.header[i];
         return enc;
     }
@@ -249,13 +256,15 @@ namespace
     std::istringstream open_stream(const std::vector<std::uint8_t> &bytes)
     {
         return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()),
-                                  std::ios::in | std::ios::binary);
+                                  static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                                       static_cast<unsigned>(std::ios::binary)));
     }
 
     std::istringstream open_truncated_stream(const std::vector<std::uint8_t> &bytes, const std::size_t length)
     {
         return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), length),
-                                  std::ios::in | std::ios::binary);
+                                  static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                                       static_cast<unsigned>(std::ios::binary)));
     }
 
     std::uint32_t upstream_data_offset = 0;
@@ -334,7 +343,7 @@ namespace
                                       : dir == std::ios_base::cur ? static_cast<std::int64_t>(position_)
                                                                   : static_cast<std::int64_t>(size_);
             const std::int64_t next = base + off;
-            if (next < 0 || static_cast<std::uint64_t>(next) > size_)
+            if (next < 0u || static_cast<std::uint64_t>(next) > size_)
                 return pos_type(off_type(-1));
             position_ = static_cast<std::uint64_t>(next);
             return pos_type(static_cast<off_type>(position_));
@@ -394,11 +403,11 @@ namespace
       protected:
         std::streamsize xsgetn(char *, std::streamsize) override
         {
-            throw io_sentinel{11, "input"};
+            throw io_sentinel{11, "input"}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
         }
         int_type underflow() override
         {
-            throw io_sentinel{11, "input"};
+            throw io_sentinel{11, "input"}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
         }
         pos_type seekoff(off_type, std::ios_base::seekdir, std::ios_base::openmode) override
         {
@@ -415,11 +424,11 @@ namespace
       protected:
         std::streamsize xsputn(const char *, std::streamsize) override
         {
-            throw io_sentinel{22, "output"};
+            throw io_sentinel{22, "output"}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
         }
         int_type overflow(int_type) override
         {
-            throw io_sentinel{22, "output"};
+            throw io_sentinel{22, "output"}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
         }
     };
 
@@ -468,7 +477,7 @@ namespace
     class faulting_source_streambuf final : public std::streambuf
     {
       public:
-        enum class fault
+        enum class fault : std::uint8_t
         {
             none,
             fail_ios,
@@ -553,7 +562,7 @@ namespace
                                       : dir == std::ios_base::cur ? static_cast<std::int64_t>(position_)
                                                                   : static_cast<std::int64_t>(bytes_.size());
             const std::int64_t next = base + off;
-            if (next < 0 || static_cast<std::uint64_t>(next) > bytes_.size())
+            if (next < 0u || static_cast<std::uint64_t>(next) > bytes_.size())
                 return pos_type(off_type(-1));
             position_ = static_cast<std::uint64_t>(next);
             return pos_type(static_cast<off_type>(position_));
@@ -753,13 +762,13 @@ TEST_CASE("WolfX output name is derived from the path", "[wolfrpg][wolfx]")
 TEST_CASE("WolfX huge physical size is handled without allocating it", "[wolfrpg][wolfx]")
 {
     const std::string key = "kek";
-    const std::uint64_t physical_size = 1ULL << 40;
+    const std::uint64_t physical_size = 1ULL << 40u;
     const crafted fixture = craft(key, "MAGICKEY", 0x12345678U, 7, 4242, physical_size);
 
     std::map<std::uint64_t, std::uint8_t> known;
-    for (std::size_t i = 0; i < 20; ++i)
+    for (std::size_t i = 0; i < 20u; ++i)
         known[i] = fixture.header[i];
-    for (std::size_t k = 0; k < 5; ++k)
+    for (std::size_t k = 0; k < 5u; ++k)
         known[fixture.samples[k]] =
             static_cast<std::uint8_t>(fixture.checksum[k] ^ fixture.blob[(fixture.samples[k] - 10) % blob_size]);
 
@@ -811,7 +820,7 @@ TEST_CASE("WolfX candidate preparation samples only bounded offsets", "[wolfrpg]
 TEST_CASE("WolfX extraction streams a multi-chunk payload", "[wolfrpg][wolfx]")
 {
     const file_fixture file = make_custom_file(300000);
-    REQUIRE(file.plaintext.size() - file.fixture.payload_offset > 64U * 1024U);
+    REQUIRE(file.plaintext.size() - file.fixture.payload_offset > std::uint64_t{64} * 1024U);
 
     std::istringstream stream = open_stream(file.encrypted);
     const auto archive = wolfx_archive::open(stream, "big.wolfx", file.candidates);
@@ -823,7 +832,7 @@ TEST_CASE("WolfX extraction streams a multi-chunk payload", "[wolfrpg][wolfx]")
     const std::string expected(reinterpret_cast<const char *>(file.plaintext.data() + file.fixture.payload_offset),
                                file.plaintext.size() - static_cast<std::size_t>(file.fixture.payload_offset));
     CHECK(decrypted == expected);
-    CHECK(deltas.size() > 1);
+    CHECK(deltas.size() > 1u);
     CHECK(std::accumulate(deltas.begin(), deltas.end(), std::int64_t{0}) == static_cast<std::int64_t>(expected.size()));
 }
 
@@ -868,7 +877,8 @@ TEST_CASE("WolfX exception-enabled end seek failure is normalized", "[wolfrpg][w
     });
     buffer.fail_end_seek(true);
     std::istream stream(&buffer);
-    stream.exceptions(std::ios::failbit | std::ios::badbit);
+    stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                          static_cast<unsigned>(std::ios::badbit)));
 
     require_message<read_error>([&] { (void)(wolfx_archive::open(stream, "noend.wolfx", file.candidates)); },
                                 "WolfRPG archive read failed");
@@ -913,11 +923,14 @@ TEST_CASE("WolfX progress cancellation propagates and preserves output", "[wolfr
     const auto observed = observed_exception<cancel_signal>([&] {
         archive->extract(0, stream, output, [&calls](const std::int64_t) {
             if (++calls == 2)
-                throw cancel_signal{7, "stop"};
+                throw cancel_signal{7, "stop"}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
         });
     });
     REQUIRE(observed.has_value());
-    const auto &signal = *observed;
+    if (!observed.has_value()) {
+        return;
+    }
+    const auto &signal = observed.value();
     CHECK(signal.code == 7);
     CHECK(signal.payload == "stop");
 
@@ -953,7 +966,7 @@ TEST_CASE("WolfX entry index bounds and moves are safe", "[wolfrpg][wolfx]")
     auto other = wolfx_archive::open(other_stream, "other.wolfx", file.candidates);
     REQUIRE(other != nullptr);
     *other = std::move(moved);
-    CHECK(moved.entries().empty());
+    CHECK(moved.entries().empty()); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
     CHECK(other->entries().size() == 1);
 }
 
@@ -1040,7 +1053,7 @@ TEST_CASE("WolfX contexts are independent and concurrent", "[wolfrpg][wolfx]")
                                    file.plaintext.size() - static_cast<std::size_t>(file.fixture.payload_offset));
         std::string results[2];
         std::thread threads[2];
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 2u; ++i) {
             threads[i] = std::thread([&, i] {
                 std::istringstream stream = open_stream(file.encrypted);
                 const auto archive = wolfx_archive::open(stream, "thread.wolfx", file.candidates);
@@ -1059,7 +1072,7 @@ TEST_CASE("WolfX implicit empty candidate key is rejected", "[wolfrpg][wolfx]")
     // The empty key is implicit (tried first by the backend), so storing it would only add an
     // unbounded, zero-cost key. Rejecting it keeps the byte budget a true bound.
     wolfx_candidates candidates;
-    for (int i = 0; i < 64; ++i)
+    for (int i = 0; i < 64u; ++i)
         require_message<std::invalid_argument>([&] { (void)(candidates.add_key("")); },
                                                "WolfX candidate key must not be empty");
     CHECK(candidates.keys().empty());
@@ -1088,7 +1101,8 @@ TEST_CASE("WolfX source stream failures are normalized to read_error", "[wolfrpg
     SECTION("exception-enabled short source during open")
     {
         std::istringstream stream = open_truncated_stream(file.encrypted, 10);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         require_message<read_error>([&] { (void)(wolfx_archive::open(stream, "x.wolfx", file.candidates)); },
                                     "WolfRPG archive read failed");
     }
@@ -1103,7 +1117,8 @@ TEST_CASE("WolfX source stream failures are normalized to read_error", "[wolfrpg
         REQUIRE(file.fixture.payload_offset <= file.encrypted.size() - 4);
         const auto truncated_size = static_cast<std::size_t>(file.fixture.payload_offset) + 4;
         std::istringstream truncated = open_truncated_stream(file.encrypted, truncated_size);
-        truncated.exceptions(std::ios::failbit | std::ios::badbit);
+        truncated.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                                 static_cast<unsigned>(std::ios::badbit)));
         std::ostringstream output(std::ios::binary);
         require_message<read_error>([&] { (void)(archive->extract(0, truncated, output, {})); },
                                     "WolfRPG archive read failed");
@@ -1115,11 +1130,15 @@ TEST_CASE("WolfX source stream failures are normalized to read_error", "[wolfrpg
         // narrow ios_base::failure catch keeps it intact instead of collapsing it to read_error.
         throwing_input_streambuf buffer;
         std::istream stream(&buffer);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         const auto observed =
             observed_exception<io_sentinel>([&] { wolfx_archive::open(stream, "x.wolfx", file.candidates); });
         REQUIRE(observed.has_value());
-        const auto &signal = *observed;
+        if (!observed.has_value()) {
+            return;
+        }
+        const auto &signal = observed.value();
         CHECK(signal.code == 11);
         CHECK(signal.payload == "input");
     }
@@ -1135,7 +1154,8 @@ TEST_CASE("WolfX masked source I/O failures normalize inside the source boundary
     {
         exception_source_streambuf buffer(as_ios_failure);
         std::istream stream(&buffer);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         require_message<read_error>([&] { (void)(wolfx_archive::open(stream, "x.wolfx")); },
                                     "WolfRPG archive read failed");
     }
@@ -1149,7 +1169,8 @@ TEST_CASE("WolfX masked source I/O failures normalize inside the source boundary
 
         exception_source_streambuf buffer(as_ios_failure);
         std::istream stream(&buffer);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         std::ostringstream output(std::ios::binary);
         require_message<read_error>([&] { (void)(archive->extract(0, stream, output, {})); },
                                     "WolfRPG archive read failed");
@@ -1159,7 +1180,8 @@ TEST_CASE("WolfX masked source I/O failures normalize inside the source boundary
     {
         exception_source_streambuf buffer(as_bad_alloc);
         std::istream stream(&buffer);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         require_message<std::bad_alloc>([&] { (void)(wolfx_archive::open(stream, "x.wolfx")); },
                                         std::bad_alloc{}.what());
     }
@@ -1168,7 +1190,8 @@ TEST_CASE("WolfX masked source I/O failures normalize inside the source boundary
     {
         exception_source_streambuf buffer(as_length_error);
         std::istream stream(&buffer);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         require_message<std::length_error>([&] { (void)(wolfx_archive::open(stream, "x.wolfx")); }, "source");
     }
 
@@ -1210,7 +1233,10 @@ TEST_CASE("WolfX masked source I/O failures normalize inside the source boundary
         std::istream stream(&buffer);
         const auto observed = observed_exception<std::length_error>([&] { wolfx_archive::open(stream, "x.wolfx"); });
         REQUIRE(observed.has_value());
-        const auto &error = *observed;
+        if (!observed.has_value()) {
+            return;
+        }
+        const auto &error = observed.value();
         CHECK(std::string(error.what()) == "source");
     }
 
@@ -1240,7 +1266,10 @@ TEST_CASE("WolfX masked source I/O failures normalize inside the source boundary
         std::ostringstream output(std::ios::binary);
         const auto observed = observed_exception<std::length_error>([&] { archive->extract(0, stream, output, {}); });
         REQUIRE(observed.has_value());
-        const auto &error = *observed;
+        if (!observed.has_value()) {
+            return;
+        }
+        const auto &error = observed.value();
         CHECK(std::string(error.what()) == "source");
     }
 
@@ -1251,8 +1280,9 @@ TEST_CASE("WolfX masked source I/O failures normalize inside the source boundary
         std::istream stream(nullptr);
         try {
             stream.exceptions(std::ios::badbit);
-        } catch (const std::ios_base::failure &) {
+        } catch (const std::ios_base::failure &error) {
             // The mask sticks with the null buffer; this is the state under test.
+            static_cast<void>(error);
         }
         REQUIRE(stream.exceptions() == std::ios::badbit);
         require_message<read_error>([&] { (void)(wolfx_archive::open(stream, "x.wolfx")); },
@@ -1276,7 +1306,8 @@ TEST_CASE("WolfX masked source I/O failures normalize inside the source boundary
         std::istream stream(nullptr);
         try {
             stream.exceptions(std::ios::badbit);
-        } catch (const std::ios_base::failure &) {
+        } catch (const std::ios_base::failure &error) {
+            static_cast<void>(error); // The mask sticks with the null buffer; this is the state under test.
         }
         REQUIRE(stream.exceptions() == std::ios::badbit);
         std::ostringstream output(std::ios::binary);
@@ -1347,7 +1378,10 @@ TEST_CASE("WolfX source boundary normalizes each buffer operation directly", "[w
         const auto observed =
             observed_exception<std::length_error>([&] { wolfx_archive::open(stream, "x.wolfx", file.candidates); });
         REQUIRE(observed.has_value());
-        const auto &error = *observed;
+        if (!observed.has_value()) {
+            return;
+        }
+        const auto &error = observed.value();
         CHECK(std::string(error.what()) == "source");
     }
 
@@ -1376,10 +1410,14 @@ TEST_CASE("WolfX output stream exceptions are preserved", "[wolfrpg][wolfx]")
     {
         throwing_output_streambuf buffer;
         std::ostream output(&buffer);
-        output.exceptions(std::ios::failbit | std::ios::badbit);
+        output.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         const auto observed = observed_exception<io_sentinel>([&] { archive->extract(0, stream, output, {}); });
         REQUIRE(observed.has_value());
-        const auto &signal = *observed;
+        if (!observed.has_value()) {
+            return;
+        }
+        const auto &signal = observed.value();
         CHECK(signal.code == 22);
         CHECK(signal.payload == "output");
     }
@@ -1388,7 +1426,8 @@ TEST_CASE("WolfX output stream exceptions are preserved", "[wolfrpg][wolfx]")
     {
         failing_streambuf buffer;
         std::ostream output(&buffer);
-        output.exceptions(std::ios::failbit | std::ios::badbit);
+        output.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         require_io_failure([&] { (void)(archive->extract(0, stream, output, {})); });
     }
 }
@@ -1422,7 +1461,7 @@ TEST_CASE("WolfX stream search handles bounded structural branches", "[wolfrpg][
     {
         reads.clear();
         bytes.clear();
-        for (std::size_t i = 0; i < 20; ++i)
+        for (std::size_t i = 0; i < 20u; ++i)
             bytes[i] = plain.header[i];
         wolfx::WolfXDecryptCollection collection;
         collection.decryptKeys.push_back(wolfx::WolfXDecryptKey{"/", ""});
@@ -1436,7 +1475,7 @@ TEST_CASE("WolfX stream search handles bounded structural branches", "[wolfrpg][
     {
         reads.clear();
         bytes.clear();
-        for (std::size_t i = 0; i < 20; ++i)
+        for (std::size_t i = 0; i < 20u; ++i)
             bytes[i] = custom.header[i];
         wolfx::WolfXDecryptCollection collection;
         collection.decryptKeys.push_back(wolfx::WolfXDecryptKey{"/", "kek"});
@@ -1450,9 +1489,9 @@ TEST_CASE("WolfX stream search handles bounded structural branches", "[wolfrpg][
     {
         reads.clear();
         bytes.clear();
-        for (std::size_t i = 0; i < 20; ++i)
+        for (std::size_t i = 0; i < 20u; ++i)
             bytes[i] = custom.header[i];
-        for (std::size_t k = 0; k < 5; ++k)
+        for (std::size_t k = 0; k < 5u; ++k)
             bytes[custom.samples[k]] =
                 static_cast<std::uint8_t>(custom.checksum[k] ^ custom.blob[(custom.samples[k] - 10) % blob_size]);
         wolfx::WolfXDecryptCollection collection;
@@ -1468,16 +1507,16 @@ TEST_CASE("WolfX stream search handles bounded structural branches", "[wolfrpg][
 
 TEST_CASE("WolfX sparse sample positions are bounded before reading", "[wolfrpg][wolfx]")
 {
-    SECTION("a >2^53 file whose rounded last sample lands past the end is rejected")
+    SECTION("a >2u^53u file whose rounded last sample lands past the end is rejected")
     {
         const std::uint64_t physical = 45035996273706160ULL;
         const crafted fixture = craft("kek", "MAGICKEY", 0x12345678U, 7, 4242, physical);
         REQUIRE(fixture.samples[4] == physical + 1); // documents the pinned double-rounding hazard
 
         std::map<std::uint64_t, std::uint8_t> bytes;
-        for (std::size_t i = 0; i < 20; ++i)
+        for (std::size_t i = 0; i < 20u; ++i)
             bytes[i] = fixture.header[i];
-        for (std::size_t k = 0; k < 4; ++k) // the first four samples are still in range
+        for (std::size_t k = 0; k < 4u; ++k) // the first four samples are still in range
             bytes[fixture.samples[k]] =
                 static_cast<std::uint8_t>(fixture.checksum[k] ^ fixture.blob[(fixture.samples[k] - 10) % blob_size]);
 
@@ -1499,14 +1538,14 @@ TEST_CASE("WolfX sparse sample positions are bounded before reading", "[wolfrpg]
             CHECK(pos < physical);
     }
 
-    SECTION("a >2^53 file with in-range samples still decrypts")
+    SECTION("a >2u^53u file with in-range samples still decrypts")
     {
         const crafted probe = craft("kek", "MAGICKEY", 0x12345678U, 7, 4242, 4096);
-        const std::uint64_t physical = probe.payload_offset + (1ULL << 53) + 1;
+        const std::uint64_t physical = probe.payload_offset + (1ULL << 53u) + 1;
         const crafted fixture = craft("kek", "MAGICKEY", 0x12345678U, 7, 4242, physical);
 
-        // The payload is 2^53 + 1 bytes, so the exact final index is 2^53 and the rounded last
-        // sample (577 + 2^53) is still the last byte inside the file. A double comparison of the
+        // The payload is 2^53u + 1 bytes, so the exact final index is 2^53u and the rounded last
+        // sample (577 + 2^53u) is still the last byte inside the file. A double comparison of the
         // rounded offset against the data size cannot represent the +1 and must not reject it.
         REQUIRE(fixture.payload_offset == 577);
         REQUIRE(physical == 9007199254741570ULL);
@@ -1514,9 +1553,9 @@ TEST_CASE("WolfX sparse sample positions are bounded before reading", "[wolfrpg]
         REQUIRE(fixture.samples[4] < physical);
 
         std::map<std::uint64_t, std::uint8_t> bytes;
-        for (std::size_t i = 0; i < 20; ++i)
+        for (std::size_t i = 0; i < 20u; ++i)
             bytes[i] = fixture.header[i];
-        for (std::size_t k = 0; k < 5; ++k)
+        for (std::size_t k = 0; k < 5u; ++k)
             bytes[fixture.samples[k]] =
                 static_cast<std::uint8_t>(fixture.checksum[k] ^ fixture.blob[(fixture.samples[k] - 10) % blob_size]);
 
@@ -1539,23 +1578,23 @@ TEST_CASE("WolfX sparse sample positions are bounded before reading", "[wolfrpg]
             CHECK(pos < physical);
     }
 
-    SECTION("a near-2^64 file whose rounded last sample overflows the offset is rejected")
+    SECTION("a near-2^64u file whose rounded last sample overflows the offset is rejected")
     {
-        const std::uint64_t physical = 0xFFFFFFFFFFFFFFFFULL; // 2^64 - 1
+        const std::uint64_t physical = 0xFFFFFFFFFFFFFFFFULL; // 2^64u - 1
         const crafted fixture = craft_core("kek", "MAGICKEY", 0x12345678U, 7, 4242, physical);
         REQUIRE(fixture.payload_offset == 577);
 
-        // dataSize is 2^64 - 578, so the final index rounds up to 2^64; converting the fifth sample
+        // dataSize is 2^64u - 578, so the final index rounds up to 2^64u; converting the fifth sample
         // offset into a 64-bit integer would overflow, so the search must reject the candidate
         // before it reads that sample instead of wrapping the position.
         const std::uint64_t data_size = physical - fixture.payload_offset;
         const std::uint64_t final_index = data_size - 1;
 
         std::map<std::uint64_t, std::uint8_t> bytes;
-        for (std::size_t i = 0; i < 20; ++i)
+        for (std::size_t i = 0; i < 20u; ++i)
             bytes[i] = fixture.header[i];
         std::array<std::uint64_t, 4> in_range{};
-        for (std::size_t k = 0; k < 4; ++k) { // only the first four samples stay inside a uint64
+        for (std::size_t k = 0; k < 4u; ++k) { // only the first four samples stay inside a uint64
             in_range[k] = fixture.payload_offset +
                           static_cast<std::uint64_t>(static_cast<double>(final_index) * 0.25 * static_cast<double>(k));
             bytes[in_range[k]] =
@@ -1619,7 +1658,7 @@ TEST_CASE("WolfX whole-buffer cracker delegates to the shared search engine", "[
             [&custom](const std::uint64_t pos) { return custom.encrypted[static_cast<std::size_t>(pos)]; }, 1000000U);
         REQUIRE(plan.found);
         CHECK(plan.payloadOffset == custom.fixture.payload_offset);
-        for (std::size_t i = 0; i < 64; ++i) {
+        for (std::size_t i = 0; i < 64u; ++i) {
             const std::size_t pos = static_cast<std::size_t>(custom.fixture.payload_offset) + i;
             CHECK(static_cast<std::uint8_t>(custom.encrypted[pos] ^ plan.blob[(pos - 10) % blob_size]) ==
                   custom.plaintext[pos]);
@@ -1899,15 +1938,21 @@ TEST_CASE("WolfX owned exceptional stream helpers preserve scalar and absolute o
     CHECK(input.pubseekpos(0, std::ios::in) == std::streampos(0));
     const auto input_error = observed_exception<io_sentinel>([&] { (void)input.sgetc(); });
     REQUIRE(input_error.has_value());
-    CHECK(input_error->code == 11);
-    CHECK(input_error->payload == "input");
+    if (!input_error.has_value()) {
+        return;
+    }
+    CHECK(input_error.value().code == 11);
+    CHECK(input_error.value().payload == "input");
     throwing_output_streambuf output_buffer;
     std::ostream output(&output_buffer);
     output.exceptions(std::ios::badbit);
     const auto output_error = observed_exception<io_sentinel>([&] { output.put('X'); });
     REQUIRE(output_error.has_value());
-    CHECK(output_error->code == 22);
-    CHECK(output_error->payload == "output");
+    if (!output_error.has_value()) {
+        return;
+    }
+    CHECK(output_error.value().code == 22);
+    CHECK(output_error.value().payload == "output");
     CHECK(output.bad());
     failing_streambuf rejected;
     std::ostream failed(&rejected);
@@ -1922,14 +1967,19 @@ TEST_CASE("WolfX owned exceptional stream helpers preserve scalar and absolute o
     CHECK(quiet.pubseekoff(0, std::ios::beg, std::ios::in) == std::streampos(-1));
     CHECK(quiet.pubseekpos(0, std::ios::in) == std::streampos(-1));
     CHECK(calls == 4);
-    exception_source_streambuf throwing([] { throw io_sentinel{33, "source"}; });
+    exception_source_streambuf throwing([] {
+        throw io_sentinel{33, "source"};
+    }); // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
     const std::array<std::function<void()>, 3> operations{[&] { (void)throwing.sgetn(&byte, 1); },
                                                           [&] { (void)throwing.sgetc(); },
                                                           [&] { (void)throwing.pubseekpos(0, std::ios::in); }};
     for (const auto &operation : operations) {
         const auto error = observed_exception<io_sentinel>(operation);
         REQUIRE(error.has_value());
-        CHECK(error->code == 33);
-        CHECK(error->payload == "source");
+        if (!error.has_value()) {
+            return;
+        }
+        CHECK(error.value().code == 33);
+        CHECK(error.value().payload == "source");
     }
 }

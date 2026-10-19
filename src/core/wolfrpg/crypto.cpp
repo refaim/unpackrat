@@ -33,8 +33,7 @@ namespace unpackrat::wolfrpg::crypto
             // length, so padding never enters the CRC and an empty span is a non-null source.
             std::array<char, kScratchBytes> scratch{};
             const std::size_t count = std::min(material.size(), kScratchBytes);
-            if (count > 0)
-            {
+            if (count > 0) {
                 std::memcpy(scratch.data(), material.data(), count);
             }
 
@@ -46,8 +45,7 @@ namespace unpackrat::wolfrpg::crypto
         std::array<unsigned char, kKeyBytes> to_raw(const key &cipher)
         {
             std::array<unsigned char, kKeyBytes> raw{};
-            for (std::size_t i = 0; i < kKeyBytes; ++i)
-            {
+            for (std::size_t i = 0; i < kKeyBytes; ++i) {
                 raw[i] = static_cast<unsigned char>(cipher.bytes[i]);
             }
             return raw;
@@ -56,16 +54,14 @@ namespace unpackrat::wolfrpg::crypto
 
     key derive_key(std::span<const std::byte> material)
     {
-        if (material.size() > max_material_bytes)
-        {
+        if (material.size() > max_material_bytes) {
             throw crypto_error("wolfrpg: key material exceeds the 2039-byte limit");
         }
 
         const std::array<unsigned char, kKeyBytes> raw = key_create(material);
 
         key derived{};
-        for (std::size_t i = 0; i < kKeyBytes; ++i)
-        {
+        for (std::size_t i = 0; i < kKeyBytes; ++i) {
             derived.bytes[i] = static_cast<std::byte>(raw[i]);
         }
         return derived;
@@ -73,8 +69,7 @@ namespace unpackrat::wolfrpg::crypto
 
     void apply_xor(std::span<std::byte> data, std::uint64_t position, const key &cipher)
     {
-        if (data.empty())
-        {
+        if (data.empty()) {
             return;
         }
 

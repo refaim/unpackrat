@@ -34,7 +34,7 @@ namespace
         std::vector<std::uint8_t> out;
         out.reserve(values.size());
         for (const int value : values)
-            out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+            out.push_back(static_cast<std::uint8_t>(static_cast<unsigned>(value) & 0xFFu));
         return out;
     }
 } // namespace
@@ -55,8 +55,8 @@ TEST_CASE("the shared v1 kernel reads exactly the stepless selected positions", 
     const std::vector<std::uint8_t> key =
         dxarckey::v1::calcKey(bytes[dxarckey::v1::SEED_OFFSET], bytes[dxarckey::v1::KEY_LEN_OFFSET], readRaw);
 
-    CHECK(key == expect({ 0x66, 0xBD, 0x18, 0x00 }));
-    CHECK(reads == std::vector<std::uint32_t>{ 30, 5706, 11382, 17058 });
+    CHECK(key == expect({0x66, 0xBD, 0x18, 0x00}));
+    CHECK(reads == std::vector<std::uint32_t>{30, 5706, 11382, 17058});
 }
 
 TEST_CASE("the shared v1 kernel stops before reading for a zero key length", "[wolfrpg][pro][vendor]")
@@ -73,7 +73,7 @@ TEST_CASE("the shared v1 kernel stops before reading for a zero key length", "[w
     // The same callback instantiation driven with a nonzero length reaches the key stream: keyLen
     // == 1 selects only offset 30, so exactly one byte is read.
     const std::vector<std::uint8_t> single = dxarckey::v1::calcKey(fixtures::v1_seed_byte, 1, readRaw);
-    CHECK(single.size() == std::size_t{ 1 });
+    CHECK(single.size() == std::size_t{1});
     CHECK(reads == 1);
 }
 
@@ -82,11 +82,11 @@ TEST_CASE("the shared v1 whole-buffer entry reproduces the frozen raw keys", "[w
     // The whole-buffer entry is the raw derivation: the archive-layer trailing NUL is not applied
     // here, so the nonzero-tail companion keeps its 0x03 last byte.
     CHECK(dxarckey::v1::calcKey(raw(fixtures::v1_companion()), static_cast<std::uint32_t>(fixtures::v1_size)) ==
-          expect({ 0x66, 0xBD, 0x18, 0x00 }));
+          expect({0x66, 0xBD, 0x18, 0x00}));
     CHECK(dxarckey::v1::calcKey(raw(fixtures::v1_nonzero_companion()), static_cast<std::uint32_t>(fixtures::v1_size)) ==
-          expect({ 0x66, 0xBD, 0x18, 0x03 }));
+          expect({0x66, 0xBD, 0x18, 0x03}));
     CHECK(dxarckey::v1::calcKey(raw(fixtures::v1_seed_b_companion()), static_cast<std::uint32_t>(fixtures::v1_size)) ==
-          expect({ 0x65, 0xBD, 0x1A, 0x02 }));
+          expect({0x65, 0xBD, 0x1A, 0x02}));
 }
 
 TEST_CASE("the shared v1 whole-buffer entry rejects a companion below the minimum size", "[wolfrpg][pro][vendor]")
@@ -106,10 +106,10 @@ TEST_CASE("the shared v2 remainder search advances to the first coprime", "[wolf
 TEST_CASE("the shared v2 whole-buffer entry reproduces the frozen key", "[wolfrpg][pro][vendor]")
 {
     CHECK(dxarckey::v2::calcKey(raw(fixtures::v2_companion())) ==
-          expect({ 0x6F, 0x69, 0xD5, 0x24, 0xF9, 0x7F, 0x1A, 0x32, 0xC2, 0x89, 0x36, 0xBF, 0xD6, 0x3D, 0x71, 0xC0, 0x00,
-                   0x2F, 0x1A, 0x89, 0xD0 }));
-    CHECK(dxarckey::v2::calcKey(raw(fixtures::v2_compact_companion())) == expect({ 0x86, 0x00, 0x1F, 0x0A, 0x19, 0xD8 }));
-    CHECK(dxarckey::v2::calcKey(raw(fixtures::v2_offset2_companion())) == expect({ 0xAB, 0x00, 0x1C, 0x0C, 0x17, 0x86 }));
+          expect({0x6F, 0x69, 0xD5, 0x24, 0xF9, 0x7F, 0x1A, 0x32, 0xC2, 0x89, 0x36,
+                  0xBF, 0xD6, 0x3D, 0x71, 0xC0, 0x00, 0x2F, 0x1A, 0x89, 0xD0}));
+    CHECK(dxarckey::v2::calcKey(raw(fixtures::v2_compact_companion())) == expect({0x86, 0x00, 0x1F, 0x0A, 0x19, 0xD8}));
+    CHECK(dxarckey::v2::calcKey(raw(fixtures::v2_offset2_companion())) == expect({0xAB, 0x00, 0x1C, 0x0C, 0x17, 0x86}));
 }
 
 TEST_CASE("the shared v2 whole-buffer entry rejects a companion with no data region", "[wolfrpg][pro][vendor]")

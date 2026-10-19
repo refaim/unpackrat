@@ -11,7 +11,7 @@
 // extraction_cancelled, byte budget and exercise_archive helper are visible to these tests. The
 // sink is driven only through the real std::streambuf public interface (sputn/sputc) and the real
 // extraction path only through exercise_archive, never through a copied or reimplemented stand-in.
-#include "../../fuzz/wolfrpg.cpp"
+#include "../../fuzz/wolfrpg.cpp" // NOLINT(bugprone-suspicious-include): unit test includes the fuzz TU to drive its sink
 
 #include "../support/wolfrpg_fixtures.h"
 
@@ -55,7 +55,8 @@ namespace
     outcome drive(const std::vector<std::byte> &input)
     {
         const std::string data(reinterpret_cast<const char *>(input.data()), input.size());
-        std::istringstream stream(data, std::ios::in | std::ios::binary);
+        std::istringstream stream(data, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                                             static_cast<unsigned>(std::ios::binary)));
         discarding_sink sink;
         std::ostream sink_stream(&sink);
         outcome result;
@@ -234,7 +235,8 @@ TEST_CASE("the real entry cancels a stored entry that overruns the byte budget",
     // The same input, driven through the real extraction path with the actual sink, raises the
     // harness's own cancel and never admits more than the byte budget.
     const std::string data(reinterpret_cast<const char *>(bytes.data()), bytes.size());
-    std::istringstream stream(data, std::ios::in | std::ios::binary);
+    std::istringstream stream(data, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                                         static_cast<unsigned>(std::ios::binary)));
     discarding_sink sink;
     std::ostream sink_stream(&sink);
     expect_cancel([&] { exercise_archive(stream, sink_stream); });

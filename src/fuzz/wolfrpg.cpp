@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <istream>
 #include <memory>
@@ -19,7 +20,7 @@ namespace
 {
     // The harness's own control signal. It is raised by the sink once the byte budget is exhausted
     // and caught by type at the boundary.
-    struct extraction_cancelled
+    struct extraction_cancelled : std::exception
     {
     };
 
@@ -90,7 +91,8 @@ namespace
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, const std::size_t size)
 {
     const std::string bytes(reinterpret_cast<const char *>(data), size);
-    std::istringstream stream(bytes, std::ios::in | std::ios::binary);
+    std::istringstream stream(bytes, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                                          static_cast<unsigned>(std::ios::binary)));
     discarding_sink sink;
     std::ostream output(&sink);
 

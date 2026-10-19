@@ -4,7 +4,7 @@
 // The patch factors the policy that used to be written inline in WolfDec::detectCrypt /
 // detectMode / getCryptVersion / UnpackArchive into four narrow library helpers:
 //
-//   * WolfDec::CryptVersionFromHeader -- bounded DARC_HEAD interpretation (Flags >> 16);
+//   * WolfDec::CryptVersionFromHeader -- bounded DARC_HEAD interpretation (Flags >> 16u);
 //   * WolfDec::SelectMode             -- the ordered default-then-additional crypt-version lookup;
 //   * WolfDec::ModeCount / ModeAt     -- the combined default-then-additional ordering;
 //   * WolfDec::ClassifyCryptVersion   -- the automatic UnpackArchive classification.
@@ -46,10 +46,10 @@ namespace
     [[nodiscard]] std::vector<std::uint8_t> header_bytes(const std::uint16_t magic, const std::uint16_t crypt_version)
     {
         std::vector<std::uint8_t> bytes(kDarcHeadBytes, 0x00);
-        bytes[0] = static_cast<std::uint8_t>(magic & 0xFF);
-        bytes[1] = static_cast<std::uint8_t>(magic >> 8);
-        bytes[kFlagsOffset + 2] = static_cast<std::uint8_t>(crypt_version & 0xFF);
-        bytes[kFlagsOffset + 3] = static_cast<std::uint8_t>(crypt_version >> 8);
+        bytes[0] = static_cast<std::uint8_t>(static_cast<unsigned>(magic) & 0xFFu);
+        bytes[1] = static_cast<std::uint8_t>(static_cast<unsigned>(magic) >> 8u);
+        bytes[kFlagsOffset + 2] = static_cast<std::uint8_t>(static_cast<unsigned>(crypt_version) & 0xFFu);
+        bytes[kFlagsOffset + 3] = static_cast<std::uint8_t>(static_cast<unsigned>(crypt_version) >> 8u);
         return bytes;
     }
 
@@ -76,7 +76,8 @@ namespace
                                                       const std::vector<std::uint8_t> &bytes)
     {
         const std::filesystem::path path = directory / name;
-        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        std::ofstream output(path, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::binary) |
+                                                                        static_cast<unsigned>(std::ios::trunc)));
         if (!output.is_open()) {
             throw std::runtime_error("mode-selection fixture could not be created: " + path.string());
         }
@@ -625,8 +626,11 @@ TEST_CASE("trial helper path preserves unset empty owned overrides and secure CR
         } else {
             const auto error = observed_environment_error();
             REQUIRE(error.has_value());
-            CHECK(error->value() == r.error);
-            CHECK(error->category() == std::generic_category());
+            if (!error.has_value()) {
+                return;
+            }
+            CHECK(error.value().value() == r.error);
+            CHECK(error.value().category() == std::generic_category());
         }
     }
 }

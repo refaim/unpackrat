@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <span>
 #include <vector>
@@ -29,8 +30,8 @@ namespace unpackrat::wolfrpg::pro
     {
         namespace dxarckey = wolf::crypt::dxarckey;
 
-        // The companion size is a 32-bit format field; a size at or beyond 2^32 cannot be addressed.
-        constexpr std::uint64_t size_limit = std::uint64_t{ 1 } << 32;
+        // The companion size is a 32-bit format field; a size at or beyond 2^32u cannot be addressed.
+        constexpr std::uint64_t size_limit = std::uint64_t{1} << 32u;
 
         constexpr std::uint8_t v1_first_byte = 0xA0;
         constexpr std::uint8_t cc2_first_byte = 0xF1;
@@ -41,7 +42,7 @@ namespace unpackrat::wolfrpg::pro
 
         // A selected key byte the variant's selection lands outside the companion. Never escapes
         // recover_key: it is this unit's own signal, distinct from any source failure.
-        struct selected_out_of_range
+        struct selected_out_of_range : std::exception
         {
         };
 
@@ -77,14 +78,14 @@ namespace unpackrat::wolfrpg::pro
         [[nodiscard]] key_result recover_v1(const std::uint64_t physical_size, const source &read_at)
         {
             if (physical_size < dxarckey::v1::MIN_FILESIZE)
-                return key_error{ key_error_code::truncated };
+                return key_error{key_error_code::truncated};
 
             const std::array<std::byte, header_bytes> header = read_header(read_at);
             const std::uint8_t key_len = to_value(header[dxarckey::v1::KEY_LEN_OFFSET]);
 
             // Upstream would divide the step by a zero key length.
             if (key_len == 0)
-                return key_error{ key_error_code::invalid_key_length };
+                return key_error{key_error_code::invalid_key_length};
 
             const auto read_raw = [&read_at](const std::uint32_t offset) -> std::uint8_t {
                 return read_one(read_at, offset);
@@ -93,12 +94,13 @@ namespace unpackrat::wolfrpg::pro
             recovered_key recovered;
             recovered.archive_variant = variant::v1;
             recovered.crypt_version = 1000;
-            recovered.key = to_bytes(dxarckey::v1::calcKey(to_value(header[dxarckey::v1::SEED_OFFSET]), key_len, read_raw));
+            recovered.key =
+                to_bytes(dxarckey::v1::calcKey(to_value(header[dxarckey::v1::SEED_OFFSET]), key_len, read_raw));
 
             // The public accessor leaves a key already ending in 0x00 untouched and appends exactly
             // one 0x00 otherwise; that is the whole of the archive-layer normalization for v1.
-            if (recovered.key.back() != std::byte{ 0x00 })
-                recovered.key.push_back(std::byte{ 0x00 });
+            if (recovered.key.back() != std::byte{0x00})
+                recovered.key.push_back(std::byte{0x00});
 
             return recovered;
         }
@@ -106,7 +108,7 @@ namespace unpackrat::wolfrpg::pro
         [[nodiscard]] key_result recover_cc2(const std::uint64_t physical_size)
         {
             if (physical_size < dxarckey::v2::HEADER_SIZE)
-                return key_error{ key_error_code::truncated };
+                return key_error{key_error_code::truncated};
 
             recovered_key recovered;
             recovered.archive_variant = variant::cc2;
@@ -118,17 +120,17 @@ namespace unpackrat::wolfrpg::pro
         [[nodiscard]] key_result recover_v2(const std::uint64_t physical_size, const source &read_at)
         {
             if (physical_size < dxarckey::v2::HEADER_SIZE)
-                return key_error{ key_error_code::truncated };
+                return key_error{key_error_code::truncated};
 
             const std::uint64_t data_size = physical_size - dxarckey::v2::HEADER_SIZE;
 
             if (data_size == 0)
-                return key_error{ key_error_code::invalid_data_size };
+                return key_error{key_error_code::invalid_data_size};
 
             // The pinned remainder search runs over signed 32-bit values; a larger data size is out
             // of domain and is refused before it can be narrowed to a negative int32.
             if (data_size > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
-                return key_error{ key_error_code::unsupported_size };
+                return key_error{key_error_code::unsupported_size};
 
             const std::array<std::byte, header_bytes> header = read_header(read_at);
 
@@ -172,28 +174,24 @@ namespace unpackrat::wolfrpg::pro
     key_result recover_key(const std::uint64_t physical_size, const source &read_at)
     {
         if (physical_size == 0)
-            return key_error{ key_error_code::truncated };
+            return key_error{key_error_code::truncated};
 
         if (physical_size >= size_limit)
-            return key_error{ key_error_code::unsupported_size };
+            return key_error{key_error_code::unsupported_size};
 
         const std::uint8_t first = read_one(read_at, 0);
 
-        try
-        {
-            switch (first)
-            {
-                case v1_first_byte:
-                    return recover_v1(physical_size, read_at);
-                case cc2_first_byte:
-                    return recover_cc2(physical_size);
-                default:
-                    return recover_v2(physical_size, read_at);
+        try {
+            switch (first) {
+            case v1_first_byte:
+                return recover_v1(physical_size, read_at);
+            case cc2_first_byte:
+                return recover_cc2(physical_size);
+            default:
+                return recover_v2(physical_size, read_at);
             }
-        }
-        catch (const selected_out_of_range &)
-        {
-            return key_error{ key_error_code::key_out_of_range };
+        } catch (const selected_out_of_range &) {
+            return key_error{key_error_code::key_out_of_range};
         }
     }
 } // namespace unpackrat::wolfrpg::pro

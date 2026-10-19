@@ -24,17 +24,17 @@ namespace unpackrat::wolfrpg::codec
         // One message per huffman_status value, indexed by the value, so the translation is total
         // with no unreachable switch arm to leave uncovered.
         constexpr const char *status_messages[] = {
-            "wolfrpg huffman decoder failure",              // ok (never reported)
-            "wolfrpg huffman header truncated",             // header_truncated
-            "wolfrpg huffman original size exceeds bound",  // original_exceeds_bound
-            "wolfrpg huffman original size mismatch",       // original_mismatch
-            "wolfrpg huffman weight out of range",          // weight_out_of_range
-            "wolfrpg huffman payload exceeds encoded extent", // payload_exceeds_extent
+            "wolfrpg huffman decoder failure",                         // ok (never reported)
+            "wolfrpg huffman header truncated",                        // header_truncated
+            "wolfrpg huffman original size exceeds bound",             // original_exceeds_bound
+            "wolfrpg huffman original size mismatch",                  // original_mismatch
+            "wolfrpg huffman weight out of range",                     // weight_out_of_range
+            "wolfrpg huffman payload exceeds encoded extent",          // payload_exceeds_extent
             "wolfrpg huffman trailing bytes outside declared payload", // trailing_bytes
-            "wolfrpg huffman empty stream carries a payload", // empty_with_payload
-            "wolfrpg huffman payload truncated",            // payload_truncated
-            "wolfrpg huffman payload not fully consumed",   // payload_not_consumed
-            "wolfrpg huffman source failed",                // source_failure
+            "wolfrpg huffman empty stream carries a payload",          // empty_with_payload
+            "wolfrpg huffman payload truncated",                       // payload_truncated
+            "wolfrpg huffman payload not fully consumed",              // payload_not_consumed
+            "wolfrpg huffman source failed",                           // source_failure
         };
 
         [[nodiscard]] const char *describe(huffman_status status) noexcept
@@ -60,8 +60,7 @@ namespace unpackrat::wolfrpg::codec
             // before a weight or payload byte is requested.
             // ``expected_size`` is the exact decoded length for the exact constructor and the ceiling
             // for the bounded factory; the vendor distinguishes them by mode.
-            const huffman_status status =
-                decoder_.init(&impl::pull_bytes, this, mode_, encoded_size, expected_size);
+            const huffman_status status = decoder_.init(&impl::pull_bytes, this, mode_, encoded_size, expected_size);
             if (status != huffman_status::ok) {
                 fail(status);
             }
@@ -70,8 +69,8 @@ namespace unpackrat::wolfrpg::codec
         std::size_t read(std::span<std::byte> destination)
         {
             std::size_t written = 0;
-            const huffman_status status = decoder_.read(
-                reinterpret_cast<unsigned char *>(destination.data()), destination.size(), &written);
+            const huffman_status status =
+                decoder_.read(reinterpret_cast<unsigned char *>(destination.data()), destination.size(), &written);
             if (status != huffman_status::ok) {
                 fail(status);
             }

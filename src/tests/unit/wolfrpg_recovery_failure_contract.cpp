@@ -128,7 +128,7 @@ namespace
     }
     std::optional<std::uint32_t> unexpected_decoder(std::uint32_t, unsigned char)
     {
-        throw dependency_called{};
+        throw dependency_called{}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
     }
     std::optional<std::uint32_t> allocating_decoder(std::uint32_t, unsigned char)
     {

@@ -61,14 +61,13 @@ namespace unpackrat::wolfrpg::codec
         [[nodiscard]] std::uint64_t remaining() const noexcept;
 
       private:
-        enum class size_mode
+        enum class size_mode : std::uint8_t
         {
             exact,
             bounded,
         };
 
-        huffman_reader(source pull, std::uint64_t encoded_size, std::uint64_t expected_size_or_bound,
-                       size_mode mode);
+        huffman_reader(source pull, std::uint64_t encoded_size, std::uint64_t expected_size_or_bound, size_mode mode);
 
         class impl;
         std::unique_ptr<impl> impl_;

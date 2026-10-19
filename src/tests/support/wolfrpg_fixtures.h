@@ -25,10 +25,10 @@ namespace test::support
     struct built_archive
     {
         std::vector<std::byte> bytes;
-        std::size_t header_offset = 0;      // file offset of the (uncompressed) name table
-        std::size_t file_table_offset = 0;  // header-relative offset of the first child DARC_FILEHEAD,
-                                            // i.e. the root directory's own record plus one
-                                            // sizeof(DARC_FILEHEAD) past the file-table base
+        std::size_t header_offset = 0;         // file offset of the (uncompressed) name table
+        std::size_t file_table_offset = 0;     // header-relative offset of the first child DARC_FILEHEAD,
+                                               // i.e. the root directory's own record plus one
+                                               // sizeof(DARC_FILEHEAD) past the file-table base
         std::size_t root_directory_offset = 0; // header-relative offset of the root DARC_DIRECTORY
     };
 
@@ -55,6 +55,7 @@ namespace test::support
 
     // Overwrites the DARC_FILEHEAD.DataSize declared for one root entry, letting a test model an
     // archive whose entry legitimately exceeds any fixed in-memory size cap.
-    void set_file_unpacked_size(const built_archive &archive, std::vector<std::byte> &bytes, std::size_t index, std::uint64_t unpacked_size);
+    void set_file_unpacked_size(const built_archive &archive, std::vector<std::byte> &bytes, std::size_t index,
+                                std::uint64_t unpacked_size);
 } // namespace test::support
 #endif

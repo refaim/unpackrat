@@ -34,13 +34,15 @@ namespace
 
     std::uint16_t read_u16(const std::span<const std::byte> bytes, const std::size_t offset)
     {
-        return static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(bytes[offset]) |
-                                          (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(bytes[offset + 1])) << 8));
+        return static_cast<std::uint16_t>(
+            std::to_integer<std::uint8_t>(bytes[offset]) |
+            (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + 1])) << 8u));
     }
 
     std::istringstream to_stream(const std::vector<std::byte> &bytes)
     {
-        return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()), std::ios::binary);
+        return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()),
+                                  std::ios::binary);
     }
 
     std::vector<std::byte> to_bytes(const std::string &text)
@@ -69,7 +71,8 @@ namespace
 TEST_CASE("classic/legacy default-mode fixtures carry the expected container header", "[wolfrpg][default-mode]")
 {
     for (const mode::fixture *fixture : mode::all()) {
-        DYNAMIC_SECTION(fixture->file_name) {
+        DYNAMIC_SECTION(fixture->file_name)
+        {
             const std::vector<std::byte> bytes = mode::load_bytes(fixture->file_name);
 
             // Drift control: the exact archived bytes are frozen, so a swapped or regenerated
@@ -98,7 +101,8 @@ TEST_CASE("classic/legacy default-mode archives open without a password and list
           "[wolfrpg][default-mode]")
 {
     for (const mode::fixture *fixture : mode::all()) {
-        DYNAMIC_SECTION(fixture->file_name) {
+        DYNAMIC_SECTION(fixture->file_name)
+        {
             const std::vector<std::byte> bytes = mode::load_bytes(fixture->file_name);
             std::istringstream stream = to_stream(bytes);
 
@@ -128,7 +132,8 @@ TEST_CASE("classic/legacy default-mode archives extract the exact payloads and a
           "[wolfrpg][default-mode]")
 {
     for (const mode::fixture *fixture : mode::all()) {
-        DYNAMIC_SECTION(fixture->file_name) {
+        DYNAMIC_SECTION(fixture->file_name)
+        {
             const std::vector<std::byte> bytes = mode::load_bytes(fixture->file_name);
             std::istringstream stream = to_stream(bytes);
 
@@ -155,7 +160,7 @@ TEST_CASE("classic/legacy default-mode archives extract the exact payloads and a
                     // non-positive or oversized delta is recorded as a flag instead of being
                     // folded into `produced`, so a wrong progress report fails cleanly here
                     // rather than overflowing the running sum.
-                    if (delta < 0) {
+                    if (delta < 0u) {
                         negative_delta = true;
                         return;
                     }
@@ -181,13 +186,15 @@ TEST_CASE("classic/legacy default-mode archives extract the exact payloads and a
 TEST_CASE("classic/legacy default-mode archives reject a wrong key", "[wolfrpg][default-mode]")
 {
     for (const mode::fixture *fixture : mode::all()) {
-        DYNAMIC_SECTION(fixture->file_name) {
+        DYNAMIC_SECTION(fixture->file_name)
+        {
             // Control: even though the built-in default key opens the archive, an explicit wrong
             // key must not. A keyed container read with the wrong key yields garbage tables and has
             // to surface as a failure rather than a bogus index.
             const std::vector<std::byte> bytes = mode::load_bytes(fixture->file_name);
             std::istringstream stream = to_stream(bytes);
-            REQUIRE_THROWS(wolfrpg::archive::open(stream, std::filesystem::path(fixture->file_name), "not-the-default-key"));
+            REQUIRE_THROWS(
+                wolfrpg::archive::open(stream, std::filesystem::path(fixture->file_name), "not-the-default-key"));
         }
     }
 }

@@ -75,7 +75,7 @@ namespace unpackrat::wolfrpg
 
     namespace
     {
-        constexpr std::size_t stream_chunk = 32 * 1024;
+        constexpr std::size_t stream_chunk = std::size_t{32} * 1024;
         constexpr std::uint64_t press32_sentinel = 0xffffffffULL;
         constexpr std::uint64_t press64_sentinel = 0xffffffffffffffffULL;
         constexpr std::uint32_t default_code_page = 932;
@@ -296,7 +296,10 @@ namespace unpackrat::wolfrpg
             return;
         }
 
-        std::array<std::byte, stream_chunk> chunk{};
+        // The 32 KiB transfer window lives on the heap: a stack-resident array here trips the
+        // MSVC analyzer's per-frame stack budget (C6262), and the allocation is bounded to the
+        // exact chunk length the extraction loop already relied on.
+        std::vector<std::byte> chunk(stream_chunk);
         if (!body.compressed) {
             std::int64_t cursor = 0;
             while (static_cast<std::uint64_t>(cursor) < body.stored) {

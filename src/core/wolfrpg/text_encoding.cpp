@@ -59,7 +59,7 @@ namespace unpackrat::wolfrpg::text
         {
             const std::uint32_t first = byte_at(data, offset);
             const std::uint32_t second = byte_at(data, offset + 1);
-            return big_endian ? (first << 8) | second : (second << 8) | first;
+            return big_endian ? (first << 8u) | second : (second << 8u) | first;
         }
 
         std::uint32_t read_u32(const char *data, std::size_t offset, bool big_endian)
@@ -68,7 +68,8 @@ namespace unpackrat::wolfrpg::text
             const std::uint32_t b1 = byte_at(data, offset + 1);
             const std::uint32_t b2 = byte_at(data, offset + 2);
             const std::uint32_t b3 = byte_at(data, offset + 3);
-            return big_endian ? (b0 << 24) | (b1 << 16) | (b2 << 8) | b3 : (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+            return big_endian ? (b0 << 24u) | (b1 << 16u) | (b2 << 8u) | b3
+                              : (b3 << 24u) | (b2 << 16u) | (b1 << 8u) | b0;
         }
 
         // ASCII is validated here rather than delegated: the vendor returns the raw byte unchanged
@@ -76,7 +77,7 @@ namespace unpackrat::wolfrpg::text
         std::uint32_t decode_ascii(const char *data, std::size_t &offset)
         {
             const std::uint32_t value = byte_at(data, offset);
-            if (value > 0x7F) {
+            if (value > 0x7Fu) {
                 throw encoding_error(encoding_error_code::invalid_sequence);
             }
             offset += 1;
@@ -87,17 +88,19 @@ namespace unpackrat::wolfrpg::text
         {
             const std::uint32_t lead = byte_at(data, offset);
             std::size_t width = 0;
-            if (lead < 0x80) {
+            if (lead < 0x80u) {
                 width = 1;
-            } else if (lead < 0xC0) {
-                throw encoding_error(encoding_error_code::invalid_sequence);
-            } else if (lead < 0xE0) {
+            } else if (lead >= 0xC0 && lead < 0xE0u) {
                 width = 2;
-            } else if (lead < 0xF0) {
+            } else if (lead >= 0xE0 && lead < 0xF0u) {
                 width = 3;
-            } else if (lead < 0xF5) {
+            } else if (lead >= 0xF0 && lead < 0xF5u) {
                 width = 4;
-            } else {
+            }
+
+            // 0x80..0xBF is a stray continuation byte and 0xF5..0xFF is beyond Unicode: each is an
+            // invalid lead byte, refused exactly as the original chain did with no width recorded.
+            if (width == 0) {
                 throw encoding_error(encoding_error_code::invalid_sequence);
             }
 
@@ -111,13 +114,13 @@ namespace unpackrat::wolfrpg::text
                 if ((continuation & 0xC0u) != 0x80u) {
                     throw encoding_error(encoding_error_code::invalid_sequence);
                 }
-                scalar = (scalar << 6) | (continuation & 0x3Fu);
+                scalar = (scalar << 6u) | (continuation & 0x3Fu);
             }
 
             if (scalar >= 0xD800 && scalar <= 0xDFFF) {
                 throw encoding_error(encoding_error_code::surrogate_code_point);
             }
-            if (scalar > 0x10FFFF) {
+            if (scalar > 0x10FFFFu) {
                 throw encoding_error(encoding_error_code::invalid_sequence);
             }
             if (scalar < utf8_min_scalar[width]) {
@@ -130,22 +133,22 @@ namespace unpackrat::wolfrpg::text
 
         std::uint32_t decode_utf16(const char *data, std::size_t size, std::size_t &offset, bool big_endian)
         {
-            if (size - offset < 2) {
+            if (size - offset < 2u) {
                 throw encoding_error(encoding_error_code::truncated_sequence);
             }
             const std::uint32_t lead = read_u16(data, offset, big_endian);
             offset += 2;
 
             if (lead >= 0xD800 && lead <= 0xDBFF) {
-                if (size - offset < 2) {
+                if (size - offset < 2u) {
                     throw encoding_error(encoding_error_code::truncated_sequence);
                 }
                 const std::uint32_t trail = read_u16(data, offset, big_endian);
-                if (trail < 0xDC00 || trail > 0xDFFF) {
+                if (trail < 0xDC00u || trail > 0xDFFFu) {
                     throw encoding_error(encoding_error_code::invalid_sequence);
                 }
                 offset += 2;
-                return 0x10000 + ((lead - 0xD800) << 10) + (trail - 0xDC00);
+                return 0x10000 + ((lead - 0xD800) << 10u) + (trail - 0xDC00);
             }
             if (lead >= 0xDC00 && lead <= 0xDFFF) {
                 throw encoding_error(encoding_error_code::surrogate_code_point);
@@ -155,7 +158,7 @@ namespace unpackrat::wolfrpg::text
 
         std::uint32_t decode_utf32(const char *data, std::size_t size, std::size_t &offset, bool big_endian)
         {
-            if (size - offset < 4) {
+            if (size - offset < 4u) {
                 throw encoding_error(encoding_error_code::truncated_sequence);
             }
             const std::uint32_t scalar = read_u32(data, offset, big_endian);
@@ -164,7 +167,7 @@ namespace unpackrat::wolfrpg::text
             if (scalar >= 0xD800 && scalar <= 0xDFFF) {
                 throw encoding_error(encoding_error_code::surrogate_code_point);
             }
-            if (scalar > 0x10FFFF) {
+            if (scalar > 0x10FFFFu) {
                 throw encoding_error(encoding_error_code::invalid_sequence);
             }
             return scalar;

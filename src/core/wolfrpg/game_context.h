@@ -1,6 +1,7 @@
 #ifndef UNPACKRAT_CORE_WOLFRPG_GAME_CONTEXT_H
 #define UNPACKRAT_CORE_WOLFRPG_GAME_CONTEXT_H
 
+#include <cstdint>
 #include <filesystem>
 
 // Game/data/companion localization for a Wolf RPG game, as an operation with no side effects.
@@ -16,7 +17,7 @@
 namespace unpackrat::wolfrpg
 {
     // Why a Wolf RPG context was or was not resolved.
-    enum class game_context_status
+    enum class game_context_status : std::uint8_t
     {
         resolved,          // the executable, its data root and the companion were all located
         missing_context,   // no game executable, or no data root beside it

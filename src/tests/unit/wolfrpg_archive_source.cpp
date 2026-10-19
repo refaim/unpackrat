@@ -82,7 +82,7 @@ namespace
         std::function<void(std::size_t offset, std::size_t count)> before_read;
         std::function<void()> size_fault; // an arbitrary exception raised at the size query
         std::function<void()> seek_fault; // an arbitrary exception raised at a read-position query
-        // < 0: serve every size query; otherwise the number of size queries served before the query
+        // < 0u: serve every size query; otherwise the number of size queries served before the query
         // is refused. Lets a stream report its length to the metadata parse and then shrink.
         int end_seek_allowance = -1;
 
@@ -98,7 +98,7 @@ namespace
                 if (end_seek_allowance == 0) {
                     return pos_type(off_type(-1));
                 }
-                if (end_seek_allowance > 0) {
+                if (end_seek_allowance > 0u) {
                     --end_seek_allowance;
                 }
             } else if (seek_fault) {
@@ -141,7 +141,7 @@ namespace
             }
             const std::size_t available = position_ < data_.size() ? data_.size() - position_ : 0;
             const std::size_t take = want < available ? want : available;
-            if (take > 0) {
+            if (take > 0u) {
                 std::memcpy(destination, data_.data() + position_, take);
                 position_ += take;
             }
@@ -155,9 +155,9 @@ namespace
                 direction == std::ios_base::beg
                     ? 0
                     : (direction == std::ios_base::end ? static_cast<std::streamoff>(data_.size())
-                                                        : static_cast<std::streamoff>(position_));
+                                                       : static_cast<std::streamoff>(position_));
             const std::streamoff target = base + offset;
-            if (target < 0) {
+            if (target < 0u) {
                 return pos_type(off_type(-1));
             }
             position_ = static_cast<std::size_t>(target);
@@ -170,21 +170,23 @@ namespace
 
     void put_u16(std::vector<std::byte> &out, const std::size_t offset, const std::uint16_t value)
     {
-        out[offset] = static_cast<std::byte>(value & 0xff);
-        out[offset + 1] = static_cast<std::byte>((value >> 8) & 0xff);
+        out[offset] = static_cast<std::byte>(value & 0xffu);
+        out[offset + 1] = static_cast<std::byte>((static_cast<std::uint32_t>(value) >> 8u) & 0xffu);
     }
 
     void put_u32(std::vector<std::byte> &out, const std::size_t offset, const std::uint32_t value)
     {
-        for (int index = 0; index < 4; ++index) {
-            out[offset + static_cast<std::size_t>(index)] = static_cast<std::byte>((value >> (8 * index)) & 0xff);
+        for (int index = 0; index < 4u; ++index) {
+            out[offset + static_cast<std::size_t>(index)] =
+                static_cast<std::byte>((value >> (8u * static_cast<unsigned>(index))) & 0xffu);
         }
     }
 
     void put_u64(std::vector<std::byte> &out, const std::size_t offset, const std::uint64_t value)
     {
-        for (int index = 0; index < 8; ++index) {
-            out[offset + static_cast<std::size_t>(index)] = static_cast<std::byte>((value >> (8 * index)) & 0xff);
+        for (int index = 0; index < 8u; ++index) {
+            out[offset + static_cast<std::size_t>(index)] =
+                static_cast<std::byte>((value >> (8u * static_cast<unsigned>(index))) & 0xffu);
         }
     }
 
@@ -267,8 +269,8 @@ namespace
             put_u64(directory_table, base + offsetof(DARC_DIRECTORY, FileHeadNum), head_count);
             put_u64(directory_table, base + offsetof(DARC_DIRECTORY, FileHeadAddress), head_address);
         };
-        set_directory(0, 0, uncompressed_size, 2, 1 * sizeof(DARC_FILEHEAD));
-        set_directory(1, 1 * sizeof(DARC_FILEHEAD), 0, 1, 3 * sizeof(DARC_FILEHEAD));
+        set_directory(0, 0, uncompressed_size, 2, std::uint64_t{1} * sizeof(DARC_FILEHEAD));
+        set_directory(1, std::uint64_t{1} * sizeof(DARC_FILEHEAD), 0, 1, std::uint64_t{3} * sizeof(DARC_FILEHEAD));
 
         std::vector<std::byte> header = names;
         header.insert(header.end(), file_table.begin(), file_table.end());
@@ -295,11 +297,9 @@ namespace
     DXArchive::Source source_over(const std::string &bytes)
     {
         DXArchive::Source source;
-        source.physical_size = [&bytes]() -> s64 {
-            return static_cast<s64>(bytes.size());
-        };
+        source.physical_size = [&bytes]() -> s64 { return static_cast<s64>(bytes.size()); };
         source.read_at = [&bytes](const s64 offset, void *destination, const size_t size) -> bool {
-            if (offset < 0 || static_cast<std::uint64_t>(offset) + size > bytes.size()) {
+            if (offset < 0u || static_cast<std::uint64_t>(offset) + size > bytes.size()) {
                 return false;
             }
             std::memcpy(destination, bytes.data() + static_cast<std::size_t>(offset), size);
@@ -309,8 +309,7 @@ namespace
     }
 } // namespace
 
-TEST_CASE("the adapter lists a nested archive depth-first and extracts every decoded entry",
-          "[wolfrpg][source]")
+TEST_CASE("the adapter lists a nested archive depth-first and extracts every decoded entry", "[wolfrpg][source]")
 {
     const std::vector<std::byte> bytes = build_nested_archive();
     std::istringstream stream = to_stream(bytes);
@@ -338,7 +337,9 @@ TEST_CASE("the adapter never splits an encoded name at a 0x5c trail byte", "[wol
     // character. Applying the separator policy to the raw encoded bytes would corrupt the name, so
     // the decoded component must survive intact.
     const std::array entries{
-        test::support::synthetic_entry{"\x95\x5C" ".dat", "payload", false},
+        test::support::synthetic_entry{"\x95\x5C"
+                                       ".dat",
+                                       "payload", false},
     };
     const test::support::built_archive built = test::support::build_plain_archive(entries);
     std::istringstream stream = to_stream(built.bytes);
@@ -353,12 +354,14 @@ TEST_CASE("the adapter never splits an encoded name at a 0x5c trail byte", "[wol
 TEST_CASE("the adapter rejects decoded names that are not safe relative components", "[wolfrpg][source]")
 {
     const std::array<std::string, 6> unsafe_names{
-        "..",        // parent traversal
-        ".",         // current directory
-        "a:b",       // alternate data stream separator
-        "a/b",       // forward slash
-        "a\x5C" "b", // backslash
-        "a\x01" "b", // control byte
+        "..",  // parent traversal
+        ".",   // current directory
+        "a:b", // alternate data stream separator
+        "a/b", // forward slash
+        "a\x5C"
+        "b", // backslash
+        "a\x01"
+        "b", // control byte
     };
 
     for (const std::string &name : unsafe_names) {
@@ -385,8 +388,7 @@ TEST_CASE("the adapter turns a table the walker rejects into read_error", "[wolf
     CHECK_THROWS_AS(archive::open(stream, "badroot.wolf"), read_error);
 }
 
-TEST_CASE("the adapter rejects a vendor body size that does not fit a signed entry size",
-          "[wolfrpg][source]")
+TEST_CASE("the adapter rejects a vendor body size that does not fit a signed entry size", "[wolfrpg][source]")
 {
     // A literal-LZ body keeps the physical extent small, so only the declared uncompressed size can
     // be absurd. It must be rejected rather than narrowed into a negative entry size.
@@ -394,7 +396,7 @@ TEST_CASE("the adapter rejects a vendor body size that does not fit a signed ent
         test::support::synthetic_entry{"big.bin", "payload", true},
     };
     test::support::built_archive built = test::support::build_plain_archive(entries);
-    test::support::set_file_unpacked_size(built, built.bytes, 0, 1ULL << 63);
+    test::support::set_file_unpacked_size(built, built.bytes, 0, 1ULL << 63u);
     std::istringstream stream = to_stream(built.bytes);
     CHECK_THROWS_AS(archive::open(stream, "huge.wolf"), read_error);
 }
@@ -429,8 +431,7 @@ TEST_CASE("a source whose size query fails is a read error", "[wolfrpg][source]"
     }
 }
 
-TEST_CASE("the source bridge falls back to seekpos when seekoff refuses a read position",
-          "[wolfrpg][source]")
+TEST_CASE("the source bridge falls back to seekpos when seekoff refuses a read position", "[wolfrpg][source]")
 {
     const std::array entries{
         test::support::synthetic_entry{"note.txt", "raw payload bytes", false},
@@ -487,7 +488,9 @@ TEST_CASE("a custom fault raised at the size query is normalized to read_error",
     const test::support::built_archive built = test::support::build_plain_archive(entries);
 
     scripted_streambuf buffer(as_text(built.bytes));
-    buffer.size_fault = [] { throw source_payload{71}; };
+    buffer.size_fault = [] {
+        throw source_payload{71};
+    }; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
     std::istream stream(&buffer);
     CHECK_THROWS_AS(archive::open(stream, "sizefault.wolf"), read_error);
 }
@@ -500,7 +503,9 @@ TEST_CASE("a custom fault raised at a read position is normalized to read_error"
     const test::support::built_archive built = test::support::build_plain_archive(entries);
 
     scripted_streambuf buffer(as_text(built.bytes));
-    buffer.seek_fault = [] { throw source_payload{72}; };
+    buffer.seek_fault = [] {
+        throw source_payload{72};
+    }; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
     std::istream stream(&buffer);
     CHECK_THROWS_AS(archive::open(stream, "seekfault.wolf"), read_error);
 }
@@ -563,8 +568,7 @@ TEST_CASE("a read position raising a resource exception keeps its own type", "[w
     }
 }
 
-TEST_CASE("a truncated body read is a read error and a body read failure keeps its own type",
-          "[wolfrpg][source]")
+TEST_CASE("a truncated body read is a read error and a body read failure keeps its own type", "[wolfrpg][source]")
 {
     const std::array entries{
         test::support::synthetic_entry{"note.txt", "raw payload bytes", false},
@@ -625,7 +629,7 @@ TEST_CASE("a truncated body read is a read error and a body read failure keeps i
         scripted_streambuf buffer(as_text(built.bytes));
         buffer.before_read = [body_offset](const std::size_t offset, const std::size_t) {
             if (offset == body_offset) {
-                throw source_payload{42};
+                throw source_payload{42}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
             }
         };
         std::istream stream(&buffer);

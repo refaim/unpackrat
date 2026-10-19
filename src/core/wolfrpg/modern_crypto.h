@@ -53,8 +53,8 @@ namespace unpackrat::wolfrpg
         // derived body size that would run past the file, an empty salt prefix for a version
         // that salts from the password, or a Pro archive too short to hold its four-byte rekey
         // blob. The archive reader separately validates all metadata and member geometry.
-        [[nodiscard]] static modern_crypto create(std::span<const std::uint8_t, 64> header,
-                                                  std::uint64_t physical_size, std::string_view password);
+        [[nodiscard]] static modern_crypto create(std::span<const std::uint8_t, 64> header, std::uint64_t physical_size,
+                                                  std::string_view password);
 
         // The decoded header: the 64 stored bytes with the DXLib address scramble undone.
         [[nodiscard]] const modern_header &header() const noexcept;

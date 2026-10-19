@@ -73,8 +73,7 @@ namespace
     class slice_source
     {
       public:
-        explicit slice_source(byte_vector data,
-                              const std::size_t max_chunk = std::numeric_limits<std::size_t>::max())
+        explicit slice_source(byte_vector data, const std::size_t max_chunk = std::numeric_limits<std::size_t>::max())
             : data_(std::move(data)), max_chunk_(max_chunk)
         {
         }
@@ -163,7 +162,8 @@ namespace
         std::size_t operator()(std::span<std::byte> destination)
         {
             if (position_ >= limit_) {
-                throw source_probe_error{11};
+                throw source_probe_error{
+                    11}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std source fault
             }
             const std::size_t count = std::min({destination.size(), limit_ - position_, data_.size() - position_});
             std::memcpy(destination.data(), data_.data() + position_, count);
@@ -198,7 +198,8 @@ namespace
                 return count;
             }
             if (calls_ == 2) {
-                throw source_probe_error{11};
+                throw source_probe_error{
+                    11}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std source fault
             }
             const std::size_t remaining = data_.size() - position_;
             const std::size_t count = std::min(destination.size(), remaining);
@@ -250,19 +251,19 @@ namespace
 
     TEST_CASE("boundedlz kernel decodes an overlapping distance-two copy")
     {
-        const byte_vector stream = bytes({0x0A, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF,
-                                          0x41, 0x42, 0x43, 0x44, 0xFF, 0x11, 0x01, 0x00});
+        const byte_vector stream = bytes(
+            {0x0A, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42, 0x43, 0x44, 0xFF, 0x11, 0x01, 0x00});
         REQUIRE(ascii(decode(stream, 17, 10), 10) == "ABCDCDCDCD");
     }
 
     TEST_CASE("boundedlz kernel decodes each distance width and an extended length")
     {
-        const byte_vector two_byte = bytes({0x08, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF,
-                                            0x41, 0x42, 0x43, 0x44, 0xFF, 0x01, 0x03, 0x00});
+        const byte_vector two_byte = bytes(
+            {0x08, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF, 0x41, 0x42, 0x43, 0x44, 0xFF, 0x01, 0x03, 0x00});
         REQUIRE(ascii(decode(two_byte, 17, 8), 8) == "ABCDABCD");
 
-        const byte_vector three_byte = bytes({0x05, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0xFF,
-                                              0x58, 0xFF, 0x02, 0x00, 0x00, 0x00});
+        const byte_vector three_byte =
+            bytes({0x05, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0xFF, 0x58, 0xFF, 0x02, 0x00, 0x00, 0x00});
         REQUIRE(ascii(decode(three_byte, 15, 5), 5) == "XXXXX");
 
         const byte_vector extended =
@@ -365,8 +366,7 @@ namespace
         // a source that ends before the declared extent
         REQUIRE_THROWS_AS(
             [&] {
-                const byte_vector s =
-                    bytes({0x05, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x00, 0xFF, 0x48, 0x65, 0x6C});
+                const byte_vector s = bytes({0x05, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x00, 0xFF, 0x48, 0x65, 0x6C});
                 output_sink sink;
                 sink.data.resize(5);
                 boundedlz::context ctx(slice_source(s), 14, 5);
@@ -393,7 +393,8 @@ namespace
         // back-reference before the output start
         REQUIRE_THROWS_AS(
             [&] {
-                const byte_vector s = bytes({0x05, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x00, 0x01});
+                const byte_vector s =
+                    bytes({0x05, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x00, 0x01});
                 output_sink sink;
                 sink.data.resize(5);
                 boundedlz::context ctx(slice_source(s), 13, 5);
@@ -405,7 +406,8 @@ namespace
         // back-reference overrunning the declared output
         REQUIRE_THROWS_AS(
             [&] {
-                const byte_vector s = bytes({0x03, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x00, 0x00});
+                const byte_vector s =
+                    bytes({0x03, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x00, 0x00});
                 output_sink sink;
                 sink.data.resize(3);
                 boundedlz::context ctx(slice_source(s), 13, 3);

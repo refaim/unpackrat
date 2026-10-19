@@ -1,5 +1,5 @@
-#include "../support/wolfrpg_pro_fixtures.h"
 #include "../support/archive_lazy_fixtures.h"
+#include "../support/wolfrpg_pro_fixtures.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -34,13 +34,16 @@ namespace
         companion_directory(const std::vector<std::byte> &bytes, const std::wstring &name) : folder_("wolfpro")
         {
             std::ofstream out;
-            out.exceptions(std::ios::failbit | std::ios::badbit);
-            out.open(folder_.path() / name, std::ios::binary | std::ios::trunc);
+            out.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                               static_cast<unsigned>(std::ios::badbit)));
+            out.open(folder_.path() / name,
+                     static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::binary) |
+                                                          static_cast<unsigned>(std::ios::trunc)));
             out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
             out.close();
         }
 
-        companion_directory(const companion_directory &)            = delete;
+        companion_directory(const companion_directory &) = delete;
         companion_directory &operator=(const companion_directory &) = delete;
 
         [[nodiscard]] std::wstring path() const
@@ -57,7 +60,7 @@ namespace
         Key key;
         key.reserve(values.size());
         for (const int value : values)
-            key.push_back(static_cast<std::uint8_t>(value & 0xFF));
+            key.push_back(static_cast<std::uint8_t>(static_cast<unsigned>(value) & 0xFFu));
         return key;
     }
 } // namespace
@@ -73,7 +76,7 @@ TEST_CASE("public WolfPro::GetDxArcKey recovers a variant-1 companion key", "[wo
     CHECK(pro.IsWolfPro());
 
     const Key key = pro.GetDxArcKey();
-    CHECK(key == key_of({ 0x66, 0xBD, 0x18, 0x00 }));
+    CHECK(key == key_of({0x66, 0xBD, 0x18, 0x00}));
     CHECK(pro.GetCryptVersion() == 1000);
 }
 
@@ -85,8 +88,8 @@ TEST_CASE("public WolfPro::GetDxArcKey recovers a variant-2 companion key", "[wo
 
     WolfPro pro(directory.path());
     const Key key = pro.GetDxArcKey();
-    CHECK(key == key_of({ 0x6F, 0x69, 0xD5, 0x24, 0xF9, 0x7F, 0x1A, 0x32, 0xC2, 0x89, 0x36, 0xBF,
-                          0xD6, 0x3D, 0x71, 0xC0, 0x00, 0x2F, 0x1A, 0x89, 0xD0 }));
+    CHECK(key == key_of({0x6F, 0x69, 0xD5, 0x24, 0xF9, 0x7F, 0x1A, 0x32, 0xC2, 0x89, 0x36,
+                         0xBF, 0xD6, 0x3D, 0x71, 0xC0, 0x00, 0x2F, 0x1A, 0x89, 0xD0}));
     CHECK(pro.GetCryptVersion() == 1010);
 }
 
@@ -98,10 +101,11 @@ TEST_CASE("public WolfPro::GetDxArcKey recovers a cc2 companion key", "[wolfrpg]
 
     WolfPro pro(directory.path());
     const Key key = pro.GetDxArcKey();
-    CHECK(key == key_of({ 0x9E, 0x14, 0x79, 0xBE, 0x7B, 0x05, 0x1F, 0x89, 0x59, 0x2A, 0x3D, 0x98, 0x3F, 0x1B, 0xD8, 0xAB,
-                          0x1D, 0x08, 0xFE, 0xBA, 0xFB, 0x39, 0x9C, 0x85, 0xD9, 0x2E, 0xBA, 0x94, 0xBF, 0x1F, 0x58, 0xA7,
-                          0x9D, 0x0C, 0x7E, 0xB6, 0x7A, 0x3D, 0x1C, 0x81, 0x58, 0x22, 0x3A, 0x90, 0x3E, 0x13, 0xD9, 0xA3,
-                          0x1C, 0x00, 0xFF, 0xB2, 0xFA, 0x31, 0x9D, 0x9D, 0xD8, 0x26, 0xBB, 0xAC, 0xBE, 0x17, 0x59, 0xBF }));
+    CHECK(key ==
+          key_of({0x9E, 0x14, 0x79, 0xBE, 0x7B, 0x05, 0x1F, 0x89, 0x59, 0x2A, 0x3D, 0x98, 0x3F, 0x1B, 0xD8, 0xAB,
+                  0x1D, 0x08, 0xFE, 0xBA, 0xFB, 0x39, 0x9C, 0x85, 0xD9, 0x2E, 0xBA, 0x94, 0xBF, 0x1F, 0x58, 0xA7,
+                  0x9D, 0x0C, 0x7E, 0xB6, 0x7A, 0x3D, 0x1C, 0x81, 0x58, 0x22, 0x3A, 0x90, 0x3E, 0x13, 0xD9, 0xA3,
+                  0x1C, 0x00, 0xFF, 0xB2, 0xFA, 0x31, 0x9D, 0x9D, 0xD8, 0x26, 0xBB, 0xAC, 0xBE, 0x17, 0x59, 0xBF}));
     CHECK(pro.GetCryptVersion() == 0xC8);
 }
 
@@ -118,19 +122,18 @@ TEST_CASE("overlapping companion directories keep independent WolfPro keys", "[w
 
         // While both directories are alive neither has replaced the other.
         WolfPro first_pro(first.path());
-        CHECK(first_pro.GetDxArcKey() == key_of({ 0x66, 0xBD, 0x18, 0x00 }));
+        CHECK(first_pro.GetDxArcKey() == key_of({0x66, 0xBD, 0x18, 0x00}));
         CHECK(first_pro.GetCryptVersion() == 1000);
 
         WolfPro second_pro(second.path());
-        CHECK(second_pro.GetDxArcKey() ==
-              key_of({ 0x6F, 0x69, 0xD5, 0x24, 0xF9, 0x7F, 0x1A, 0x32, 0xC2, 0x89, 0x36, 0xBF,
-                       0xD6, 0x3D, 0x71, 0xC0, 0x00, 0x2F, 0x1A, 0x89, 0xD0 }));
+        CHECK(second_pro.GetDxArcKey() == key_of({0x6F, 0x69, 0xD5, 0x24, 0xF9, 0x7F, 0x1A, 0x32, 0xC2, 0x89, 0x36,
+                                                  0xBF, 0xD6, 0x3D, 0x71, 0xC0, 0x00, 0x2F, 0x1A, 0x89, 0xD0}));
         CHECK(second_pro.GetCryptVersion() == 1010);
     }
 
     // Destroying the second directory must not have removed the first companion.
     WolfPro first_after(first.path());
-    CHECK(first_after.GetDxArcKey() == key_of({ 0x66, 0xBD, 0x18, 0x00 }));
+    CHECK(first_after.GetDxArcKey() == key_of({0x66, 0xBD, 0x18, 0x00}));
     CHECK(first_after.GetCryptVersion() == 1000);
 }
 

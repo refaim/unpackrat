@@ -120,8 +120,7 @@ namespace
     std::vector<std::byte> patterned(std::size_t length)
     {
         std::vector<std::byte> material(length);
-        for (std::size_t i = 0; i < length; ++i)
-        {
+        for (std::size_t i = 0; i < length; ++i) {
             material[i] = static_cast<std::byte>((i * 7u + 3u) & 0xFFu);
         }
         return material;
@@ -130,8 +129,7 @@ namespace
     std::array<unsigned char, 7> key_create(std::span<const std::byte> material)
     {
         std::vector<char> scratch(material.size() + 1, '\0');
-        for (std::size_t i = 0; i < material.size(); ++i)
-        {
+        for (std::size_t i = 0; i < material.size(); ++i) {
             scratch[i] = static_cast<char>(material[i]);
         }
 
@@ -234,21 +232,16 @@ namespace
         launch_gate gate;
         std::vector<std::jthread> participants;
         participants.reserve(worker_count);
-        try
-        {
-            for (std::size_t index = 0; index < worker_count; ++index)
-            {
+        try {
+            for (std::size_t index = 0; index < worker_count; ++index) {
                 participants.push_back(spawn([&gate, &worker, &exited, index] {
-                    if (gate.wait())
-                    {
+                    if (gate.wait()) {
                         worker(index);
                     }
                     exited.fetch_add(1, std::memory_order_relaxed);
                 }));
             }
-        }
-        catch (...)
-        {
+        } catch (...) {
             gate.abort();
             throw; // participants joins every started thread while the exception leaves this frame
         }
@@ -256,11 +249,9 @@ namespace
     } // participants joins every started thread before returning
 } // namespace
 
-TEST_CASE("classic kernel reproduces the frozen bytes for every key phase",
-          "[uberwolf][classic][context]")
+TEST_CASE("classic kernel reproduces the frozen bytes for every key phase", "[uberwolf][classic][context]")
 {
-    for (std::size_t phase = 0; phase < kXorExpectedByPhase.size(); ++phase)
-    {
+    for (std::size_t phase = 0; phase < kXorExpectedByPhase.size(); ++phase) {
         INFO("phase " << phase);
         std::array<std::byte, 16> data = kXorInput;
         wolf::archive::classic::apply_key_xor(data, phase, kXorKey);
@@ -295,8 +286,7 @@ TEST_CASE("classic kernel ignores the process-wide crypt-mode flags", "[uberwolf
         {"ChaCha20 (0x64)", false, true, 0x64},
     }};
 
-    for (const mode_case &mode : modes)
-    {
+    for (const mode_case &mode : modes) {
         INFO(mode.name);
         mode_guard guard;
         g_newCrypt = mode.new_crypt;
@@ -316,8 +306,7 @@ TEST_CASE("classic kernel ignores the process-wide crypt-mode flags", "[uberwolf
     }
 }
 
-TEST_CASE("classic KeyConv branch delegates to the shared kernel for every phase",
-          "[uberwolf][classic][context]")
+TEST_CASE("classic KeyConv branch delegates to the shared kernel for every phase", "[uberwolf][classic][context]")
 {
     // In the default mode the vendor classic branch and the kernel must be byte-identical: the
     // delegation in DXArchive::KeyConv is not allowed to change a single classic byte.
@@ -328,13 +317,12 @@ TEST_CASE("classic KeyConv branch delegates to the shared kernel for every phase
 
     std::array<unsigned char, 7> key = kXorKey;
 
-    for (std::size_t phase = 0; phase < kXorExpectedByPhase.size(); ++phase)
-    {
+    for (std::size_t phase = 0; phase < kXorExpectedByPhase.size(); ++phase) {
         INFO("phase " << phase);
 
         std::array<std::byte, 16> vendor_data = kXorInput;
-        DXArchive::KeyConv(vendor_data.data(), static_cast<s64>(vendor_data.size()),
-                           static_cast<s64>(phase), key.data());
+        DXArchive::KeyConv(vendor_data.data(), static_cast<s64>(vendor_data.size()), static_cast<s64>(phase),
+                           key.data());
 
         std::array<std::byte, 16> kernel_data = kXorInput;
         wolf::archive::classic::apply_key_xor(kernel_data, phase, kXorKey);
@@ -344,8 +332,7 @@ TEST_CASE("classic KeyConv branch delegates to the shared kernel for every phase
     }
 }
 
-TEST_CASE("classic KeyConv classic branch treats a non-positive extent as a no-op",
-          "[uberwolf][classic][context]")
+TEST_CASE("classic KeyConv classic branch treats a non-positive extent as a no-op", "[uberwolf][classic][context]")
 {
     mode_guard guard;
     g_newCrypt = false;
@@ -403,14 +390,11 @@ TEST_CASE("direct KeyCreate is stable across concurrent first use in a fresh pro
 
     const auto derive_all = [&cases, &results, &failures, &rendezvous](std::size_t t) {
         rendezvous.arrive_and_wait();
-        for (std::size_t iter = 0; iter < kIterations; ++iter)
-        {
-            for (std::size_t c = 0; c < cases.size(); ++c)
-            {
+        for (std::size_t iter = 0; iter < kIterations; ++iter) {
+            for (std::size_t c = 0; c < cases.size(); ++c) {
                 const std::array<unsigned char, 7> derived = key_create(patterned(cases[c].length));
                 results[t * cases.size() + c] = derived;
-                if (derived != cases[c].expected)
-                {
+                if (derived != cases[c].expected) {
                     failures.fetch_add(1, std::memory_order_relaxed);
                 }
             }
@@ -422,10 +406,8 @@ TEST_CASE("direct KeyCreate is stable across concurrent first use in a fresh pro
     REQUIRE(workers_exited.load() == kThreads);
 
     CHECK(failures.load() == 0);
-    for (std::size_t t = 0; t < kThreads; ++t)
-    {
-        for (std::size_t c = 0; c < cases.size(); ++c)
-        {
+    for (std::size_t t = 0; t < kThreads; ++t) {
+        for (std::size_t c = 0; c < cases.size(); ++c) {
             INFO("thread " << t << " case " << cases[c].name);
             CHECK(results[t * cases.size() + c] == cases[c].expected);
         }
@@ -447,8 +429,7 @@ TEST_CASE("a participant that cannot start releases the others without deadlocki
     // must leave this at zero.
     std::atomic<std::size_t> derivations{0};
     const auto derive_rounds = [&rendezvous, &derivations](std::size_t) {
-        for (std::size_t round = 0; round < kIterations; ++round)
-        {
+        for (std::size_t round = 0; round < kIterations; ++round) {
             rendezvous.arrive_and_wait();
             (void)key_create(patterned(4));
         }
@@ -458,14 +439,12 @@ TEST_CASE("a participant that cannot start releases the others without deadlocki
     // Deterministic, exhaustion-free controls: participant 1, then 2, then 3, then nearly the
     // whole group (7) cannot start, so 1, 2, 3 and 7 participants respectively must each be
     // released and joined rather than stranded at the barrier.
-    for (const std::size_t fail_at : {std::size_t{1}, std::size_t{2}, std::size_t{3}, std::size_t{7}})
-    {
+    for (const std::size_t fail_at : {std::size_t{1}, std::size_t{2}, std::size_t{3}, std::size_t{7}}) {
         INFO("participant " << fail_at << " of " << kThreads << " cannot start");
 
         std::size_t created = 0;
         const auto failing_spawn = [&created, fail_at](std::function<void()> task) -> std::jthread {
-            if (created == fail_at)
-            {
+            if (created == fail_at) {
                 throw launch_fault{fail_at};
             }
             ++created;
@@ -474,12 +453,9 @@ TEST_CASE("a participant that cannot start releases the others without deadlocki
 
         std::atomic<std::size_t> exited{0};
         bool threw = false;
-        try
-        {
+        try {
             launch_together(kThreads, derive_rounds, failing_spawn, exited);
-        }
-        catch (const launch_fault &fault)
-        {
+        } catch (const launch_fault &fault) {
             threw = true;
             // The launcher must surface the exact creation failure it was handed, not a substitute.
             CHECK(fault.participant() == fail_at);

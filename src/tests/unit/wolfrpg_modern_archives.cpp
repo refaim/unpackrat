@@ -6,8 +6,8 @@
 #include <filesystem>
 #include <ios>
 #include <memory>
-#include <sstream>
 #include <span>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -43,7 +43,8 @@ namespace
 
     std::istringstream to_stream(const std::vector<std::byte> &bytes)
     {
-        return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()), std::ios::binary);
+        return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()),
+                                  std::ios::binary);
     }
 
     // Extracts entry ``index`` and returns the produced bytes. The reader streams progress as a
@@ -97,8 +98,7 @@ namespace
     }
 } // namespace
 
-TEST_CASE("modern default-mode archives open without a password and extract their owned payloads",
-          "[wolfrpg][modern]")
+TEST_CASE("modern default-mode archives open without a password and extract their owned payloads", "[wolfrpg][modern]")
 {
     const std::vector<support::modern_archive_fixture> &variants = support::modern_archive_fixtures();
     REQUIRE(variants.size() == 3);

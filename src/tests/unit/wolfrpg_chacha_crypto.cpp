@@ -151,13 +151,12 @@ namespace
                                 const std::array<unsigned, nonce_size> &nonce, std::uint64_t call_start,
                                 std::uint64_t offset, std::size_t length)
     {
-        const std::uint64_t position =
-            static_cast<std::uint64_t>(static_cast<std::uint32_t>(call_start)) + offset;
+        const std::uint64_t position = static_cast<std::uint64_t>(static_cast<std::uint32_t>(call_start)) + offset;
         if (position <= 0xFFFFFFFFULL) {
             return vendor_keystream(key, nonce, static_cast<std::uint32_t>(position), length);
         }
 
-        constexpr std::uint64_t reachable_origin = 0xFFFFFF00ULL; // < 2^32 and a multiple of 64
+        constexpr std::uint64_t reachable_origin = 0xFFFFFF00ULL; // < 2u^32u and a multiple of 64
         const std::size_t slice = static_cast<std::size_t>(position - reachable_origin);
         const auto whole = vendor_keystream(key, nonce, static_cast<std::uint32_t>(reachable_origin), slice + length);
         return byte_vector(whole.begin() + static_cast<std::ptrdiff_t>(slice), whole.end());
@@ -181,8 +180,8 @@ namespace
             if (i != 0) {
                 out.push_back(' ');
             }
-            out.push_back(digits[value >> 4]);
-            out.push_back(digits[value & 0x0F]);
+            out.push_back(digits[value >> 4u]);
+            out.push_back(digits[value & 0x0Fu]);
         }
         return out;
     }
@@ -212,10 +211,11 @@ namespace
                 continue;
             }
 
-            if (high < 0) {
+            if (high < 0u) {
                 high = value;
             } else {
-                out.push_back(static_cast<std::byte>((high << 4) | value));
+                out.push_back(
+                    static_cast<std::byte>((static_cast<unsigned>(high) << 4u) | static_cast<unsigned>(value)));
                 high = -1;
             }
         }
@@ -223,8 +223,8 @@ namespace
     }
 
     constexpr std::uint64_t boundary_start = 0xFFFFFFFFULL;         // (uint32_t) truncates to itself
-    constexpr std::uint64_t boundary_cross = 256;                   // offset that steps past 2^32
-    constexpr std::uint64_t high_block_offset = 0xFFFFFFFEULL * 64; // block index 2^32 - 2
+    constexpr std::uint64_t boundary_cross = 256;                   // offset that steps past 2^32u
+    constexpr std::uint64_t high_block_offset = 0xFFFFFFFEULL * 64; // block index 2^32u - 2
 
     // Concurrency launch scaffolding. The concurrency cases start several participants that must
     // all meet at one std::barrier. A barrier's participant count is fixed when it is built, so a
@@ -352,7 +352,7 @@ TEST_CASE("apply_call_range xors the keystream into the caller's buffer in place
 
     byte_vector data(96);
     for (std::size_t i = 0; i < data.size(); ++i) {
-        data[i] = static_cast<std::byte>((i * 7 + 3) & 0xFF);
+        data[i] = static_cast<std::byte>((i * 7 + 3) & 0xFFu);
     }
     byte_vector expected = data;
     for (std::size_t i = 0; i < expected.size(); ++i) {
@@ -376,7 +376,7 @@ TEST_CASE("the original call start is truncated to 32 bits exactly once", "[wolf
     }
 }
 
-TEST_CASE("a within-call offset survives the 2^32 position step", "[wolfrpg][chacha]")
+TEST_CASE("a within-call offset survives the 2^32u position step", "[wolfrpg][chacha]")
 {
     const auto context = make_context(default_key, default_nonce);
     constexpr std::size_t span = 700;
@@ -396,7 +396,7 @@ TEST_CASE("distant within-call offsets seek straight to the target block", "[wol
 {
     const auto context = make_context(default_key, default_nonce);
 
-    // Offset 0xFFFFFFFE * 64 sits at block index 2^32 - 2, i.e. counter words 0xFFFFFFFF / 0xAB2DBCFF.
+    // Offset 0xFFFFFFFE * 64 sits at block index 2^32u - 2, i.e. counter words 0xFFFFFFFF / 0xAB2DBCFF.
     const auto frozen =
         from_hex("9C 1E CC 80 C9 F6 66 C9 39 87 B9 DB 9E AA D4 52 F0 37 42 76 63 68 C2 01 7F FB B6 20 E9 6F E1 29"
                  "03 7F 88 81 26 BD B3 FC 5E B0 1F B6 D4 12 C2 1D E5 3F 3B A4 7E DD 94 19 AA ED 17 21 BB 02 23 A5"
@@ -448,7 +448,7 @@ TEST_CASE("unrepresentable call ranges are rejected and leave the data untouched
     guard(0, 0xFFFFFFFFFFFFFFFFULL, 1);             // position + size overflows
     guard(0, 0xFFFFFFFFFFFFFFC0ULL, 64);            // position + size overflows by one
 
-    // Just inside the range: 2^64 - 64 followed by 63 bytes still fits.
+    // Just inside the range: 2^64u - 64 followed by 63 bytes still fits.
     byte_vector ok(63, std::byte{0});
     CHECK_NOTHROW(context.apply_call_range(ok, 0, 0xFFFFFFFFFFFFFFC0ULL));
     // One byte more does not.
@@ -487,7 +487,7 @@ TEST_CASE("only blob bytes 0..31 and 34..45 steer the cipher", "[wolfrpg][chacha
 
     // Any key byte is significant.
     auto key_blob = base_blob;
-    key_blob[31] = static_cast<std::byte>(std::to_integer<unsigned>(key_blob[31]) ^ 0x01);
+    key_blob[31] = static_cast<std::byte>(std::to_integer<unsigned>(key_blob[31]) ^ 0x01u);
     const auto key_keystream = apply_range(wolf_chacha_context{key_blob}, 0, 0, 64);
     CHECK_FALSE(std::equal(key_keystream.begin(), key_keystream.end(), base_keystream.begin()));
 
@@ -501,7 +501,7 @@ TEST_CASE("only blob bytes 0..31 and 34..45 steer the cipher", "[wolfrpg][chacha
 
     // A nonce byte at offset 45 is significant.
     auto nonce_blob = base_blob;
-    nonce_blob[45] = static_cast<std::byte>(std::to_integer<unsigned>(nonce_blob[45]) ^ 0x80);
+    nonce_blob[45] = static_cast<std::byte>(std::to_integer<unsigned>(nonce_blob[45]) ^ 0x80u);
     const auto nonce_keystream = apply_range(wolf_chacha_context{nonce_blob}, 0, 0, 64);
     CHECK_FALSE(std::equal(nonce_keystream.begin(), nonce_keystream.end(), base_keystream.begin()));
 }
@@ -527,7 +527,7 @@ TEST_CASE("arbitrary slice partitions rebuild one original call", "[wolfrpg][cha
 TEST_CASE("distinct contexts and repeated reads stay independent", "[wolfrpg][chacha]")
 {
     auto other_key = default_key;
-    other_key[0] = static_cast<unsigned>(other_key[0] ^ 0xFF);
+    other_key[0] = static_cast<unsigned>(other_key[0] ^ 0xFFu);
     const auto first = make_context(default_key, default_nonce);
     const auto second = make_context(other_key, default_nonce);
 
@@ -558,14 +558,14 @@ TEST_CASE("barrier-synchronised concurrent reads observe no shared mutable state
     // the same time; entries 1..3 carry different keys and nonces. If the adapter kept any hidden
     // scratch, concurrent reads would cross-contaminate and stop matching this context's own bytes.
     auto alt_key = default_key;
-    alt_key[0] = static_cast<unsigned>(alt_key[0] ^ 0x5C);
-    alt_key[31] = static_cast<unsigned>(alt_key[31] ^ 0x11);
+    alt_key[0] = static_cast<unsigned>(alt_key[0] ^ 0x5Cu);
+    alt_key[31] = static_cast<unsigned>(alt_key[31] ^ 0x11u);
     auto alt_nonce = default_nonce;
-    alt_nonce[11] = static_cast<unsigned>(alt_nonce[11] ^ 0x3E);
+    alt_nonce[11] = static_cast<unsigned>(alt_nonce[11] ^ 0x3Eu);
     auto third_key = default_key;
-    third_key[17] = static_cast<unsigned>(third_key[17] ^ 0xA7);
+    third_key[17] = static_cast<unsigned>(third_key[17] ^ 0xA7u);
     auto fourth_nonce = default_nonce;
-    fourth_nonce[5] = static_cast<unsigned>(fourth_nonce[5] ^ 0x82);
+    fourth_nonce[5] = static_cast<unsigned>(fourth_nonce[5] ^ 0x82u);
 
     const std::vector<wolf_chacha_context> contexts = {
         make_context(default_key, default_nonce),
@@ -595,12 +595,12 @@ TEST_CASE("barrier-synchronised concurrent reads observe no shared mutable state
         read_job{0, 0, 64, 64, {}},           // block-aligned slice
         read_job{0, 0, 255, 70, {}},          // slice straddling the 256-byte boundary
         read_job{0, 0xFFFFFFFF, 0, 64, {}},   // origin sitting on the low-32 wrap point
-        read_job{0, 0xFFFFFFFF, 1, 64, {}},   // a 1-byte offset steps past 2^32
-        read_job{0, 0xFFFFFFFF, 256, 64, {}}, // a 256-byte offset steps well past 2^32
+        read_job{0, 0xFFFFFFFF, 1, 64, {}},   // a 1-byte offset steps past 2^32u
+        read_job{0, 0xFFFFFFFF, 256, 64, {}}, // a 256-byte offset steps well past 2^32u
         read_job{0, 0x100000007, 64, 64, {}}, // high bits truncate; the low 32 bits still steer
         read_job{1, 0, 0, 64, {}},            // a distinct key
         read_job{2, 0x1234, 32, 96, {}},      // a distinct nonce
-        read_job{3, 0xFFFFFFFF, 128, 64, {}}, // distinct key and nonce crossing 2^32
+        read_job{3, 0xFFFFFFFF, 128, 64, {}}, // distinct key and nonce crossing 2^32u
     };
     for (auto &job : jobs) {
         // Every reference vector is precomputed here, sequentially and outside any concurrent region.

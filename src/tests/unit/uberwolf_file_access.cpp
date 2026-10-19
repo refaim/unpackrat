@@ -17,16 +17,13 @@ namespace
 
     constexpr std::uint64_t rejected_uint64_size() noexcept
     {
-        if constexpr (sizeof(std::size_t) < sizeof(std::uint64_t))
-        {
+        if constexpr (sizeof(std::size_t) < sizeof(std::uint64_t)) {
             return static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) + 1;
-        }
-        else
-        {
+        } else {
             return static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1;
         }
     }
-}
+} // namespace
 
 TEST_CASE("FileWriter accepts normal typed byte counts in buffer mode", "[uberwolf][fileaccess]")
 {
@@ -88,8 +85,7 @@ TEST_CASE("FileWriter rejects unrepresentable uint64 sizes without touching its 
     const std::uint64_t first = rejected_uint64_size();
     const std::uint64_t second = first + 1;
 
-    for (const std::uint64_t size : {first, second})
-    {
+    for (const std::uint64_t size : {first, second}) {
         FileWriter writer;
 
         CHECK_THROWS_AS(writer.WriteBytes(payload.data(), size), FileWriterException);

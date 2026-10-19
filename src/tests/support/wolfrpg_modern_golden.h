@@ -9,6 +9,8 @@
 
 namespace test::support::wolfrpg_modern_golden
 {
+    // frozen generated oracle layout preserves field mapping; no production layout contract
+    // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
     struct golden_case final
     {
         std::string_view name;

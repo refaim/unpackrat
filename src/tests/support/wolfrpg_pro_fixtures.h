@@ -30,7 +30,8 @@ namespace test::support::wolfrpg_pro
 
     // A ``size``-byte companion whose body follows ``pattern_byte`` with the listed bytes forced
     // to chosen values. Used for both the valid variants and the malformed boundary cases.
-    [[nodiscard]] inline std::vector<std::byte> make_companion(const std::uint64_t size, const std::initializer_list<byte_override> overrides = {})
+    [[nodiscard]] inline std::vector<std::byte> make_companion(
+        const std::uint64_t size, const std::initializer_list<byte_override> overrides = {})
     {
         std::vector<std::byte> bytes(static_cast<std::size_t>(size));
         for (std::size_t i = 0; i < bytes.size(); ++i)
@@ -62,11 +63,11 @@ namespace test::support::wolfrpg_pro
     [[nodiscard]] inline std::vector<std::byte> v1_companion()
     {
         return make_companion(v1_size, {
-            { 0, v1_first_byte },
-            { 4, v1_seed_byte },
-            { 19, v1_key_len_byte },
-            { v1_last_selected_offset, v1_last_selected_byte },
-        });
+                                           {0, v1_first_byte},
+                                           {4, v1_seed_byte},
+                                           {19, v1_key_len_byte},
+                                           {v1_last_selected_offset, v1_last_selected_byte},
+                                       });
     }
 
     // A second v1 companion whose final selected byte decodes to a nonzero value, so the upstream
@@ -78,11 +79,11 @@ namespace test::support::wolfrpg_pro
     [[nodiscard]] inline std::vector<std::byte> v1_nonzero_companion()
     {
         return make_companion(v1_size, {
-            { 0, v1_first_byte },
-            { 4, v1_seed_byte },
-            { 19, v1_key_len_byte },
-            { v1_last_selected_offset, v1_nonzero_last_selected_byte },
-        });
+                                           {0, v1_first_byte},
+                                           {4, v1_seed_byte},
+                                           {19, v1_key_len_byte},
+                                           {v1_last_selected_offset, v1_nonzero_last_selected_byte},
+                                       });
     }
 
     // A third v1 companion with a different byte[4] LCG seed. Both seeds must recover independently
@@ -92,11 +93,11 @@ namespace test::support::wolfrpg_pro
     [[nodiscard]] inline std::vector<std::byte> v1_seed_b_companion()
     {
         return make_companion(v1_size, {
-            { 0, v1_first_byte },
-            { 4, v1_seed_b_byte },
-            { 19, v1_key_len_byte },
-            { v1_last_selected_offset, v1_nonzero_last_selected_byte },
-        });
+                                           {0, v1_first_byte},
+                                           {4, v1_seed_b_byte},
+                                           {19, v1_key_len_byte},
+                                           {v1_last_selected_offset, v1_nonzero_last_selected_byte},
+                                       });
     }
 
     // ---- Variant 2: any first byte other than 0xA0 / 0xF1. ----
@@ -114,14 +115,14 @@ namespace test::support::wolfrpg_pro
     [[nodiscard]] inline std::vector<std::byte> v2_companion()
     {
         return make_companion(v2_size, {
-            { 0, v2_first_byte },
-            { 3, v2_byte3 },
-            { 4, v2_byte4 },
-            { 5, v2_byte5 },
-            { 6, v2_byte6 },
-            { 7, v2_byte7 },
-            { 19, v2_key_len_byte },
-        });
+                                           {0, v2_first_byte},
+                                           {3, v2_byte3},
+                                           {4, v2_byte4},
+                                           {5, v2_byte5},
+                                           {6, v2_byte6},
+                                           {7, v2_byte7},
+                                           {19, v2_key_len_byte},
+                                       });
     }
 
     // The final selected key position for v2_companion(): with dataSize == 169 and the k == 94 the
@@ -142,14 +143,14 @@ namespace test::support::wolfrpg_pro
     [[nodiscard]] inline std::vector<std::byte> v2_compact_companion()
     {
         return make_companion(v2_compact_size, {
-            { 0, v2_first_byte },
-            { 3, v2_byte3 },
-            { 4, v2_byte4 },
-            { 5, v2_byte5 },
-            { 6, v2_byte6 },
-            { 7, v2_compact_byte7 },
-            { 19, v2_compact_key_len_byte },
-        });
+                                                   {0, v2_first_byte},
+                                                   {3, v2_byte3},
+                                                   {4, v2_byte4},
+                                                   {5, v2_byte5},
+                                                   {6, v2_byte6},
+                                                   {7, v2_compact_byte7},
+                                                   {19, v2_compact_key_len_byte},
+                                               });
     }
 
     // ---- Variant 2 nonzero offset: byte[7] == 2 selects a raw byte one past the AES range. ----
@@ -161,33 +162,33 @@ namespace test::support::wolfrpg_pro
     [[nodiscard]] inline std::vector<std::byte> v2_offset2_companion()
     {
         return make_companion(v2_offset2_size, {
-            { 0, v2_first_byte },
-            { 3, v2_byte3 },
-            { 4, v2_byte4 },
-            { 5, v2_byte5 },
-            { 6, v2_byte6 },
-            { 7, v2_offset2_byte7 },
-            { 19, v2_compact_key_len_byte },
-        });
+                                                   {0, v2_first_byte},
+                                                   {3, v2_byte3},
+                                                   {4, v2_byte4},
+                                                   {5, v2_byte5},
+                                                   {6, v2_byte6},
+                                                   {7, v2_offset2_byte7},
+                                                   {19, v2_compact_key_len_byte},
+                                               });
     }
 
     // ---- Variant 2 sparse sample: 1 MiB companion whose whole file must never be read. ----
     // The key selection touches only the 31-byte header plus keyLen scattered positions, so a
     // correct implementation serves a handful of small reads even though the companion is large.
-    inline constexpr std::uint64_t v2_sparse_size = std::uint64_t{1} << 20;
+    inline constexpr std::uint64_t v2_sparse_size = std::uint64_t{1} << 20u;
     inline constexpr std::uint8_t v2_sparse_byte7 = 0x00;
 
     [[nodiscard]] inline std::vector<std::byte> v2_sparse_companion()
     {
         return make_companion(v2_sparse_size, {
-            { 0, v2_first_byte },
-            { 3, v2_byte3 },
-            { 4, v2_byte4 },
-            { 5, v2_byte5 },
-            { 6, v2_byte6 },
-            { 7, v2_sparse_byte7 },
-            { 19, v2_key_len_byte },
-        });
+                                                  {0, v2_first_byte},
+                                                  {3, v2_byte3},
+                                                  {4, v2_byte4},
+                                                  {5, v2_byte5},
+                                                  {6, v2_byte6},
+                                                  {7, v2_sparse_byte7},
+                                                  {19, v2_key_len_byte},
+                                              });
     }
 
     // ---- CC2: first byte 0xF1. The key depends only on the 32-bit companion length. ----
@@ -196,7 +197,7 @@ namespace test::support::wolfrpg_pro
 
     [[nodiscard]] inline std::vector<std::byte> cc2_companion()
     {
-        return make_companion(cc2_size, { { 0, cc2_first_byte } });
+        return make_companion(cc2_size, {{0, cc2_first_byte}});
     }
 
     // ---- CC2 boundary: a 31-byte companion is valid. ----
@@ -206,7 +207,7 @@ namespace test::support::wolfrpg_pro
 
     [[nodiscard]] inline std::vector<std::byte> cc2_min_companion()
     {
-        return make_companion(cc2_min_size, { { 0, cc2_first_byte } });
+        return make_companion(cc2_min_size, {{0, cc2_first_byte}});
     }
 
     // The longest companion prefix any variant reads before the key positions themselves: every

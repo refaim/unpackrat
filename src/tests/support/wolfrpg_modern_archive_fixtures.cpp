@@ -7,13 +7,14 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace test::support
 {
     namespace
     {
-        const std::string kHello = "Owned WolfRPG fixture payload\n";
+        constexpr std::string_view kHello = "Owned WolfRPG fixture payload\n";
         constexpr std::size_t kBlockBytes = 2048;
         constexpr std::size_t kBlockRepeats = 4;
         constexpr std::uint32_t kBlockSeed = 0x51ED2701u;
@@ -24,10 +25,10 @@ namespace test::support
             std::vector<std::byte> base(kBlockBytes);
             std::uint32_t state = kBlockSeed;
             for (std::size_t i = 0; i < kBlockBytes; ++i) {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                base[i] = static_cast<std::byte>(state >> 24);
+                state ^= state << 13u;
+                state ^= state >> 17u;
+                state ^= state << 5u;
+                base[i] = static_cast<std::byte>(state >> 24u);
             }
             return base;
         }
@@ -60,17 +61,17 @@ namespace test::support
             std::vector<std::byte> bytes;
             bytes.reserve(hex.size() / 2);
             for (std::size_t i = 0; i + 1 < hex.size(); i += 2) {
-                bytes.push_back(static_cast<std::byte>((nibble(hex[i]) << 4) | nibble(hex[i + 1])));
+                bytes.push_back(static_cast<std::byte>((nibble(hex[i]) << 4u) | nibble(hex[i + 1])));
             }
             return bytes;
         }
 
         // Pinned WolfDec::DefaultCryptModes() key blobs (the trailing 0x00 is part of the table data
         // for the vector<unsigned char> entries).
-        constexpr const char *kKey6 =
-            "ca084c5d170ddaa1d727c8415438823254b7f9468e136bcad05c9595e2dc0353609b4a3817f36959a4c79a4363e654afdbbb435800";
-        constexpr const char *kKey7 =
-            "d284ce28ce8882e42a182e4c06b4ea8406b8c6885aa09e7c5640ba3452ccc67c2e141268fe5c769486788e4cbe88669c1ee08e6c00";
+        constexpr const char *kKey6 = "ca084c5d170ddaa1d727c8415438823254b7f9468e136bcad05c9595e2dc0353609b4a3817f36959"
+                                      "a4c79a4363e654afdbbb435800";
+        constexpr const char *kKey7 = "d284ce28ce8882e42a182e4c06b4ea8406b8c6885aa09e7c5640ba3452ccc67c2e141268fe5c7694"
+                                      "86788e4cbe88669c1ee08e6c00";
         constexpr const char *kKey8 =
             "c982f8b42c939e830ebcbc92688d59a14a9e7fb0acaf1d8f8eb83b9ee889d9adffbc2dab9d8b0fb4bb9a698500";
     } // namespace

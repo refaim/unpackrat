@@ -43,7 +43,10 @@ namespace
     {
         const auto error = observed_exception<Error>(operation);
         REQUIRE(error.has_value());
-        CHECK(std::string_view(error->what()) == message);
+        if (!error.has_value()) {
+            return;
+        }
+        CHECK(std::string_view(error.value().what()) == message);
     }
     namespace pro = unpackrat::wolfrpg::pro;
     namespace fixtures = test::support::wolfrpg_pro;
@@ -67,7 +70,7 @@ namespace
     {
         std::span<const std::byte> bytes;
         std::uint64_t declared_size = 0;
-        std::size_t cap = std::size_t{1} << 20;
+        std::size_t cap = std::size_t{1} << 20u;
 
         std::size_t calls = 0;
         std::size_t total_read = 0;
@@ -105,7 +108,7 @@ namespace
         std::vector<std::byte> key;
         key.reserve(values.size());
         for (const int value : values)
-            key.push_back(static_cast<std::byte>(value & 0xFF));
+            key.push_back(static_cast<std::byte>(value & 0xFFu));
         return key;
     }
 
@@ -123,19 +126,23 @@ namespace
 
     // Frozen from the upstream WolfPro::GetDxArcKey() path over fixtures::v1_companion(). The final
     // selected byte already decodes to 0x00, so upstream appends nothing.
-    const std::vector<std::byte> v1_expected = key_of({0x66, 0xBD, 0x18, 0x00});
+    const std::vector<std::byte> v1_expected =
+        key_of({0x66, 0xBD, 0x18, 0x00}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
 
     // Frozen over fixtures::v1_nonzero_companion(): the final selected byte decodes to 0x03, so
     // upstream appends exactly one trailing 0x00. This is the archive-layer normalization the public
     // accessor always performs for variant 1.
-    const std::vector<std::byte> v1_nonzero_expected = key_of({0x66, 0xBD, 0x18, 0x03, 0x00});
+    const std::vector<std::byte> v1_nonzero_expected =
+        key_of({0x66, 0xBD, 0x18, 0x03, 0x00}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
 
     // Frozen over fixtures::v1_seed_b_companion(): a different byte[4] LCG seed yields a distinct key
     // (also ending in a nonzero byte, hence its own trailing 0x00).
-    const std::vector<std::byte> v1_seed_b_expected = key_of({0x65, 0xBD, 0x1A, 0x02, 0x00});
+    const std::vector<std::byte> v1_seed_b_expected =
+        key_of({0x65, 0xBD, 0x1A, 0x02, 0x00}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
 
     // Frozen over fixtures::v2_companion(): 16 selected bytes, an embedded NUL, then the four
     // dynamic key bytes. GetDxArcKey never touches this binary tail.
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
     const std::vector<std::byte> v2_expected = key_of({
         0x6F, 0x69, 0xD5, 0x24, 0xF9, 0x7F, 0x1A, 0x32, 0xC2, 0x89, 0x36,
         0xBF, 0xD6, 0x3D, 0x71, 0xC0, 0x00, 0x2F, 0x1A, 0x89, 0xD0,
@@ -143,20 +150,24 @@ namespace
 
     // Frozen over fixtures::v2_compact_companion(): the single selected position is the last physical
     // byte, which lives outside the AES-CTR range [30, size - 1) and is therefore the raw byte.
-    const std::vector<std::byte> v2_compact_expected = key_of({0x86, 0x00, 0x1F, 0x0A, 0x19, 0xD8});
+    const std::vector<std::byte> v2_compact_expected = key_of(
+        {0x86, 0x00, 0x1F, 0x0A, 0x19, 0xD8}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
 
     // Frozen over fixtures::v2_offset2_companion(): byte[7] == 2 selects a raw byte one past the AES
     // range, so the remaining key bytes come from the raw companion too.
-    const std::vector<std::byte> v2_offset2_expected = key_of({0xAB, 0x00, 0x1C, 0x0C, 0x17, 0x86});
+    const std::vector<std::byte> v2_offset2_expected = key_of(
+        {0xAB, 0x00, 0x1C, 0x0C, 0x17, 0x86}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
 
     // Frozen over fixtures::v2_sparse_companion() (1 MiB): the scattered selection must be served by
     // a handful of bounded reads, never a whole-file scan.
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
     const std::vector<std::byte> v2_sparse_expected = key_of({
         0x84, 0xB5, 0xD0, 0xB2, 0xDA, 0x33, 0x9D, 0x41, 0x45, 0xB6, 0xDF,
         0x3E, 0x8B, 0xB1, 0x29, 0x21, 0x00, 0x6A, 0xDA, 0x99, 0x78,
     });
 
     // Frozen from the upstream path over fixtures::cc2_companion().
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
     const std::vector<std::byte> cc2_expected = key_of({
         0x9E, 0x14, 0x79, 0xBE, 0x7B, 0x05, 0x1F, 0x89, 0x59, 0x2A, 0x3D, 0x98, 0x3F, 0x1B, 0xD8, 0xAB,
         0x1D, 0x08, 0xFE, 0xBA, 0xFB, 0x39, 0x9C, 0x85, 0xD9, 0x2E, 0xBA, 0x94, 0xBF, 0x1F, 0x58, 0xA7,
@@ -166,6 +177,7 @@ namespace
 
     // Frozen over fixtures::cc2_min_companion() (31 bytes): calcDyn divides only by constants, so the
     // zero data size is defined and the key is valid.
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
     const std::vector<std::byte> cc2_min_expected = key_of({
         0xD1, 0x88, 0x3F, 0xB0, 0x34, 0x99, 0x59, 0x87, 0x16, 0xB6, 0x7B, 0x96, 0x70, 0x87, 0x9E, 0xA5,
         0x52, 0x94, 0xB8, 0xB4, 0xB4, 0xA5, 0xDA, 0x8B, 0x96, 0xB2, 0xFC, 0x9A, 0xF0, 0x83, 0x1E, 0xA9,
@@ -188,7 +200,7 @@ TEST_CASE("v1 companion yields the normalized upstream key and metadata", "[wolf
     // A key that already ends in 0x00 is left untouched: no second NUL is appended.
     REQUIRE(key.key.size() == std::size_t{4});
     CHECK(key.key.back() == std::byte{0x00});
-    CHECK(source.calls > 0);
+    CHECK(source.calls > 0u);
 }
 
 TEST_CASE("v1 companion ending in a nonzero selected byte gains exactly one trailing NUL", "[wolfrpg][pro][keys]")
@@ -303,7 +315,7 @@ TEST_CASE("cc2 companion key depends only on the companion length", "[wolfrpg][p
     CHECK(key.key == cc2_expected);
 
     // Nothing beyond variant detection and a small header window is needed.
-    CHECK(source.calls > 0);
+    CHECK(source.calls > 0u);
     CHECK(source.total_read <= std::size_t{64});
 }
 
@@ -412,7 +424,7 @@ TEST_CASE("a selected v2 key position outside the companion is rejected", "[wolf
 
 TEST_CASE("a companion at or above the 32-bit format bound is refused, not fabricated", "[wolfrpg][pro][keys]")
 {
-    const std::uint64_t too_large = std::uint64_t{1} << 32; // first size the uint32 field cannot hold
+    const std::uint64_t too_large = std::uint64_t{1} << 32u; // first size the uint32 field cannot hold
 
     for (const std::uint8_t first : {fixtures::v1_first_byte, fixtures::v2_first_byte, fixtures::cc2_first_byte}) {
         const std::vector<std::byte> bytes = fixtures::make_companion(64, {{0, first}});
@@ -428,8 +440,8 @@ TEST_CASE("a v2 companion whose data size exceeds the signed 32-bit search range
 {
     // dataSize == physical_size - 31. The upstream remainder search runs over signed 32-bit values,
     // so the first data size past INT32_MAX is refused rather than wrapping into an unbounded search.
-    const std::uint64_t first_beyond = (std::uint64_t{1} << 31) + 31; // dataSize == 2^31
-    const std::uint64_t three_gib = std::uint64_t{3} << 30;           // below 2^32, dataSize still > INT32_MAX
+    const std::uint64_t first_beyond = (std::uint64_t{1} << 31u) + 31; // dataSize == 2^31u
+    const std::uint64_t three_gib = std::uint64_t{3} << 30u;           // below 2^32u, dataSize still > INT32_MAX
 
     for (const std::uint64_t physical : {first_beyond, three_gib}) {
         const std::vector<std::byte> bytes = fixtures::v2_companion();
@@ -443,11 +455,11 @@ TEST_CASE("a v2 companion whose data size exceeds the signed 32-bit search range
 
 TEST_CASE("a multi-gigabyte v1 companion stays supported and is read with bounded traffic", "[wolfrpg][pro][keys]")
 {
-    // 3 GiB is past INT32_MAX + 31 yet below 2^32: the signed-range limit is a v2-only contract, so a
+    // 3 GiB is past INT32_MAX + 31 yet below 2^32u: the signed-range limit is a v2-only contract, so a
     // v1 companion this large is still recovered, and only the sparse key positions may be read.
     const std::vector<std::byte> bytes = fixtures::v1_companion();
     companion_source source = source_for(bytes);
-    source.declared_size = std::uint64_t{3} << 30;
+    source.declared_size = std::uint64_t{3} << 30u;
 
     const pro::key_result result = pro::recover_key(source.declared_size, source.make());
     const pro::recovered_key &key = require_key(result);
@@ -517,7 +529,7 @@ TEST_CASE("source failures propagate with their concrete type", "[wolfrpg][pro][
             CHECK(fault.payload == 0x51C0);
         }
         CHECK(caught);
-        CHECK(calls > 0);
+        CHECK(calls > 0u);
     }
 
     SECTION("a Pro2 fault raised on a selected key byte after the header is forwarded, not converted")
@@ -554,7 +566,7 @@ TEST_CASE("source failures propagate with their concrete type", "[wolfrpg][pro][
             CHECK(fault.payload == 0x2B2E);
         }
         CHECK(caught);
-        CHECK(calls > 0);
+        CHECK(calls > 0u);
     }
 }
 

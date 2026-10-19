@@ -47,13 +47,13 @@ namespace
         std::vector<std::uint8_t> bytes;
         bytes.reserve(hex.size() / 2);
         for (std::size_t i = 0; i + 1 < hex.size(); i += 2) {
-            bytes.push_back(static_cast<std::uint8_t>((hex_nibble(hex[i]) << 4) | hex_nibble(hex[i + 1])));
+            bytes.push_back(static_cast<std::uint8_t>(static_cast<unsigned>(hex_nibble(hex[i])) << 4u |
+                                                      static_cast<unsigned>(hex_nibble(hex[i + 1]))));
         }
         return bytes;
     }
 
-    template <std::size_t N>
-    [[nodiscard]] std::array<std::uint8_t, N> unhex_array(const std::string_view hex)
+    template <std::size_t N> [[nodiscard]] std::array<std::uint8_t, N> unhex_array(const std::string_view hex)
     {
         const std::vector<std::uint8_t> bytes = unhex(hex);
         REQUIRE(bytes.size() == N);
@@ -68,8 +68,8 @@ namespace
         std::string out;
         out.reserve(n * 2);
         for (std::size_t i = 0; i < n; ++i) {
-            out.push_back(digits[p[i] >> 4]);
-            out.push_back(digits[p[i] & 0x0F]);
+            out.push_back(digits[static_cast<unsigned>(p[i]) >> 4u]);
+            out.push_back(digits[static_cast<unsigned>(p[i]) & 0x0Fu]);
         }
         return out;
     }
@@ -82,8 +82,8 @@ namespace
         std::uint64_t h = 1469598103934665603ull;
         auto feed32 = [&](const std::uint32_t word) {
             std::uint8_t bytes[4];
-            for (int i = 0; i < 4; ++i) {
-                bytes[i] = static_cast<std::uint8_t>(word >> (8 * i));
+            for (int i = 0; i < 4u; ++i) {
+                bytes[i] = static_cast<std::uint8_t>(word >> (8u * static_cast<unsigned>(i)));
             }
             for (const std::uint8_t byte : bytes) {
                 h ^= byte;
@@ -114,8 +114,7 @@ namespace
         return schedule;
     }
 
-    [[nodiscard]] std::array<std::uint8_t, 16> base_iv_of(
-        const std::array<std::uint8_t, aes::ROUND_KEY_SIZE> &schedule)
+    [[nodiscard]] std::array<std::uint8_t, 16> base_iv_of(const std::array<std::uint8_t, aes::ROUND_KEY_SIZE> &schedule)
     {
         std::array<std::uint8_t, 16> iv{};
         std::memcpy(iv.data(), schedule.data() + aes::KEY_EXP_SIZE, iv.size());
@@ -141,8 +140,7 @@ TEST_CASE("shared AES: the pinned initAES128 schedule matches the frozen oracle"
     CHECK(hex(base_iv.data(), base_iv.size()) == oracle::RANGE_BASE_IV_HEX);
 }
 
-TEST_CASE("shared AES: the seekable range cipher reproduces the frozen sequential oracle",
-          "[wolfrpg][sharedaes]")
+TEST_CASE("shared AES: the seekable range cipher reproduces the frozen sequential oracle", "[wolfrpg][sharedaes]")
 {
     const auto schedule = make_schedule();
     const auto base_iv = base_iv_of(schedule);
@@ -187,19 +185,17 @@ TEST_CASE("shared AES: the range counter advances to the frozen sequential count
     }
 }
 
-TEST_CASE("shared AES: the addCounter step carries and wraps exactly like the original loop",
-          "[wolfrpg][sharedaes]")
+TEST_CASE("shared AES: the addCounter step carries and wraps exactly like the original loop", "[wolfrpg][sharedaes]")
 {
     for (const oracle::counter_case &test : oracle::COUNTER_CASES) {
         INFO("case " << test.name);
-        std::array<std::uint8_t, 16> iv = unhex_array<16>(test.base_iv_hex);
+        std::array<std::uint8_t, 16> iv = unhex_array<16u>(test.base_iv_hex);
         aes::addCounter(iv.data(), test.blocks);
         CHECK(hex(iv.data(), iv.size()) == test.next_iv_hex);
     }
 }
 
-TEST_CASE("shared AES: an empty range emits nothing and leaves its counter untouched",
-          "[wolfrpg][sharedaes]")
+TEST_CASE("shared AES: an empty range emits nothing and leaves its counter untouched", "[wolfrpg][sharedaes]")
 {
     const auto schedule = make_schedule();
     const auto base_iv = base_iv_of(schedule);
@@ -255,8 +251,7 @@ TEST_CASE("shared thin header: aesCtrXor and advanceCounter match the frozen ora
     const auto schedule_span = std::span<const std::uint8_t, aes::KEY_EXP_SIZE>(schedule.data(), aes::KEY_EXP_SIZE);
 
     std::vector<std::uint8_t> whole = patterned(oracle::RANGE_TOTAL);
-    aesCtrXor(std::span<std::uint8_t>(whole), schedule_span,
-              std::span<const std::uint8_t, 16>(base_iv.data(), 16), 0);
+    aesCtrXor(std::span<std::uint8_t>(whole), schedule_span, std::span<const std::uint8_t, 16>(base_iv.data(), 16), 0);
     CHECK(whole == cipher);
 
     // An unaligned sub-range through the thin header, whose base IV must stay immutable.
@@ -269,14 +264,13 @@ TEST_CASE("shared thin header: aesCtrXor and advanceCounter match the frozen ora
 
     for (const oracle::counter_case &test : oracle::COUNTER_CASES) {
         INFO("case " << test.name);
-        std::array<std::uint8_t, 16> iv = unhex_array<16>(test.base_iv_hex);
+        std::array<std::uint8_t, 16> iv = unhex_array<16u>(test.base_iv_hex);
         advanceCounter(std::span<std::uint8_t, 16>(iv.data(), 16), test.blocks);
         CHECK(hex(iv.data(), iv.size()) == test.next_iv_hex);
     }
 }
 
-TEST_CASE("shared RNG: the operation-local chain reproduces the frozen original chain",
-          "[wolfrpg][sharedrng]")
+TEST_CASE("shared RNG: the operation-local chain reproduces the frozen original chain", "[wolfrpg][sharedrng]")
 {
     for (const oracle::chain_case &test : oracle::CHAIN_CASES) {
         INFO("case " << test.name);
@@ -303,8 +297,7 @@ TEST_CASE("shared RNG: the operation-local chain reproduces the frozen original 
     }
 }
 
-TEST_CASE("shared RNG: the operation-local AES key schedule reproduces the frozen original",
-          "[wolfrpg][sharedrng]")
+TEST_CASE("shared RNG: the operation-local AES key schedule reproduces the frozen original", "[wolfrpg][sharedrng]")
 {
     for (const oracle::keygen_case &test : oracle::KEYGEN_CASES) {
         INFO("case " << test.name);
@@ -335,15 +328,14 @@ TEST_CASE("shared RNG: the operation-local AES key schedule reproduces the froze
     }
 }
 
-TEST_CASE("shared RNG: the operation-local derivations leave the CRT stream untouched",
-          "[wolfrpg][sharedrng]")
+TEST_CASE("shared RNG: the operation-local derivations leave the CRT stream untouched", "[wolfrpg][sharedrng]")
 {
-    std::srand(0x2468ACE0u);
+    std::srand(0x2468ACE0u); // NOLINT(bugprone-random-generator-seed): fixed seed for deterministic comparison
     const int control_a = std::rand();
     const int control_b = std::rand();
     const int control_c = std::rand();
 
-    std::srand(0x2468ACE0u);
+    std::srand(0x2468ACE0u); // NOLINT(bugprone-random-generator-seed): fixed seed for deterministic comparison
     rng::RngData chain;
     wolf::crypt::modern::runRngChain(chain, oracle::CHAIN_CASES[0].seed1, oracle::CHAIN_CASES[0].seed2);
     CryptData cd;
@@ -366,8 +358,7 @@ TEST_CASE("shared RNG: the operation-local derivations leave the CRT stream unto
     CHECK(hex(iv.data(), iv.size()) == oracle::KEYGEN_CASES[0].iv_hex);
 }
 
-TEST_CASE("shared AES: the original sequential entry point matches the frozen oracle",
-          "[wolfrpg][sharedaes]")
+TEST_CASE("shared AES: the original sequential entry point matches the frozen oracle", "[wolfrpg][sharedaes]")
 {
     // The maintainable direct exercise of the original sequential aesCtrXCrypt entry point:
     // shared-rng-aes.patch turned it into a zero-offset delegation to the range helper, so this
@@ -400,7 +391,7 @@ TEST_CASE("shared AES: the original sequential entry point matches the frozen or
     for (const oracle::counter_case &test : oracle::COUNTER_CASES) {
         INFO("case " << test.name);
         auto block = schedule;
-        const auto start_iv = unhex_array<16>(test.base_iv_hex);
+        const auto start_iv = unhex_array<16u>(test.base_iv_hex);
         std::memcpy(block.data() + aes::KEY_EXP_SIZE, start_iv.data(), start_iv.size());
         std::vector<std::uint8_t> scratch(static_cast<std::size_t>(test.blocks) * aes::BLOCKLEN, 0);
         aes::aesCtrXCrypt(scratch.data(), block.data(), scratch.size());

@@ -61,10 +61,10 @@ namespace unpackrat::wolfrpg::codec
         // The vendor counter is the 64-bit value state[13]:state[12]. Adding the whole-block seek to
         // that combined value carries into the nonce word exactly as blockNext does, and the vendor
         // stream then restarts inside the target block. The bytes before the slice are never visited.
-        std::uint64_t counter = (static_cast<std::uint64_t>(state[counter_high_word]) << 32) | state[counter_low_word];
+        std::uint64_t counter = (static_cast<std::uint64_t>(state[counter_high_word]) << 32u) | state[counter_low_word];
         counter += position / block_size;
         state[counter_low_word] = static_cast<std::uint32_t>(counter);
-        state[counter_high_word] = static_cast<std::uint32_t>(counter >> 32);
+        state[counter_high_word] = static_cast<std::uint32_t>(counter >> 32u);
 
         wolf::crypt::chacha20::execute(
             state.data(), key_stream.data(), static_cast<std::uint32_t>(position % block_size),

@@ -19,7 +19,7 @@ namespace unpackrat::wolfrpg
     {
         constexpr std::size_t header_size = 20;
         constexpr std::uint32_t wolfx_version = 1;
-        constexpr std::size_t extract_chunk = 32U * 1024U;
+        constexpr std::size_t extract_chunk = std::size_t{32} * 1024;
 
         constexpr std::array<std::uint8_t, 5> wolfx_magic = {0x57, 0x4F, 0x4C, 0x46, 0x58}; // "WOLFX"
 

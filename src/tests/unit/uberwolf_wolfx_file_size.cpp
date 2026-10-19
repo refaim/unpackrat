@@ -17,13 +17,12 @@ namespace
     }
 
     // The same ascending-by-stored-size order collectWolfXFiles applies before cracking.
-    void sort_by_file_size(wolfx::WolfXFiles& files)
+    void sort_by_file_size(wolfx::WolfXFiles &files)
     {
-        std::sort(files.begin(), files.end(), [](const wolfx::WolfXFile& a, const wolfx::WolfXFile& b) {
-            return a.fileSize < b.fileSize;
-        });
+        std::sort(files.begin(), files.end(),
+                  [](const wolfx::WolfXFile &a, const wolfx::WolfXFile &b) { return a.fileSize < b.fileSize; });
     }
-}
+} // namespace
 
 TEST_CASE("WolfXFile stores a file size larger than 32 bits", "[uberwolf][wolfx]")
 {

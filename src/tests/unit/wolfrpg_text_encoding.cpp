@@ -88,7 +88,7 @@ namespace
 TEST_CASE("TEXT_ENCODING holds the documented component bounds", "[wolfrpg][text]")
 {
     STATIC_REQUIRE(unpackrat::wolfrpg::text::max_component_bytes == 4092);
-    STATIC_REQUIRE(unpackrat::wolfrpg::text::max_utf8_bytes == 4 * 4092);
+    STATIC_REQUIRE(unpackrat::wolfrpg::text::max_utf8_bytes == std::size_t{4} * 4092);
 }
 
 TEST_CASE("TEXT_ENCODING keeps Shift-JIS trail bytes that collide with the 0x5C separator", "[wolfrpg][text]")
@@ -244,7 +244,7 @@ TEST_CASE("TEXT_ENCODING rejects embedded NUL, unsupported code pages and oversi
         }
         return data;
     }();
-    REQUIRE(convert(korean, 949).size() == 3 * 2046);
+    REQUIRE(convert(korean, 949).size() == std::size_t{3} * 2046);
 }
 
 TEST_CASE("TEXT_ENCODING reports unmappable characters and rejects ASCII high bytes", "[wolfrpg][text]")

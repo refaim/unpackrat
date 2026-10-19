@@ -15,11 +15,15 @@ namespace
         }
         return std::nullopt;
     }
-    const auto fixture_root =
-        std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures/wolfrpg/recovery-game";
+    std::filesystem::path fixture_root()
+    {
+        return std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures/wolfrpg/recovery-game";
+    }
     std::unique_ptr<std::istream> open_owned_source(const std::filesystem::path &path)
     {
-        return std::make_unique<std::ifstream>(path, std::ios::binary | std::ios::ate);
+        return std::make_unique<std::ifstream>(
+            path, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::binary) |
+                                                       static_cast<unsigned>(std::ios::ate)));
     }
 } // namespace
 TEST_CASE("metadata reader borrows a source opener and commits valid files", "[metadata-io]")
@@ -44,7 +48,10 @@ TEST_CASE("metadata reader rejects an absent source without committing candidate
     const auto error = observed_error<unpackrat::wolfrpg::game_metadata_error>(
         [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, absent_source); });
     REQUIRE(error.has_value());
-    CHECK(error->code() == unpackrat::wolfrpg::game_metadata_error_code::source_read_failed);
+    if (!error.has_value()) {
+        return;
+    }
+    CHECK(error.value().code() == unpackrat::wolfrpg::game_metadata_error_code::source_read_failed);
     REQUIRE(candidates.keys().size() == 1);
     CHECK(candidates.keys()[0] == "retained");
 }
@@ -56,7 +63,7 @@ TEST_CASE("metadata reader rejects an absent source without committing candidate
 
 namespace
 {
-    enum class operation
+    enum class operation : std::uint8_t
     {
         none,
         size,
@@ -169,8 +176,11 @@ namespace
                 CHECK_FALSE(error.has_value());
             } else {
                 REQUIRE(error.has_value());
-                CHECK(error->identity == expected.identity);
-                CHECK(std::string_view(error->what()) == expected.what());
+                if (!error.has_value()) {
+                    return;
+                }
+                CHECK(error.value().identity == expected.identity);
+                CHECK(std::string_view(error.value().what()) == expected.what());
             }
             check_retained(candidates);
         }
@@ -191,7 +201,10 @@ TEST_CASE("metadata reader classifies ordinary seek and short reads without part
         const auto error = observed_error<unpackrat::wolfrpg::game_metadata_error>(
             [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, open_fault_source); });
         REQUIRE(error.has_value());
-        CHECK(error->code() == unpackrat::wolfrpg::game_metadata_error_code::source_read_failed);
+        if (!error.has_value()) {
+            return;
+        }
+        CHECK(error.value().code() == unpackrat::wolfrpg::game_metadata_error_code::source_read_failed);
         check_retained(candidates);
     }
 }
@@ -224,7 +237,10 @@ TEST_CASE("metadata reader reports an owned stream without a buffer as a source 
     const auto error = observed_error<unpackrat::wolfrpg::game_metadata_error>(
         [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, no_buffer_source); });
     REQUIRE(error.has_value());
-    CHECK(error->code() == unpackrat::wolfrpg::game_metadata_error_code::source_read_failed);
+    if (!error.has_value()) {
+        return;
+    }
+    CHECK(error.value().code() == unpackrat::wolfrpg::game_metadata_error_code::source_read_failed);
     check_retained(candidates);
 }
 TEST_CASE("metadata reader enforces source and cumulative collector budgets before allocation", "[metadata-io]")
@@ -236,26 +252,38 @@ TEST_CASE("metadata reader enforces source and cumulative collector budgets befo
     const auto source_error =
         observed_error<game_metadata_error>([&] { collect_game_metadata(fixture_root, source, candidates); });
     REQUIRE(source_error.has_value());
-    CHECK(source_error->code() == game_metadata_error_code::source_too_large);
+    if (!source_error.has_value()) {
+        return;
+    }
+    CHECK(source_error.value().code() == game_metadata_error_code::source_too_large);
     check_retained(candidates);
     game_metadata_limits input;
     input.collector.max_input_bytes = 1;
     const auto input_error =
         observed_error<metadata_error>([&] { collect_game_metadata(fixture_root, input, candidates); });
     REQUIRE(input_error.has_value());
-    CHECK(input_error->code() == metadata_error_code::input_too_large);
+    if (!input_error.has_value()) {
+        return;
+    }
+    CHECK(input_error.value().code() == metadata_error_code::input_too_large);
     check_retained(candidates);
     game_metadata_limits cumulative;
     cumulative.collector.max_total_read_bytes = 50;
     const auto budget_error =
         observed_error<metadata_error>([&] { collect_game_metadata(fixture_root, cumulative, candidates); });
     REQUIRE(budget_error.has_value());
-    CHECK(budget_error->code() == metadata_error_code::read_budget_exceeded);
+    if (!budget_error.has_value()) {
+        return;
+    }
+    CHECK(budget_error.value().code() == metadata_error_code::read_budget_exceeded);
     check_retained(candidates);
     const auto discovery_error =
         observed_error<game_metadata_error>([&] { collect_game_metadata(fixture_root / "absent", {}, candidates); });
     REQUIRE(discovery_error.has_value());
-    CHECK(discovery_error->code() == game_metadata_error_code::root_missing);
+    if (!discovery_error.has_value()) {
+        return;
+    }
+    CHECK(discovery_error.value().code() == game_metadata_error_code::root_missing);
     check_retained(candidates);
 }
 TEST_CASE("metadata reader rejects a positive wrong rewind result before reading valid bytes",
@@ -268,5 +296,8 @@ TEST_CASE("metadata reader rejects a positive wrong rewind result before reading
     check_retained(candidates);
     CHECK(planned_failure.read_calls == 0);
     REQUIRE(error.has_value());
-    CHECK(error->code() == unpackrat::wolfrpg::game_metadata_error_code::source_read_failed);
+    if (!error.has_value()) {
+        return;
+    }
+    CHECK(error.value().code() == unpackrat::wolfrpg::game_metadata_error_code::source_read_failed);
 }

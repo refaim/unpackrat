@@ -52,11 +52,11 @@ namespace test::support::wolfrpg_default_mode
     struct fixture
     {
         std::string file_name;
-        int mode_index = 0;                 // index into WolfDec::DefaultCryptModes()
-        std::string mode_name;              // the mode's own name
-        std::uint16_t crypt_version = 0;    // the mode's cryptVersion
-        std::string key_hex;                // the mode's default key (provenance / cross-check)
-        std::uint16_t container_version = 0;// the container header version the reader must report
+        int mode_index = 0;                  // index into WolfDec::DefaultCryptModes()
+        std::string mode_name;               // the mode's own name
+        std::uint16_t crypt_version = 0;     // the mode's cryptVersion
+        std::string key_hex;                 // the mode's default key (provenance / cross-check)
+        std::uint16_t container_version = 0; // the container header version the reader must report
         std::size_t file_size = 0;
         std::uint64_t file_fingerprint = 0;
         std::vector<expected_entry> entries;

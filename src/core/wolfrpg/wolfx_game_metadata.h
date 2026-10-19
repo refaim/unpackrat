@@ -2,6 +2,7 @@
 #define UNPACKRAT_CORE_WOLFRPG_WOLFX_GAME_METADATA_H
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <istream>
 #include <memory>
@@ -37,9 +38,9 @@ namespace unpackrat::wolfrpg
         // Maximum number of selected sources (maps plus the one common-event image).
         std::size_t max_sources = 100000;
         // Maximum total bytes of the source paths handed to the reader.
-        std::size_t max_total_path_bytes = 64U * 1024U * 1024U;
+        std::size_t max_total_path_bytes = std::size_t{64} * 1024 * 1024;
         // Maximum size of one source file; a larger file is rejected before it is read.
-        std::size_t max_source_bytes = 64U * 1024U * 1024U;
+        std::size_t max_source_bytes = std::size_t{64} * 1024 * 1024;
         // The reviewed collector budgets, enforced unchanged by the existing metadata_collector.
         metadata_limits collector{};
     };
@@ -48,7 +49,7 @@ namespace unpackrat::wolfrpg
     // adapter's own bounded-read failures are translated into this type; a genuine absence stays
     // distinct from a probe IO failure, a recognized malformed image still reports the collector's
     // metadata_error, and std::bad_alloc / std::length_error are never masked.
-    enum class game_metadata_error_code
+    enum class game_metadata_error_code : std::uint8_t
     {
         // The data folder does not exist.
         root_missing,

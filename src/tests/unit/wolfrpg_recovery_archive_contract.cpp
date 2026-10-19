@@ -35,7 +35,7 @@ namespace
         return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()),
                                   std::ios::binary);
     }
-    template <class Error, class Operation> void expect_error(Operation operation)
+    template <class Error, class Operation> void expect_error(const Operation &operation)
     {
         bool caught = false;
         try {
@@ -85,8 +85,9 @@ namespace
             return std::stringbuf::seekoff(offset, dir, mode);
         }
     };
-    const std::array<std::function<void()>, 3> faults{[] { throw caller_fault{}; }, [] { throw std::bad_alloc{}; },
-                                                      [] { throw std::length_error("owned source extent"); }};
+    constexpr std::array<void (*)(), 3> faults{
+        [] { throw caller_fault{}; }, // NOLINT(bugprone-std-exception-baseclass): intentional non-std caller fault
+        [] { throw std::bad_alloc{}; }, [] { throw std::length_error("owned source extent"); }};
     void expect_source_fault(std::size_t kind, const std::function<void()> &operation)
     {
         const std::array<std::function<void()>, 3> checks{[&] { expect_error<wolf::read_error>(operation); },
@@ -221,7 +222,8 @@ TEST_CASE("Pro companion recovery distinguishes absence inaccessible and unusabl
     context.context.companion = runtime / "Game.wolf";
     {
         std::ofstream file(context.context.companion, std::ios::binary);
-        file.exceptions(std::ios::badbit | std::ios::failbit);
+        file.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::badbit) |
+                                                            static_cast<unsigned>(std::ios::failbit)));
         file.write(reinterpret_cast<const char *>(companion.data()), static_cast<std::streamsize>(companion.size()));
     }
     expect_error<wolf::key_required>([&] { wolf::archive::open(source, "owned.wolf", {}, resolver); });
@@ -334,7 +336,8 @@ TEST_CASE("CC2 companion recovery requires a full binary key and never accepts u
     std::filesystem::create_directories(context.context.companion.parent_path());
     {
         std::ofstream file(context.context.companion, std::ios::binary);
-        file.exceptions(std::ios::badbit | std::ios::failbit);
+        file.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::badbit) |
+                                                            static_cast<unsigned>(std::ios::failbit)));
         file.write(reinterpret_cast<const char *>(companion.data()), static_cast<std::streamsize>(companion.size()));
     }
     std::size_t resolutions = 0;
@@ -364,15 +367,15 @@ namespace
         const std::size_t start = 512U + static_blob[0] + static_blob[1];
         std::array<std::uint8_t, 20> header{0x57, 0x4f, 0x4c, 0x46, 0x58, 0x11, 0x22, 0x33, 0x44, 0x99};
         const auto seed =
-            wolfx::detail::generator::fnv1(static_blob) ^ wolfx::detail::utils::combineBytes<4>(header, 5);
+            wolfx::detail::generator::fnv1(static_blob) ^ wolfx::detail::utils::combineBytes<4u>(header, 5);
         auto blob = wolfx::detail::generator::generateWolfxDecryptBlob(seed, static_blob, size);
-        constexpr std::array<std::uint8_t, 2> string_id{0x4e, 0x20};              // 20000: no string candidate.
-        const auto integer_id = wolfx::detail::utils::extractBytes<3>(0xfffff0U); // No integer candidate.
+        constexpr std::array<std::uint8_t, 2> string_id{0x4e, 0x20};               // 20000: no string candidate.
+        const auto integer_id = wolfx::detail::utils::extractBytes<3u>(0xfffff0U); // No integer candidate.
         for (std::size_t i = 0; i != 2; ++i)
             header[10 + i] = static_cast<std::uint8_t>(string_id[i] ^ blob[i]);
         const auto empty_hash = wolfx::detail::generator::fnv1(std::string{});
-        const auto tail = wolfx::detail::utils::extractBytes<3>(0xfffff0U ^ ((empty_hash & 0xffff0000U) >> 8) ^
-                                                                (empty_hash & 0xffffU));
+        const auto tail = wolfx::detail::utils::extractBytes<3u>(0xfffff0U ^ ((empty_hash & 0xffff0000U) >> 8u) ^
+                                                                 (empty_hash & 0xffffU));
         for (std::size_t i = 0; i != 3; ++i)
             header[12 + i] = static_cast<std::uint8_t>(tail[i] ^ blob[2 + i]);
         for (std::size_t i = 0; i != 5; ++i)
@@ -551,7 +554,8 @@ TEST_CASE("CC2 recovery refuses a valid V1 companion before reading encrypted me
     const auto companion = test::support::wolfrpg_pro::v1_companion();
     {
         std::ofstream file(context.context.companion, std::ios::binary);
-        file.exceptions(std::ios::badbit | std::ios::failbit);
+        file.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::badbit) |
+                                                            static_cast<unsigned>(std::ios::failbit)));
         file.write(reinterpret_cast<const char *>(companion.data()), static_cast<std::streamsize>(companion.size()));
     }
     std::size_t resolutions = 0;
@@ -683,7 +687,7 @@ TEST_CASE("archive translates malformed UTF8 name decoding into a read error", "
     const std::array invalid_entries{test::support::synthetic_entry{"retained.txt", "first", false},
                                      test::support::synthetic_entry{"\xc3(", "second", false}};
     auto invalid = test::support::build_plain_archive(invalid_entries);
-    REQUIRE(invalid.bytes.size() < 1024);
+    REQUIRE(invalid.bytes.size() < 1024u);
     std::memcpy(invalid.bytes.data() + offsetof(DARC_HEAD, CharCodeFormat), &utf8, sizeof(utf8));
     observed_source buffer(invalid.bytes);
     std::istream source(&buffer);
@@ -694,7 +698,8 @@ TEST_CASE("archive translates malformed UTF8 name decoding into a read error", "
     REQUIRE(buffer.reads == 4);        // Only header and metadata; neither member body is read.
 }
 
-TEST_CASE("official WOLF RPG Editor 3.396 archive extracts the owned binary payload", "[official-3396][recovery-archive-contract]")
+TEST_CASE("official WOLF RPG Editor 3.396 archive extracts the owned binary payload",
+          "[official-3396][recovery-archive-contract]")
 {
     const auto directory = fixtures() / "official-3396";
     const auto path = directory / "OwnedFixture.wolf";

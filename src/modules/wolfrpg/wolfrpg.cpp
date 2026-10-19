@@ -52,7 +52,7 @@ namespace extractor
         // stream or the progress callback) is captured once in an exception_ptr and this signal is
         // thrown in its place, so the backend error translation below can never rewrite a caller
         // exception whose concrete type happens to equal one of the reader's own error types.
-        struct forwarded_exception
+        struct forwarded_exception : std::exception
         {
         };
 

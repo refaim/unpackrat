@@ -50,7 +50,7 @@ namespace unpackrat::wolfrpg
         [[nodiscard]] std::uint32_t read_le32(std::span<const std::uint8_t> bytes, std::size_t offset) noexcept
         {
             std::uint32_t value = 0;
-            for (std::size_t i = 0; i < 4; ++i) {
+            for (std::size_t i = 0; i < 4u; ++i) {
                 value |= static_cast<std::uint32_t>(bytes[offset + i]) << (8 * i);
             }
             return value;
@@ -59,7 +59,7 @@ namespace unpackrat::wolfrpg
         [[nodiscard]] std::uint64_t read_le64(std::span<const std::uint8_t> bytes, std::size_t offset) noexcept
         {
             std::uint64_t value = 0;
-            for (std::size_t i = 0; i < 8; ++i) {
+            for (std::size_t i = 0; i < 8u; ++i) {
                 value |= static_cast<std::uint64_t>(bytes[offset + i]) << (8 * i);
             }
             return value;
@@ -108,7 +108,7 @@ namespace unpackrat::wolfrpg
         impl &state = *context.impl_;
 
         const std::uint32_t flags = read_le32(header, kFlagsOffset);
-        state.version = static_cast<std::uint16_t>(flags >> 16);
+        state.version = static_cast<std::uint16_t>(flags >> 16u);
         if (!is_modern_version(state.version)) {
             throw modern_crypto_error{};
         }
@@ -117,8 +117,7 @@ namespace unpackrat::wolfrpg
         // 866-byte fixture contains a known 256-byte payload). Keep the logical AES prefix
         // at 1024 bytes; decode_outer_at intersects it with validated physical requests.
         // Other versions retain the existing minimum, and name-table bounds still apply.
-        const std::uint64_t minimum_size =
-            state.version == kVersionMin ? kHeaderSize : kHeaderSize + kMinAesRegion;
+        const std::uint64_t minimum_size = state.version == kVersionMin ? kHeaderSize : kHeaderSize + kMinAesRegion;
         if (physical_size < minimum_size) {
             throw modern_crypto_error{};
         }
@@ -199,8 +198,7 @@ namespace unpackrat::wolfrpg
         // The sequential primitive advances its IV once per actual 16-byte block consumed,
         // including a partial final block. A short v3.31 image must not advance the metadata
         // counter for the absent tail of its logical prefix.
-        const std::uint64_t consumed_body_size =
-            std::min<std::uint64_t>(body_size, physical_size - kHeaderSize);
+        const std::uint64_t consumed_body_size = std::min<std::uint64_t>(body_size, physical_size - kHeaderSize);
         state.aes_iv_region2 = state.aes_iv;
         wolf::crypt::modern::advanceCounter(std::span<std::uint8_t, 16>(state.aes_iv_region2),
                                             (consumed_body_size + 15) / 16);
@@ -258,9 +256,9 @@ namespace unpackrat::wolfrpg
         if (physical_offset < aes1_end) {
             const std::uint64_t overlap_end = end < aes1_end ? end : aes1_end;
             auto sub = data.subspan(0, static_cast<std::size_t>(overlap_end - physical_offset));
-            wolf::crypt::modern::aesCtrXor(sub,
-                                           std::span<const std::uint8_t, kAesKeyExpansion>(state.aes_schedule),
-                                           std::span<const std::uint8_t, 16>(state.aes_iv), physical_offset - kHeaderSize);
+            wolf::crypt::modern::aesCtrXor(sub, std::span<const std::uint8_t, kAesKeyExpansion>(state.aes_schedule),
+                                           std::span<const std::uint8_t, 16>(state.aes_iv),
+                                           physical_offset - kHeaderSize);
         }
 
         const std::uint64_t aes2_begin = state.name_table_offset;
@@ -268,8 +266,7 @@ namespace unpackrat::wolfrpg
             const std::uint64_t overlap_begin = physical_offset > aes2_begin ? physical_offset : aes2_begin;
             auto sub = data.subspan(static_cast<std::size_t>(overlap_begin - physical_offset),
                                     static_cast<std::size_t>(end - overlap_begin));
-            wolf::crypt::modern::aesCtrXor(sub,
-                                           std::span<const std::uint8_t, kAesKeyExpansion>(state.aes_schedule),
+            wolf::crypt::modern::aesCtrXor(sub, std::span<const std::uint8_t, kAesKeyExpansion>(state.aes_schedule),
                                            std::span<const std::uint8_t, 16>(state.aes_iv_region2),
                                            overlap_begin - aes2_begin);
         }
@@ -281,7 +278,8 @@ namespace unpackrat::wolfrpg
         if (state.no_key || data.empty()) {
             return;
         }
-        if (!add_within(logical_position, data.size(), static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) {
+        if (!add_within(logical_position, data.size(),
+                        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) {
             throw modern_crypto_error{};
         }
         wolf::crypt::wolfCrypt(state.inner_key.data(), data.data(), static_cast<std::int64_t>(logical_position),

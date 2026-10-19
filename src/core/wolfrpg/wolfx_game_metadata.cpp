@@ -96,7 +96,9 @@ namespace unpackrat::wolfrpg
     {
         std::unique_ptr<std::istream> open_metadata_source(const std::filesystem::path &path)
         {
-            return std::make_unique<std::ifstream>(path, std::ios::binary | std::ios::ate);
+            return std::make_unique<std::ifstream>(
+                path, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::binary) |
+                                                           static_cast<unsigned>(std::ios::ate)));
         }
     } // namespace
     void collect_game_metadata(const std::filesystem::path &data_folder, const game_metadata_limits &limits,

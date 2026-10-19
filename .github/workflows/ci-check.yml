@@ -846,6 +846,19 @@ jobs:
         shell: pwsh
         run: ./build.ps1 ci-arch -Arch '${{ inputs.arch }}' -Stage '${{ inputs.stage }}' -Jobs 4
 
+      # A failing coverage gate still needs the exact instrumented binaries for triage, so the two
+      # image files are published by name rather than as a broad directory dump.
+      - name: Upload the coverage diagnostic images
+        if: failure() && inputs.stage == 'coverage'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostic-coverage-${{ inputs.arch }}-images
+          path: |
+            out/native/bin/${{ inputs.arch }}/Coverage/tests.exe
+            out/native/bin/${{ inputs.arch }}/Coverage/*.so
+          if-no-files-found: warn
+          retention-days: 14
+
       # The native Release slice is the only stage that links the shipped modules, so it is the
       # only stage that can emit the exact packages and verified sources the license audit needs.
       # The driver derives these inputs from the tree ci-arch just built and writes one directory

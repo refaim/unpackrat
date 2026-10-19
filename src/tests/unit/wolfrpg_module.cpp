@@ -32,16 +32,16 @@
 #define extractor distinct_token
 #define UNPACKRAT_MODULE_VERSION_MAJOR 1
 #define UNPACKRAT_MODULE_VERSION_MINOR 0
-#include "../../modules/wolfrpg/wolfrpg.cpp"
+#include "../../modules/wolfrpg/wolfrpg.cpp" // NOLINT(bugprone-suspicious-include): unit test includes the module TU to drive its C ABI
 #undef UNPACKRAT_MODULE_VERSION_MINOR
 #undef UNPACKRAT_MODULE_VERSION_MAJOR
 #undef extractor
 
 namespace
 {
-    using unpackrat::wolfrpg::codec::lz_error;
     using unpackrat::wolfrpg::key_required;
     using unpackrat::wolfrpg::read_error;
+    using unpackrat::wolfrpg::codec::lz_error;
 
     // Distinct what() payloads so a forwarded lz_error can be checked by type *and* payload rather
     // than by pointer identity, which MSVC does not guarantee across separate current_exception
@@ -55,9 +55,11 @@ namespace
 
     std::istringstream to_stream(const std::vector<std::byte> &bytes)
     {
-        return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()), std::ios::binary);
+        return std::istringstream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()),
+                                  std::ios::binary);
     }
 
+    // NOLINTNEXTLINE(bugprone-exception-escape): plain aggregate of stream/unique_ptr members
     struct opened_archive
     {
         std::istringstream stream;
@@ -71,7 +73,8 @@ namespace
         opened_archive opened;
         opened.stream = to_stream(bytes);
         opened.adapter = std::make_unique<distinct_token::distinct_token>();
-        static_cast<void>(opened.adapter->get_archive_info(opened.stream, std::span<const std::byte>(bytes), "synthetic.wolf"));
+        static_cast<void>(
+            opened.adapter->get_archive_info(opened.stream, std::span<const std::byte>(bytes), "synthetic.wolf"));
         opened.files = opened.adapter->list_files(opened.stream);
         return opened;
     }
@@ -133,8 +136,7 @@ namespace
     // Returns true when rethrowing ``p`` yields exactly ``Error``. Used instead of CHECK_THROWS_AS
     // so the [[noreturn]] std::rethrow_exception does not leave a trailing statement unreachable
     // (C4702 under /W4 /WX).
-    template <typename Error>
-    bool rethrows_is(const std::exception_ptr &p)
+    template <typename Error> bool rethrows_is(const std::exception_ptr &p)
     {
         try {
             if (p) {
@@ -149,8 +151,7 @@ namespace
     }
 
     // Returns true when rethrowing ``p`` yields exactly ``Error`` with ``message`` as its what().
-    template <typename Error>
-    bool rethrows_with_message(const std::exception_ptr &p, const char *message)
+    template <typename Error> bool rethrows_with_message(const std::exception_ptr &p, const char *message)
     {
         try {
             if (p) {
@@ -166,8 +167,7 @@ namespace
 
     // The callback raises a reader error type. The adapter must not translate a caller exception, so
     // the object that escapes must still be exactly that reader type, never extractor::read_error.
-    template <typename Error>
-    void check_callback_preserves(opened_archive &opened)
+    template <typename Error> void check_callback_preserves(opened_archive &opened)
     {
         std::ostringstream output;
         std::exception_ptr caught;
@@ -195,8 +195,7 @@ namespace
 
     // The destination stream raises a reader error type; the adapter must forward the same object
     // rather than folding it into its own error translation.
-    template <typename Error>
-    void check_output_preserves(opened_archive &opened)
+    template <typename Error> void check_output_preserves(opened_archive &opened)
     {
         throwing_output_streambuf buffer([] { throw Error{}; });
         std::ostream output(&buffer);
@@ -260,7 +259,8 @@ namespace
       protected:
         int sync() override
         {
-            throw payload_signal{tie_flush_sentinel};
+            throw payload_signal{
+                tie_flush_sentinel}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
         }
     };
 
@@ -275,7 +275,8 @@ namespace
         std::streamsize xsputn(const char *data, const std::streamsize count) override
         {
             if (armed) {
-                throw payload_signal{mask_change_sentinel};
+                throw payload_signal{
+                    mask_change_sentinel}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
             }
             sink_.append(data, static_cast<std::size_t>(count));
             return count;
@@ -395,10 +396,10 @@ TEST_CASE("the adapter extracts a stored body and reports per-write deltas", "[w
     std::vector<std::int64_t> steps;
     opened.files[0]->extract(opened.stream, output, [&steps](const std::int64_t delta) { steps.push_back(delta); });
     CHECK(output.str() == content);
-    REQUIRE(steps.size() > 1);
+    REQUIRE(steps.size() > 1u);
     std::int64_t total = 0;
     for (const std::int64_t delta : steps) {
-        CHECK(delta > 0);
+        CHECK(delta > 0u);
         total += delta;
     }
     CHECK(total == static_cast<std::int64_t>(content.size()));
@@ -424,7 +425,9 @@ TEST_CASE("the adapter passes through a cancellation exception unchanged", "[wol
     std::ostringstream output;
     std::exception_ptr caught;
     try {
-        opened.files[0]->extract(opened.stream, output, [](std::int64_t) { throw cancel_signal{}; });
+        opened.files[0]->extract(opened.stream, output, [](std::int64_t) {
+            throw cancel_signal{};
+        }); // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
     } catch (...) {
         caught = std::current_exception();
     }

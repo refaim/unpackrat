@@ -20,7 +20,7 @@ namespace
     void number(image &out, std::uint32_t n)
     {
         for (unsigned shift = 0; shift != 32; shift += 8)
-            out.push_back(static_cast<std::byte>((n >> shift) & 255));
+            out.push_back(static_cast<std::byte>((n >> shift) & 255u));
     }
     void text(image &out, std::string_view value)
     {

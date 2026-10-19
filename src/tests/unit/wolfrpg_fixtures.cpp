@@ -21,17 +21,18 @@ namespace
 
     std::uint16_t read_u16(const std::vector<std::byte> &bytes, const std::size_t offset)
     {
-        return static_cast<std::uint16_t>(std::to_integer<std::uint16_t>(bytes[offset]) |
-                                          (std::to_integer<std::uint16_t>(bytes[offset + 1]) << 8));
+        return static_cast<std::uint16_t>(
+            std::to_integer<std::uint16_t>(bytes[offset]) |
+            (static_cast<std::uint32_t>(std::to_integer<std::uint16_t>(bytes[offset + 1])) << 8u));
     }
 
     std::uint32_t read_u32(const std::vector<std::byte> &bytes, const std::size_t offset)
     {
         std::uint32_t value = 0;
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 4u; ++i) {
             value |=
                 static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + static_cast<std::size_t>(i)]))
-                << (8 * i);
+                << (8u * static_cast<unsigned>(i));
         }
         return value;
     }
@@ -39,10 +40,10 @@ namespace
     std::uint64_t read_u64(const std::vector<std::byte> &bytes, const std::size_t offset)
     {
         std::uint64_t value = 0;
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < 8u; ++i) {
             value |=
                 static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(bytes[offset + static_cast<std::size_t>(i)]))
-                << (8 * i);
+                << (8u * static_cast<unsigned>(i));
         }
         return value;
     }
@@ -106,7 +107,8 @@ TEST_CASE("build_plain_archive serialises the header tables at the upstream offs
     REQUIRE(bytes.size() == 401);
 
     // DARC_HEAD
-    CHECK(read_u16(bytes, offsetof(DARC_HEAD, Head)) == static_cast<std::uint16_t>(('X' << 8) | 'D'));
+    CHECK(read_u16(bytes, offsetof(DARC_HEAD, Head)) ==
+          static_cast<std::uint16_t>((static_cast<unsigned>('X') << 8u) | static_cast<unsigned>('D')));
     CHECK(read_u16(bytes, offsetof(DARC_HEAD, Version)) == 8);
     CHECK(read_u32(bytes, offsetof(DARC_HEAD, HeadSize)) == 308);
     CHECK(read_u64(bytes, offsetof(DARC_HEAD, DataStartAddress)) == 64);
@@ -219,7 +221,8 @@ TEST_CASE("build_lz_backref_archive serialises a record and a distance-2 copy to
     const std::vector<std::byte> bytes = test::support::build_lz_backref_archive();
 
     REQUIRE(bytes.size() == 286);
-    CHECK(read_u16(bytes, offsetof(DARC_HEAD, Head)) == static_cast<std::uint16_t>(('X' << 8) | 'D'));
+    CHECK(read_u16(bytes, offsetof(DARC_HEAD, Head)) ==
+          static_cast<std::uint16_t>((static_cast<unsigned>('X') << 8u) | static_cast<unsigned>('D')));
     CHECK(read_u16(bytes, offsetof(DARC_HEAD, Version)) == 8);
     CHECK(read_u64(bytes, offsetof(DARC_HEAD, DataStartAddress)) == 64);
     CHECK(read_u64(bytes, offsetof(DARC_HEAD, FileNameTableStartAddress)) == 78);

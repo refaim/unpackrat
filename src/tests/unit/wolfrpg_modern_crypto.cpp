@@ -61,7 +61,10 @@ namespace
     {
         const auto error = observed_crypto_error(operation);
         REQUIRE(error.has_value());
-        CHECK(std::string_view(error->what()) == "WolfRPG modern archive crypto failed");
+        if (!error.has_value()) {
+            return;
+        }
+        CHECK(std::string_view(error.value().what()) == "WolfRPG modern archive crypto failed");
     }
 
     [[nodiscard]] std::array<std::uint8_t, 64> unhex_header(const std::string_view hex)
@@ -245,7 +248,7 @@ TEST_CASE("modern crypto: inner key transform matches the oracle and cancels", "
 
         std::vector<std::uint8_t> sample_b(200);
         for (std::size_t i = 0; i < sample_b.size(); ++i) {
-            sample_b[i] = static_cast<std::uint8_t>((i * 3 + 7) & 0xff);
+            sample_b[i] = static_cast<std::uint8_t>((i * 3 + 7) & 0xffu);
         }
         const std::vector<std::uint8_t> sample_b_before = sample_b;
         context.apply_inner(sample_b, entry.inner_sample_b_pos);
@@ -258,7 +261,7 @@ TEST_CASE("modern crypto: inner key transform matches the oracle and cancels", "
         // Splitting one logical range into two halves matches one call over the whole range.
         std::vector<std::uint8_t> split(320);
         for (std::size_t i = 0; i < split.size(); ++i) {
-            split[i] = static_cast<std::uint8_t>((i * 5 + 1) & 0xff);
+            split[i] = static_cast<std::uint8_t>((i * 5 + 1) & 0xffu);
         }
         std::vector<std::uint8_t> whole = split;
         context.apply_inner(whole, 700);
@@ -336,7 +339,7 @@ TEST_CASE("modern crypto: rejects unsupported versions, empty passwords and out-
 
     // Crypt version outside {331, 350}.
     std::array<std::uint8_t, 64> unsupported = stored;
-    unsupported[45] = 0x01; // Flags >> 16 == 0x0101 == 257
+    unsupported[45] = 0x01; // Flags >> 16u == 0x0101 == 257
     unsupported[46] = 0x01;
     require_crypto_error([&] { static_cast<void>(modern_crypto::create(unsupported, archive.size(), "DXLIBARC")); });
 
@@ -374,9 +377,9 @@ TEST_CASE("modern crypto: arbitrary headers are handled without crashing and det
         std::array<std::uint8_t, 64> header = template_header;
         header[44] = 0;
         header[45] = 0;
-        header[46] = static_cast<std::uint8_t>(version & 0xff);
-        header[47] = static_cast<std::uint8_t>(version >> 8);
-        for (std::size_t k = 0; k < 15; ++k) {
+        header[46] = static_cast<std::uint8_t>(version & 0xffu);
+        header[47] = static_cast<std::uint8_t>(version >> 8u);
+        for (std::size_t k = 0; k < 15u; ++k) {
             header[49 + k] = static_cast<std::uint8_t>((noise >> ((k % 4) * 8)) ^ (k * 31));
         }
         header[49 + 2] = seed_a;  // Reserve[2]
@@ -386,7 +389,7 @@ TEST_CASE("modern crypto: arbitrary headers are handled without crashing and det
     };
 
     std::uint32_t rng = 0x12345678u;
-    for (int iteration = 0; iteration < 3000; ++iteration) {
+    for (int iteration = 0; iteration < 3000u; ++iteration) {
         rng = rng * 1664525u + 1013904223u;
         const std::uint16_t version = (iteration % 2 == 0) ? 350 : 331;
         const std::uint64_t size = (iteration % 3 == 0) ? 1088 : ((iteration % 3 == 1) ? 2048 : 4096);
@@ -394,15 +397,16 @@ TEST_CASE("modern crypto: arbitrary headers are handled without crashing and det
         const std::string_view password = empty_password ? std::string_view{} : std::string_view{"DXLIBARC"};
 
         const std::array<std::uint8_t, 64> header =
-            header_with(version, static_cast<std::uint8_t>(rng >> 13), static_cast<std::uint8_t>(rng >> 21),
-                        static_cast<std::uint8_t>(rng >> 5), rng);
+            header_with(version, static_cast<std::uint8_t>(rng >> 13u), static_cast<std::uint8_t>(rng >> 21u),
+                        static_cast<std::uint8_t>(rng >> 5u), rng);
 
         try {
             const modern_crypto context = modern_crypto::create(header, size, password);
             // A context that is created must report the version it was built from.
             REQUIRE(context.crypt_version() == version);
-        } catch (const modern_crypto_error &) {
-            // Only a documented rejection may escape.
+        } catch (const modern_crypto_error &error) {
+            // Only a documented rejection may escape; the rejection itself is not inspected.
+            static_cast<void>(error);
         }
     }
 
@@ -456,12 +460,12 @@ TEST_CASE("modern crypto: rejects an archive size beyond the signed 64-bit range
 TEST_CASE("modern crypto: v3.50 body size keeps 64-bit precision before bounding", "[wolfrpg][moderncrypto]")
 {
     // The v3.50 body size is derived as `physical_size - 64` and only then bounded by a random
-    // threshold. Narrowing that subtraction to 32 bits first makes 2^32 + 64 wrap to 0, so the
+    // threshold. Narrowing that subtraction to 32 bits first makes 2^32u + 64 wrap to 0, so the
     // region-1 length and the region-2 IV are derived from the wrong value. The pinned derivation
     // seeds xorshift32 with 1 (all-zero reserve), draws threshold 1199, then bounds to 1133.
     const golden::golden_case &zero = find_case("v350-zero-seed");
     const std::array<std::uint8_t, 64> stored = unhex_header(zero.stored_header_hex);
-    const std::uint64_t size = 0x1'0000'0040ull; // 2^32 + 64
+    const std::uint64_t size = 0x1'0000'0040ull; // 2^32u + 64
 
     const modern_crypto context = modern_crypto::create(stored, size, "");
     CHECK(context.crypt_version() == 350);
@@ -516,12 +520,12 @@ TEST_CASE("modern crypto: deriving contexts leaves the process-global rand state
     const std::vector<std::uint8_t> archive_basic = archive_of(basic);
     const std::vector<std::uint8_t> archive_v350 = archive_of(v350);
 
-    std::srand(0x2468ACE0u);
+    std::srand(0x2468ACE0u); // NOLINT(bugprone-random-generator-seed): fixed seed for deterministic comparison
     const int control_a = std::rand();
     const int control_b = std::rand();
     const int control_c = std::rand();
 
-    std::srand(0x2468ACE0u);
+    std::srand(0x2468ACE0u); // NOLINT(bugprone-random-generator-seed): fixed seed for deterministic comparison
     const modern_crypto ctx_a =
         modern_crypto::create(unhex_header(basic.stored_header_hex), archive_basic.size(), password_of(basic));
     const modern_crypto ctx_b =
@@ -544,7 +548,7 @@ TEST_CASE("modern context: the AES block counter is big-endian and carries acros
     std::array<std::uint8_t, 16> counter{};
     advanceCounter(counter, 5);
     CHECK(counter[15] == 5);
-    for (std::size_t i = 0; i < 15; ++i) {
+    for (std::size_t i = 0; i < 15u; ++i) {
         CHECK(counter[i] == 0);
     }
 
@@ -658,7 +662,7 @@ TEST_CASE("modern context: the body-size draw keeps the 64-bit candidate and pin
 {
     using wolf::crypt::drawArchiveBodySize;
 
-    const std::uint64_t size = 0x1'0000'0040ull; // 2^32 + 64
+    const std::uint64_t size = 0x1'0000'0040ull; // 2^32u + 64
 
     // An all-zero reserve forces the seed to 1 and the full 64-bit candidate is bounded to the
     // same value the frozen v350-zero-seed oracle reports.
@@ -797,7 +801,7 @@ TEST_CASE("modern variants: every new-crypt boundary version matches the frozen 
 
         std::vector<std::uint8_t> sample_b(200);
         for (std::size_t i = 0; i < sample_b.size(); ++i) {
-            sample_b[i] = static_cast<std::uint8_t>((i * 3 + 7) & 0xff);
+            sample_b[i] = static_cast<std::uint8_t>((i * 3 + 7) & 0xffu);
         }
         context.apply_inner(sample_b, variants::INNER_SAMPLE_B_POS);
         CHECK((sample_b == unhex(entry.inner_sample_b_hex)));
@@ -884,7 +888,7 @@ TEST_CASE("modern variants: the decoded name table offset is validated before us
         std::array<std::uint8_t, 64> head{};
         const std::vector<std::uint8_t> decoded = unhex(entry.decoded_header_hex);
         std::copy(decoded.begin(), decoded.end(), head.begin());
-        for (std::size_t i = 0; i < 8; ++i) {
+        for (std::size_t i = 0; i < 8u; ++i) {
             head[16 + i] = static_cast<std::uint8_t>(value >> (8 * i));
         }
         // The adapter reads the stored header and applies this scramble to recover the field, so
@@ -937,7 +941,7 @@ TEST_CASE("modern crypto: official small v3.31 archive supports bounded seek rea
 
     auto reverse = encrypted;
     std::copy(context.header().begin(), context.header().end(), reverse.begin());
-    for (std::size_t end = reverse.size(); end > 64;) {
+    for (std::size_t end = reverse.size(); end > 64u;) {
         const auto take = std::min<std::size_t>(17, end - 64);
         const auto begin = end - take;
         context.decode_outer_at(std::span<std::uint8_t>(reverse).subspan(begin, take), begin);

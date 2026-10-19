@@ -14,6 +14,8 @@ namespace test::support::wolfrpg_modern_variants
 {
     inline constexpr std::uint32_t INNER_SAMPLE_B_POS = 5000u;
 
+    // frozen generated oracle layout preserves field mapping; no production layout contract
+    // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
     struct variant_case final
     {
         std::string_view name;

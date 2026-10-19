@@ -21,11 +21,11 @@ namespace unpackrat::wolfrpg
     struct wolfx_candidate_limits final
     {
         std::size_t max_key_length = 4096;
-        std::size_t max_total_key_bytes = 1U << 20;
-        std::size_t max_total_string_bytes = 1U << 22;
-        std::size_t max_string_values = 1U << 16;
-        std::size_t max_int_values = 1U << 20;
-        std::size_t max_attempts = 1U << 24;
+        std::size_t max_total_key_bytes = 1U << 20u;
+        std::size_t max_total_string_bytes = 1U << 22u;
+        std::size_t max_string_values = 1U << 16u;
+        std::size_t max_int_values = 1U << 20u;
+        std::size_t max_attempts = 1U << 24u;
     };
 
     struct wolfx_string_value final

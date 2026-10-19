@@ -24,7 +24,7 @@ namespace unpackrat::wolfrpg
 {
     // Which WolfX metadata image a byte buffer represents. `map` is one *.mps map image and
     // `common_events` is a CommonEvent.dat image.
-    enum class metadata_kind
+    enum class metadata_kind : std::uint8_t
     {
         map,
         common_events,
@@ -64,11 +64,11 @@ namespace unpackrat::wolfrpg
     // physical input byte-for-byte exactly once.
     struct metadata_limits final
     {
-        std::size_t max_input_bytes = 64U * 1024U * 1024U;
-        std::size_t max_total_read_bytes = 256U * 1024U * 1024U;
+        std::size_t max_input_bytes = std::size_t{64} * 1024 * 1024;
+        std::size_t max_total_read_bytes = std::size_t{256} * 1024 * 1024;
         std::size_t max_total_units = 100000U;
-        std::size_t max_image_expanded_bytes = 128U * 1024U * 1024U;
-        std::size_t max_total_expanded_bytes = 512U * 1024U * 1024U;
+        std::size_t max_image_expanded_bytes = std::size_t{128} * 1024 * 1024;
+        std::size_t max_total_expanded_bytes = std::size_t{512} * 1024 * 1024;
     };
 
     // Typed failure codes the collector reports. Only recognized format/vendor parse failures, the
@@ -77,7 +77,7 @@ namespace unpackrat::wolfrpg
     // and std::length_error raised by allocation, propagate unchanged and are never converted to a
     // metadata_error. This is a deliberately narrow contract: memory-exhaustion conditions stay
     // visible to the caller instead of being reported as a malformed image.
-    enum class metadata_error_code
+    enum class metadata_error_code : std::uint8_t
     {
         // input.size() exceeds metadata_limits::max_input_bytes.
         input_too_large,
