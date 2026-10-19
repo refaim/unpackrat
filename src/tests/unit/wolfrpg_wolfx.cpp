@@ -759,6 +759,26 @@ TEST_CASE("WolfX output name is derived from the path", "[wolfrpg][wolfx]")
     require_message<read_error>([&] { (void)(open_with("a\tb.wolfx")); }, "WolfRPG archive read failed");
 }
 
+TEST_CASE("WolfX bare filename opens the direct core archive with its payload", "[wolfrpg][wolfx]")
+{
+    const file_fixture file = make_custom_file();
+    std::istringstream stream = open_stream(file.encrypted);
+
+    const auto archive = wolfx_archive::open(stream, "bare", file.candidates);
+    REQUIRE(archive != nullptr);
+    REQUIRE(archive->entries().size() == 1);
+
+    const entry &item = archive->entries().front();
+    const auto payload_size = file.plaintext.size() - static_cast<std::size_t>(file.fixture.payload_offset);
+    CHECK(item.path == "bare");
+    CHECK(item.stored_size == static_cast<std::int64_t>(payload_size));
+    CHECK(item.unpacked_size == item.stored_size);
+
+    const std::string expected(reinterpret_cast<const char *>(file.plaintext.data() + file.fixture.payload_offset),
+                               payload_size);
+    CHECK(extract_to_string(*archive, stream) == expected);
+}
+
 TEST_CASE("WolfX huge physical size is handled without allocating it", "[wolfrpg][wolfx]")
 {
     const std::string key = "kek";
