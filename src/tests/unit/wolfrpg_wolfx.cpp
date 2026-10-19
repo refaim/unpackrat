@@ -1968,8 +1968,8 @@ TEST_CASE("WolfX owned exceptional stream helpers preserve scalar and absolute o
     CHECK(quiet.pubseekpos(0, std::ios::in) == std::streampos(-1));
     CHECK(calls == 4);
     exception_source_streambuf throwing([] {
-        throw io_sentinel{33, "source"};
-    }); // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+        throw io_sentinel{33, "source"}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+    });
     const std::array<std::function<void()>, 3> operations{[&] { (void)throwing.sgetn(&byte, 1); },
                                                           [&] { (void)throwing.sgetc(); },
                                                           [&] { (void)throwing.pubseekpos(0, std::ios::in); }};

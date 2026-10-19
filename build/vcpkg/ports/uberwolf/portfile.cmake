@@ -23,19 +23,7 @@ vcpkg_from_github(
 
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 
-# The Fuzz configuration builds this dependency with the pinned LLVM ClangCL toolset so its
-# address instrumentation matches the clang_rt runtime the Fuzz executables link (see the
-# unpackrat-*-windows-static-fuzz triplets).  ``-T<toolset>`` only reaches the generator when
-# the Visual Studio generator is used, so request MSBuild in exactly that case and keep the
-# default Ninja generator for the ordinary MSVC Release/Debug/ASan/UBSan configurations.
-if(VCPKG_PLATFORM_TOOLSET STREQUAL "ClangCL")
-    vcpkg_cmake_configure(
-        SOURCE_PATH "${SOURCE_PATH}"
-        WINDOWS_USE_MSBUILD
-    )
-else()
-    vcpkg_cmake_configure(SOURCE_PATH "${SOURCE_PATH}")
-endif()
+vcpkg_cmake_configure(SOURCE_PATH "${SOURCE_PATH}")
 vcpkg_cmake_install()
 vcpkg_copy_pdbs()
 

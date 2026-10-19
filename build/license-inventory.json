@@ -114,7 +114,7 @@
         "build/vcpkg/ports/uberwolf/encoding-aware-legacy.patch": "f8eb10d561d47bde96c108902fbe1b25f0d30f58eee26680ac72a805cd290737",
         "build/vcpkg/ports/uberwolf/keycreate-scratch.patch": "f42c803589179f2bb1a5d6a65cdf2508ba93b03f95e1bb4a66eea7200cf80a43",
         "build/vcpkg/ports/uberwolf/mode-selection.patch": "0339d430cb952a869541f6eeb7f3efdbbe78159e87e9063b76df74a312532ea5",
-        "build/vcpkg/ports/uberwolf/portfile.cmake": "094b3dcb7b0745cdd1b064e88f51887b3c2fcdea3209a126ad5dff80199add6e",
+        "build/vcpkg/ports/uberwolf/portfile.cmake": "055789a5a1f1ac00b43a9e7737a623eb787268047eba20a1fbe7e73759915e0b",
         "build/vcpkg/ports/uberwolf/recovery-e1-contract.patch": "ab39cd7266793d0d28df9e7c68836aae9fa9e62f5183944d466ef4f2fbc02511",
         "build/vcpkg/ports/uberwolf/version.patch": "abbca5dacfdc9958e412a9cb8f10f68e6c25c59d0d1d1ae2c38d8b687ccc6fb0",
         "build/vcpkg/ports/uberwolf/vcpkg.json": "0ec31ae686c0663128c15452029a53b8d9da4e4e0fd06c3e8c07107aab760c6d",

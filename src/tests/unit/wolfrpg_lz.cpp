@@ -124,8 +124,8 @@ namespace
         std::size_t operator()(std::span<std::byte> destination)
         {
             if (position_ >= limit_) {
-                throw source_probe_error{
-                    7}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std source fault
+                // NOLINTNEXTLINE(bugprone-std-exception-baseclass): intentional non-std source fault
+                throw source_probe_error{7};
             }
             const std::size_t count = std::min({destination.size(), limit_ - position_, data_.size() - position_});
             std::memcpy(destination.data(), data_.data() + position_, count);

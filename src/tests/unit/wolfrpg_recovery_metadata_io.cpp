@@ -30,7 +30,7 @@ TEST_CASE("metadata reader borrows a source opener and commits valid files", "[m
 {
     unpackrat::wolfrpg::wolfx_candidates candidates;
     candidates.add_key("retained");
-    CHECK_NOTHROW(unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, open_owned_source));
+    CHECK_NOTHROW(unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates, open_owned_source));
     REQUIRE(candidates.keys().size() == 1);
     CHECK(candidates.keys()[0] == "retained");
 }
@@ -46,7 +46,7 @@ TEST_CASE("metadata reader rejects an absent source without committing candidate
     unpackrat::wolfrpg::wolfx_candidates candidates;
     candidates.add_key("retained");
     const auto error = observed_error<unpackrat::wolfrpg::game_metadata_error>(
-        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, absent_source); });
+        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates, absent_source); });
     REQUIRE(error.has_value());
     if (!error.has_value()) {
         return;
@@ -171,7 +171,7 @@ namespace
             planned_failure = {at, std::make_exception_ptr(expected)};
             auto candidates = seeded_candidates();
             const auto error = observed_error<Error>(
-                [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, open_fault_source); });
+                [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates, open_fault_source); });
             if (at == operation::none) {
                 CHECK_FALSE(error.has_value());
             } else {
@@ -199,7 +199,7 @@ TEST_CASE("metadata reader classifies ordinary seek and short reads without part
         planned_failure = {at, {}};
         auto candidates = seeded_candidates();
         const auto error = observed_error<unpackrat::wolfrpg::game_metadata_error>(
-            [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, open_fault_source); });
+            [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates, open_fault_source); });
         REQUIRE(error.has_value());
         if (!error.has_value()) {
             return;
@@ -213,14 +213,14 @@ TEST_CASE("metadata reader accepts a complete owned stream and retains existing 
 {
     planned_failure = {};
     auto candidates = seeded_candidates();
-    CHECK_NOTHROW(unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, open_fault_source));
+    CHECK_NOTHROW(unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates, open_fault_source));
     check_retained(candidates);
     const auto error = observed_error<unpackrat::wolfrpg::game_metadata_error>(
-        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates); });
+        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates); });
     CHECK_FALSE(error.has_value());
     check_retained(candidates);
     const auto collector_error = observed_error<unpackrat::wolfrpg::metadata_error>(
-        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, open_owned_source); });
+        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates, open_owned_source); });
     CHECK_FALSE(collector_error.has_value());
     check_retained(candidates);
 }
@@ -235,7 +235,7 @@ TEST_CASE("metadata reader reports an owned stream without a buffer as a source 
 {
     auto candidates = seeded_candidates();
     const auto error = observed_error<unpackrat::wolfrpg::game_metadata_error>(
-        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, no_buffer_source); });
+        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates, no_buffer_source); });
     REQUIRE(error.has_value());
     if (!error.has_value()) {
         return;
@@ -250,7 +250,7 @@ TEST_CASE("metadata reader enforces source and cumulative collector budgets befo
     game_metadata_limits source;
     source.max_source_bytes = 1;
     const auto source_error =
-        observed_error<game_metadata_error>([&] { collect_game_metadata(fixture_root, source, candidates); });
+        observed_error<game_metadata_error>([&] { collect_game_metadata(fixture_root(), source, candidates); });
     REQUIRE(source_error.has_value());
     if (!source_error.has_value()) {
         return;
@@ -260,7 +260,7 @@ TEST_CASE("metadata reader enforces source and cumulative collector budgets befo
     game_metadata_limits input;
     input.collector.max_input_bytes = 1;
     const auto input_error =
-        observed_error<metadata_error>([&] { collect_game_metadata(fixture_root, input, candidates); });
+        observed_error<metadata_error>([&] { collect_game_metadata(fixture_root(), input, candidates); });
     REQUIRE(input_error.has_value());
     if (!input_error.has_value()) {
         return;
@@ -270,7 +270,7 @@ TEST_CASE("metadata reader enforces source and cumulative collector budgets befo
     game_metadata_limits cumulative;
     cumulative.collector.max_total_read_bytes = 50;
     const auto budget_error =
-        observed_error<metadata_error>([&] { collect_game_metadata(fixture_root, cumulative, candidates); });
+        observed_error<metadata_error>([&] { collect_game_metadata(fixture_root(), cumulative, candidates); });
     REQUIRE(budget_error.has_value());
     if (!budget_error.has_value()) {
         return;
@@ -278,7 +278,7 @@ TEST_CASE("metadata reader enforces source and cumulative collector budgets befo
     CHECK(budget_error.value().code() == metadata_error_code::read_budget_exceeded);
     check_retained(candidates);
     const auto discovery_error =
-        observed_error<game_metadata_error>([&] { collect_game_metadata(fixture_root / "absent", {}, candidates); });
+        observed_error<game_metadata_error>([&] { collect_game_metadata(fixture_root() / "absent", {}, candidates); });
     REQUIRE(discovery_error.has_value());
     if (!discovery_error.has_value()) {
         return;
@@ -292,7 +292,7 @@ TEST_CASE("metadata reader rejects a positive wrong rewind result before reading
     planned_failure = {operation::none, {}, true};
     auto candidates = seeded_candidates();
     const auto error = observed_error<unpackrat::wolfrpg::game_metadata_error>(
-        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root, {}, candidates, open_fault_source); });
+        [&] { unpackrat::wolfrpg::collect_game_metadata(fixture_root(), {}, candidates, open_fault_source); });
     check_retained(candidates);
     CHECK(planned_failure.read_calls == 0);
     REQUIRE(error.has_value());

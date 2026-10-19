@@ -1,8 +1,10 @@
 #include "wolfrpg_fixtures.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstring>
+#include <iterator>
 #include <stdexcept>
 
 // Test-only: the pinned upstream DXLib archive layout. The synthetic builders serialise their
@@ -51,9 +53,8 @@ namespace test::support
 
         void append_text(std::vector<std::byte> &out, const std::string &text)
         {
-            for (const char ch : text) {
-                out.push_back(static_cast<std::byte>(static_cast<unsigned char>(ch)));
-            }
+            std::transform(text.begin(), text.end(), std::back_inserter(out),
+                           [](const char ch) { return static_cast<std::byte>(static_cast<unsigned char>(ch)); });
         }
 
         // Name-table entry exactly as DXLib writes it in DXArchive::AddFileNameData: 2-byte pack

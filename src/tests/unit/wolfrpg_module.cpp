@@ -259,8 +259,8 @@ namespace
       protected:
         int sync() override
         {
-            throw payload_signal{
-                tie_flush_sentinel}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+            // NOLINTNEXTLINE(bugprone-std-exception-baseclass): intentional non-std signal
+            throw payload_signal{tie_flush_sentinel};
         }
     };
 
@@ -275,8 +275,8 @@ namespace
         std::streamsize xsputn(const char *data, const std::streamsize count) override
         {
             if (armed) {
-                throw payload_signal{
-                    mask_change_sentinel}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+                // NOLINTNEXTLINE(bugprone-std-exception-baseclass): intentional non-std signal
+                throw payload_signal{mask_change_sentinel};
             }
             sink_.append(data, static_cast<std::size_t>(count));
             return count;
@@ -426,8 +426,8 @@ TEST_CASE("the adapter passes through a cancellation exception unchanged", "[wol
     std::exception_ptr caught;
     try {
         opened.files[0]->extract(opened.stream, output, [](std::int64_t) {
-            throw cancel_signal{};
-        }); // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+            throw cancel_signal{}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+        });
     } catch (...) {
         caught = std::current_exception();
     }

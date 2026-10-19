@@ -79,8 +79,8 @@ namespace unpackrat::wolfrpg
         discovery_limits.maxVisitedEntries = limits.max_visited_entries;
         discovery_limits.maxSources = limits.max_sources;
         discovery_limits.maxTotalPathBytes = limits.max_total_path_bytes;
-        wolfRPGSourceDiscovery::SourceDiscovery discovery(discovery_limits);
         try {
+            wolfRPGSourceDiscovery::SourceDiscovery discovery(discovery_limits);
             discovery.VisitAll(
                 data_folder,
                 [&](const auto &path) { collect_source(path, metadata_kind::map, limits, collector, staged, opener); },

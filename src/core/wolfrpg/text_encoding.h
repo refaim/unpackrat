@@ -76,22 +76,24 @@ namespace unpackrat::wolfrpg::text
     // the component holds no terminator. Scanning steps by encoding_unit_size() so a lone 0x00 byte
     // inside a UTF-16 / UTF-32 unit is not mistaken for the terminator. Throws encoding_error with
     // code unsupported_codepage for a code page convert() rejects.
-    [[nodiscard]] std::optional<std::size_t> find_terminator(std::span<const std::byte> encoded,
+    [[nodiscard]] std::optional<std::size_t> find_terminator(std::span<const std::byte> encoded_component,
                                                              std::uint32_t codepage);
 
     // Decodes a bounded encoded component (terminator excluded) into UTF-8. Throws encoding_error
     // for an unsupported code page, an oversize component, an embedded NUL, or malformed encoded
     // text; never substitutes replacement characters or silently drops input.
-    [[nodiscard]] std::string convert(std::span<const std::byte> encoded, std::uint32_t codepage);
+    [[nodiscard]] std::string convert(std::span<const std::byte> encoded_component, std::uint32_t codepage);
 
     // Borrowed host dependency for the Windows-1251 path. For each non-NUL byte it returns a
     // valid nonzero Unicode scalar, or no value when conversion is refused. It must not return a
     // surrogate or a value above U+10FFFF. No callable or state is retained by convert().
-    using single_byte_decoder = std::optional<std::uint32_t>(std::uint32_t codepage, unsigned char byte);
+    // Declared as a plain typedef, not `using`, so analyzers follow their mature
+    // function-type-alias parser path; the borrowed reference contract is unchanged.
+    typedef std::optional<std::uint32_t>(single_byte_decoder)(std::uint32_t, unsigned char);
 
     // Same validation and output contract as convert(encoded,codepage). Only Windows-1251 calls
     // decoder; preflight errors and other code pages do not. Decoder exceptions propagate.
-    [[nodiscard]] std::string convert(std::span<const std::byte> encoded, std::uint32_t codepage,
+    [[nodiscard]] std::string convert(std::span<const std::byte> encoded_component, std::uint32_t codepage,
                                       single_byte_decoder &decoder);
 
 } // namespace unpackrat::wolfrpg::text

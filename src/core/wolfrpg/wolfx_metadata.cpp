@@ -8,10 +8,12 @@
 #include <uberwolf/WolfRPG/CommonEvents.hpp>
 #include <uberwolf/WolfRPG/Map.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <iterator>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -128,18 +130,16 @@ namespace unpackrat::wolfrpg
                 map.Load(bytes, context);
                 for (const Event &event : map.GetEvents()) {
                     for (const Page &page : event.GetPages()) {
-                        for (const Command::CommandShPtr::Command &command : page.GetCommands()) {
-                            commands.push_back(command);
-                        }
+                        const auto &page_commands = page.GetCommands();
+                        std::copy(page_commands.begin(), page_commands.end(), std::back_inserter(commands));
                     }
                 }
             } else {
                 CommonEvents events(std::filesystem::path(), false);
                 events.Load(bytes, context);
                 for (const CommonEvent &event : events.GetEvents()) {
-                    for (const Command::CommandShPtr::Command &command : event.GetCommands()) {
-                        commands.push_back(command);
-                    }
+                    const auto &event_commands = event.GetCommands();
+                    std::copy(event_commands.begin(), event_commands.end(), std::back_inserter(commands));
                 }
             }
         } catch (const WolfReadUnitBudgetExceeded &) {

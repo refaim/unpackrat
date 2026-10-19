@@ -333,8 +333,8 @@ TEST_CASE("reader failures and cancellations keep their identities", "[wolfrpg][
         std::ostringstream output;
         REQUIRE(observed_exception<cancel_signal>([&] {
                     (void)(big_reader->extract(0, big_stream, output, [](std::int64_t) {
-                        throw cancel_signal{};
-                    })); // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+                        throw cancel_signal{}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+                    }));
                 }).has_value());
     }
 

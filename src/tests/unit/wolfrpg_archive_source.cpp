@@ -489,8 +489,8 @@ TEST_CASE("a custom fault raised at the size query is normalized to read_error",
 
     scripted_streambuf buffer(as_text(built.bytes));
     buffer.size_fault = [] {
-        throw source_payload{71};
-    }; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+        throw source_payload{71}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+    };
     std::istream stream(&buffer);
     CHECK_THROWS_AS(archive::open(stream, "sizefault.wolf"), read_error);
 }
@@ -504,8 +504,8 @@ TEST_CASE("a custom fault raised at a read position is normalized to read_error"
 
     scripted_streambuf buffer(as_text(built.bytes));
     buffer.seek_fault = [] {
-        throw source_payload{72};
-    }; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+        throw source_payload{72}; // NOLINT(bugprone-std-exception-baseclass): intentional non-std signal
+    };
     std::istream stream(&buffer);
     CHECK_THROWS_AS(archive::open(stream, "seekfault.wolf"), read_error);
 }

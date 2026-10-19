@@ -108,7 +108,7 @@ namespace
         std::vector<std::byte> key;
         key.reserve(values.size());
         for (const int value : values)
-            key.push_back(static_cast<std::byte>(value & 0xFFu));
+            key.push_back(static_cast<std::byte>(static_cast<unsigned int>(value) & 0xFFu));
         return key;
     }
 
@@ -126,19 +126,19 @@ namespace
 
     // Frozen from the upstream WolfPro::GetDxArcKey() path over fixtures::v1_companion(). The final
     // selected byte already decodes to 0x00, so upstream appends nothing.
-    const std::vector<std::byte> v1_expected =
-        key_of({0x66, 0xBD, 0x18, 0x00}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
+    const std::vector<std::byte> v1_expected = key_of({0x66, 0xBD, 0x18, 0x00});
 
     // Frozen over fixtures::v1_nonzero_companion(): the final selected byte decodes to 0x03, so
     // upstream appends exactly one trailing 0x00. This is the archive-layer normalization the public
     // accessor always performs for variant 1.
-    const std::vector<std::byte> v1_nonzero_expected =
-        key_of({0x66, 0xBD, 0x18, 0x03, 0x00}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
+    const std::vector<std::byte> v1_nonzero_expected = key_of({0x66, 0xBD, 0x18, 0x03, 0x00});
 
     // Frozen over fixtures::v1_seed_b_companion(): a different byte[4] LCG seed yields a distinct key
     // (also ending in a nonzero byte, hence its own trailing 0x00).
-    const std::vector<std::byte> v1_seed_b_expected =
-        key_of({0x65, 0xBD, 0x1A, 0x02, 0x00}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
+    const std::vector<std::byte> v1_seed_b_expected = key_of({0x65, 0xBD, 0x1A, 0x02, 0x00});
 
     // Frozen over fixtures::v2_companion(): 16 selected bytes, an embedded NUL, then the four
     // dynamic key bytes. GetDxArcKey never touches this binary tail.
@@ -150,13 +150,13 @@ namespace
 
     // Frozen over fixtures::v2_compact_companion(): the single selected position is the last physical
     // byte, which lives outside the AES-CTR range [30, size - 1) and is therefore the raw byte.
-    const std::vector<std::byte> v2_compact_expected = key_of(
-        {0x86, 0x00, 0x1F, 0x0A, 0x19, 0xD8}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
+    const std::vector<std::byte> v2_compact_expected = key_of({0x86, 0x00, 0x1F, 0x0A, 0x19, 0xD8});
 
     // Frozen over fixtures::v2_offset2_companion(): byte[7] == 2 selects a raw byte one past the AES
     // range, so the remaining key bytes come from the raw companion too.
-    const std::vector<std::byte> v2_offset2_expected = key_of(
-        {0xAB, 0x00, 0x1C, 0x0C, 0x17, 0x86}); // NOLINT(bugprone-throwing-static-initialization): frozen key oracle
+    // NOLINTNEXTLINE(bugprone-throwing-static-initialization): frozen key oracle
+    const std::vector<std::byte> v2_offset2_expected = key_of({0xAB, 0x00, 0x1C, 0x0C, 0x17, 0x86});
 
     // Frozen over fixtures::v2_sparse_companion() (1 MiB): the scattered selection must be served by
     // a handful of bounded reads, never a whole-file scan.

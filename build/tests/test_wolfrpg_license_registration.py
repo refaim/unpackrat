@@ -52,7 +52,7 @@ WOLFRPG_PACKAGING = (
 # The reviewed build-option digests of the uberwolf port as the release checkout
 # materialises them: working-tree text is CRLF while ``*.patch`` stays LF.
 UBERWOLF_BUILD_CONFIGURATION = {
-    UBERWOLF_RECIPE: "094b3dcb7b0745cdd1b064e88f51887b3c2fcdea3209a126ad5dff80199add6e",
+    UBERWOLF_RECIPE: "055789a5a1f1ac00b43a9e7737a623eb787268047eba20a1fbe7e73759915e0b",
     UBERWOLF_MANIFEST: "0ec31ae686c0663128c15452029a53b8d9da4e4e0fd06c3e8c07107aab760c6d",
     "build/vcpkg/ports/uberwolf/CMakeLists.txt":
         "59513260ba03b3e353ec84c003d1aed9e92655b96339bcd42dae3d1f4873d927",

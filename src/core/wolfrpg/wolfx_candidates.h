@@ -44,7 +44,7 @@ namespace unpackrat::wolfrpg
     {
       public:
         wolfx_candidates() = default;
-        explicit wolfx_candidates(wolfx_candidate_limits limits) : limits_(limits)
+        explicit wolfx_candidates(const wolfx_candidate_limits &limits) : limits_(limits)
         {
         }
 

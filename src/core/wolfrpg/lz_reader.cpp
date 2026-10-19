@@ -85,7 +85,7 @@ namespace unpackrat::wolfrpg::codec
         // Reads the already produced decoded byte at an absolute position from the history ring.
         static std::byte read(void *context, const std::uint64_t position) noexcept
         {
-            auto &self = *static_cast<state *>(context);
+            auto const &self = *static_cast<state *>(context);
             return self.history_[static_cast<std::size_t>(position % self.history_.size())];
         }
 

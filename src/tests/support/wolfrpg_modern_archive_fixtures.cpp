@@ -1,5 +1,6 @@
 #include "wolfrpg_modern_archive_fixtures.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -33,13 +34,11 @@ namespace test::support
             return base;
         }
 
-        std::vector<std::byte> text_bytes(const std::string &text)
+        std::vector<std::byte> text_bytes(const std::string_view text)
         {
-            std::vector<std::byte> bytes;
-            bytes.reserve(text.size());
-            for (const char ch : text) {
-                bytes.push_back(static_cast<std::byte>(static_cast<unsigned char>(ch)));
-            }
+            std::vector<std::byte> bytes(text.size());
+            std::transform(text.begin(), text.end(), bytes.begin(),
+                           [](const char ch) { return static_cast<std::byte>(static_cast<unsigned char>(ch)); });
             return bytes;
         }
 

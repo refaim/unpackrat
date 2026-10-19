@@ -152,9 +152,9 @@ namespace unpackrat::wolfrpg
             if (!add_within(pk2_offset, kProKeySize, password.size())) {
                 throw modern_crypto_error{};
             }
-            for (std::size_t i = 0; i < kProKeySize; ++i) {
-                pro_key[i] = static_cast<std::uint8_t>(password[pk2_offset + i]);
-            }
+            std::transform(password.begin() + static_cast<std::ptrdiff_t>(pk2_offset),
+                           password.begin() + static_cast<std::ptrdiff_t>(pk2_offset + kProKeySize), pro_key.begin(),
+                           [](const char value) { return static_cast<std::uint8_t>(value); });
         }
 
         std::copy(header.begin(), header.end(), state.header.begin());

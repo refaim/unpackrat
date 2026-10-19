@@ -107,9 +107,9 @@ namespace unpackrat::wolfrpg
     // is a source read failure. Resource exceptions propagate without translation.
     using game_metadata_source_opener = std::unique_ptr<std::istream>(const std::filesystem::path &);
     void collect_game_metadata(const std::filesystem::path &data_folder, const game_metadata_limits &limits,
-                               wolfx_candidates &candidates, game_metadata_source_opener &opener);
+                               wolfx_candidates &out, game_metadata_source_opener &opener);
 
     void collect_game_metadata(const std::filesystem::path &data_folder, const game_metadata_limits &limits,
-                               wolfx_candidates &candidates);
+                               wolfx_candidates &out);
 } // namespace unpackrat::wolfrpg
 #endif

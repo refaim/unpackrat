@@ -56,10 +56,8 @@ namespace unpackrat::wolfrpg
 
             if (stem.empty() || stem == "." || stem == "..")
                 throw read_error();
-            for (const char value : stem) {
-                if (is_unsafe_name_byte(value))
-                    throw read_error();
-            }
+            if (std::any_of(stem.begin(), stem.end(), is_unsafe_name_byte))
+                throw read_error();
             return stem;
         }
 

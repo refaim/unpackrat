@@ -294,6 +294,9 @@ namespace
                 .Callbacks = {.signalContext = &calls, .FileProgress = counted_cancel_progress},
             };
             const auto status = api_.ExtractItem(storage.get(), operation);
+            // cppcheck-suppress knownConditionTrueFalse
+            // The loaded module increments the provided `calls` context through the ABI callback
+            // (counted_cancel_progress), so `calls` is not a constant here.
             if (status != SER_USERABORT || calls == 0 || std::filesystem::exists(output.path())) {
                 throw std::runtime_error("Wolf cancellation did not abort and clean its output");
             }

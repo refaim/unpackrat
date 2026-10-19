@@ -1,5 +1,6 @@
 #include "wolfrpg_default_mode_fixtures.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -11,9 +12,8 @@ namespace test::support::wolfrpg_default_mode
     {
         static const std::string text = "Owned WolfRPG fixture payload\n"; // 30 bytes
         std::vector<std::byte> out(text.size());
-        for (std::size_t i = 0; i < text.size(); ++i) {
-            out[i] = static_cast<std::byte>(static_cast<unsigned char>(text[i]));
-        }
+        std::transform(text.begin(), text.end(), out.begin(),
+                       [](const char value) { return static_cast<std::byte>(static_cast<unsigned char>(value)); });
         return out;
     }
 
@@ -23,9 +23,8 @@ namespace test::support::wolfrpg_default_mode
         std::vector<std::byte> out;
         out.reserve(8192);
         for (int i = 0; i < 512u; ++i) {
-            for (const char value : unit) {
-                out.push_back(static_cast<std::byte>(static_cast<unsigned char>(value)));
-            }
+            std::transform(unit.begin(), unit.end(), std::back_inserter(out),
+                           [](const char value) { return static_cast<std::byte>(static_cast<unsigned char>(value)); });
         }
         return out;
     }
