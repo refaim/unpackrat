@@ -170,6 +170,14 @@ namespace
         return lz_reader(slice_source(data, max_chunk), encoded_size, expected_size);
     }
 
+    void decode_truncated_stream(byte_vector prefix, const std::uint64_t encoded_size)
+    {
+        lz_reader reader(slice_source(std::move(prefix)), encoded_size, 10);
+        byte_vector out(10);
+        while (reader.read(std::span<std::byte>(out)) != 0) {
+        }
+    }
+
     TEST_CASE("lz_reader decodes literal bytes verbatim")
     {
         // decoded 5, encoded 14, key 0xFF, five plain literals
@@ -370,16 +378,9 @@ namespace
         // decoded 10, encoded 13, key 0xFF: 'A' then a width-0 backref
         const byte_vector stream =
             bytes({0x0A, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x28, 0x00});
-        // The explicit return type keeps the lambda operator's coverage name stable under LLVM 21.
-        const auto attempt = [](byte_vector prefix, const std::uint64_t encoded_size) -> void {
-            lz_reader reader(slice_source(std::move(prefix)), encoded_size, 10);
-            byte_vector out(10);
-            while (reader.read(std::span<std::byte>(out)) != 0) {
-            }
-        };
         for (std::size_t length = 0; length < stream.size(); ++length) {
             byte_vector prefix(stream.begin(), stream.begin() + static_cast<std::ptrdiff_t>(length));
-            REQUIRE_THROWS_AS(attempt(std::move(prefix), stream.size()), lz_error);
+            REQUIRE_THROWS_AS(decode_truncated_stream(std::move(prefix), stream.size()), lz_error);
         }
     }
 

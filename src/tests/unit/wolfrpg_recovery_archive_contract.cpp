@@ -518,7 +518,7 @@ TEST_CASE("archive modern transform rejects logical-position overflow before mut
     wolf::detail::transform_modern_at(context, actual, 2, 3);
     REQUIRE(actual == expected);
     constexpr auto max = std::numeric_limits<std::uint64_t>::max();
-    for (const auto position : {std::pair{max, std::uint64_t{1}}, std::pair{max - 1, std::uint64_t{2}}}) {
+    for (const auto &position : {std::pair{max, std::uint64_t{1}}, std::pair{max - 1, std::uint64_t{2}}}) {
         actual = original;
         expect_error<wolf::read_error>(
             [&] { wolf::detail::transform_modern_at(context, actual, position.first, position.second); });

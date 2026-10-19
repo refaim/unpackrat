@@ -42,8 +42,10 @@ if(NOT DEFINED VCPKG_TARGET_ARCHITECTURE OR VCPKG_TARGET_ARCHITECTURE STREQUAL "
         "Wolf RPG chainload toolchain runs.")
 elseif(VCPKG_TARGET_ARCHITECTURE STREQUAL "x86")
     set(_unpackrat_llvm_triple "i686-pc-windows-msvc")
+    set(_unpackrat_llvm_runtime_suffix "i386")
 elseif(VCPKG_TARGET_ARCHITECTURE STREQUAL "x64")
     set(_unpackrat_llvm_triple "x86_64-pc-windows-msvc")
+    set(_unpackrat_llvm_runtime_suffix "x86_64")
 else()
     message(FATAL_ERROR
         "The Wolf RPG Fuzz chainload toolchain only supports the x86 and x64 "
@@ -71,13 +73,15 @@ if(NOT IS_DIRECTORY "${_unpackrat_llvm_runtime_dir}")
         "linker search path.")
 endif()
 
-# Preserve any incoming linker flags and add the runtime directory, so both CMake's own
-# compiler checks and the final target link resolve clang_rt from the matching arch.
+# Preserve incoming flags and add the runtime directory. CMake links with lld-link
+# directly, so name the ASan import library and thunk that clang-cl would add itself.
 set(_unpackrat_llvm_runtime_linkflag "\"/LIBPATH:${_unpackrat_llvm_runtime_dir}\"")
+set(_unpackrat_llvm_asan_linkflags
+    "\"${_unpackrat_llvm_runtime_dir}/clang_rt.asan_dynamic-${_unpackrat_llvm_runtime_suffix}.lib\" /WHOLEARCHIVE:\"${_unpackrat_llvm_runtime_dir}/clang_rt.asan_static_runtime_thunk-${_unpackrat_llvm_runtime_suffix}.lib\"")
 if(DEFINED VCPKG_LINKER_FLAGS AND NOT VCPKG_LINKER_FLAGS STREQUAL "")
-    string(APPEND VCPKG_LINKER_FLAGS " ${_unpackrat_llvm_runtime_linkflag}")
+    string(APPEND VCPKG_LINKER_FLAGS " ${_unpackrat_llvm_runtime_linkflag} ${_unpackrat_llvm_asan_linkflags}")
 else()
-    set(VCPKG_LINKER_FLAGS "${_unpackrat_llvm_runtime_linkflag}")
+    set(VCPKG_LINKER_FLAGS "${_unpackrat_llvm_runtime_linkflag} ${_unpackrat_llvm_asan_linkflags}")
 endif()
 
 # Locate the stock vcpkg Windows toolchain instead of copying it, so CRT/SDK/charset and

@@ -5,8 +5,9 @@ select the pinned clang-cl through ``VCPKG_CHAINLOAD_TOOLCHAIN_FILE`` plus the l
 vcvars environment.  The chainload helper at
 ``build/vcpkg/toolchains/wolfrpg-fuzz-clangcl.cmake`` then points configure at the
 pinned clang-cl/lld-link, maps the vcpkg architecture onto the LLVM triple and adds the
-architecture-matched compiler-rt directory to the linker search path before deferring to
-the stock vcpkg Windows toolchain.
+architecture-matched compiler-rt directory to the linker search path, together with the
+architecture-matched ASan import library and its ``/WHOLEARCHIVE`` static runtime thunk
+under that same directory, before deferring to the stock vcpkg Windows toolchain.
 
 These are metadata-only checks.  CI's preflight verifies the real LLVM tools, and CMake
 itself validates the compilers when it configures a real build, so the fixtures here do
@@ -225,6 +226,16 @@ class ChainloadHelperTests(_CmakeScript):
         )
         return dict(zip(keys, values))
 
+    def _assert_asan_runtime_bindings(self, flags, runtime, suffix):
+        # /LIBPATH alone routes clang_rt discovery but never triggers the link, so
+        # lld-link reports undefined __asan_init. The link line must name the dynamic
+        # ASan import library and force-load the static runtime thunk, both from the
+        # architecture-matched runtime directory that /LIBPATH already points at.
+        dynamic = f"{runtime}/clang_rt.asan_dynamic-{suffix}.lib"
+        thunk = f"{runtime}/clang_rt.asan_static_runtime_thunk-{suffix}.lib"
+        self.assertIn(f'"{dynamic}"', flags)
+        self.assertIn(f'/WHOLEARCHIVE:"{thunk}"', flags)
+
     def _preamble(self, arch, *, vcpkg=None, unset_toolchain=False, linker_flags=None):
         lines = [f"set(VCPKG_TARGET_ARCHITECTURE {arch})", "set(VCPKG_CRT_LINKAGE static)"]
         if unset_toolchain:
@@ -250,6 +261,7 @@ class ChainloadHelperTests(_CmakeScript):
         self.assertEqual(fields["ctarget"], fields["cxxtarget"])
         runtime = f"{root.as_posix()}/x64/{TARGET_RUNTIME_PREFIX}"
         self.assertIn('"/LIBPATH:' + runtime + '"', fields["flags"])
+        self._assert_asan_runtime_bindings(fields["flags"], runtime, "x86_64")
         self.assertTrue(fields["flags"].startswith("/INCREMENTAL:NO"), fields["flags"])
         self.assertEqual("TRUE", fields["stock"])
         self.assertEqual("x64", fields["stockarch"])
@@ -266,6 +278,7 @@ class ChainloadHelperTests(_CmakeScript):
         self.assertEqual("i686-pc-windows-msvc", fields["cxxtarget"])
         runtime = f"{root.as_posix()}/x86/{TARGET_RUNTIME_PREFIX}"
         self.assertIn('"/LIBPATH:' + runtime + '"', fields["flags"])
+        self._assert_asan_runtime_bindings(fields["flags"], runtime, "i386")
         self.assertEqual("TRUE", fields["stock"])
         self.assertEqual("Release", fields["tryconfig"])
 
@@ -323,7 +336,8 @@ class ChainloadHelperTests(_CmakeScript):
         self.assertEqual("x86_64-pc-windows-msvc", fields["ctarget"])
         self.assertEqual(fields["ctarget"], fields["cxxtarget"])
         runtime = f"{root.as_posix()}/x64/{TARGET_RUNTIME_PREFIX}"
-        self.assertEqual(f'"/LIBPATH:{runtime}"', fields["flags"])
+        self.assertIn(f'"/LIBPATH:{runtime}"', fields["flags"])
+        self._assert_asan_runtime_bindings(fields["flags"], runtime, "x86_64")
         self.assertEqual("TRUE", fields["stock"])
         self.assertEqual("x64", fields["stockarch"])
         self.assertEqual("static", fields["stockcrt"])
