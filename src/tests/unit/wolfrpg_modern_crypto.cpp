@@ -438,7 +438,7 @@ TEST_CASE("modern crypto: rejects an archive size beyond the signed 64-bit range
 {
     const golden::golden_case &basic = find_case("v331-basic");
     const std::array<std::uint8_t, 64> stored = unhex_header(basic.stored_header_hex);
-    const std::uint64_t max_signed = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+    constexpr std::uint64_t max_signed = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
 
     // Exactly INT64_MAX stays representable for the signed engine offsets.
     CHECK_NOTHROW(modern_crypto::create(stored, max_signed, "DXLIBARC"));

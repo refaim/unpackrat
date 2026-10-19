@@ -142,12 +142,13 @@ namespace
 TEST_CASE("archive prefix and body source failures preserve resource identity", "[recovery-archive-contract]")
 {
     const auto bytes = test::support::classic_dx8_payload();
-    for (std::size_t kind = 0; kind != faults.size(); ++kind) {
+    for (std::size_t kind = 0; kind < faults.size(); ++kind) {
+        const auto fault = faults[kind];
         for (std::size_t failure_read : {std::size_t{1}, std::size_t{2}, std::size_t{3}}) {
             observed_source buffer(bytes);
-            buffer.before_read = [&] {
+            buffer.before_read = [&, fault] {
                 if (buffer.reads == failure_read)
-                    faults[kind]();
+                    fault();
             };
             std::istream source(&buffer);
             expect_source_fault(kind, [&] { wolf::archive::open(source, "owned.wolf"); });
@@ -156,7 +157,7 @@ TEST_CASE("archive prefix and body source failures preserve resource identity", 
         auto original = input(bytes);
         auto reader = wolf::archive::open(original, "owned.wolf");
         observed_source buffer(bytes);
-        buffer.before_read = faults[kind];
+        buffer.before_read = fault;
         std::istream source(&buffer);
         std::ostringstream output;
         std::int64_t progress = 0;
@@ -287,7 +288,7 @@ TEST_CASE("legacy corrupt compressed tokens fail during extraction without publi
 TEST_CASE("archive size and positioning faults preserve caller resource failures", "[recovery-archive-contract]")
 {
     const auto bytes = test::support::classic_dx8_payload();
-    for (std::size_t kind = 0; kind != faults.size(); ++kind)
+    for (std::size_t kind = 0; kind < faults.size(); ++kind)
         for (const auto failed_direction : {std::ios::end, std::ios::beg}) {
             observed_source buffer(bytes);
             buffer.before_seek = [&](std::ios::seekdir direction) {
@@ -516,7 +517,7 @@ TEST_CASE("archive modern transform rejects logical-position overflow before mut
     auto actual = original;
     wolf::detail::transform_modern_at(context, actual, 2, 3);
     REQUIRE(actual == expected);
-    const auto max = std::numeric_limits<std::uint64_t>::max();
+    constexpr auto max = std::numeric_limits<std::uint64_t>::max();
     for (const auto position : {std::pair{max, std::uint64_t{1}}, std::pair{max - 1, std::uint64_t{2}}}) {
         actual = original;
         expect_error<wolf::read_error>(

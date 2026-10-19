@@ -1,6 +1,6 @@
 """Reviewed first-party build/test tooling is isolated as content-addressed components.
 
-The thirteen reference-heavy first-party Python build/test files are scanned in full, but
+The fifteen reference-heavy first-party Python build/test files are scanned in full, but
 each is bound to a reviewed, byte-addressed component so that any later edit changes the
 component version and every curation keyed to the old bytes stops applying (fail closed).
 
@@ -108,15 +108,17 @@ class FirstPartyInventory(unittest.TestCase):
         self.entries = _entries()
         self.inventory = _inventory_components()
 
-    def test_the_fixture_covers_exactly_the_thirteen_first_party_files(self) -> None:
-        self.assertEqual(len(self.entries), 13)
+    def test_the_fixture_covers_exactly_the_fifteen_first_party_files(self) -> None:
+        self.assertEqual(len(self.entries), 15)
         members = {entry["member"] for entry in self.entries}
-        self.assertEqual(len(members), 13)
-        self.assertEqual(len({entry["name"] for entry in self.entries}), 13)
-        # The two adopted build-tooling sources must be present as reviewed members.
+        self.assertEqual(len(members), 15)
+        self.assertEqual(len({entry["name"] for entry in self.entries}), 15)
+        # The adopted build-tooling and WolfRPG registration sources must be present.
         for member in (
             "build/licenses.py",
             "build/tests/test_license_source_membership.py",
+            "build/tests/test_wolfrpg_registration.py",
+            "build/tests/test_wolfrpg_license_registration.py",
         ):
             self.assertIn(member, members)
         for entry in self.entries:
@@ -201,7 +203,7 @@ class FirstPartyPackageConfiguration(unittest.TestCase):
         self.configs = _configs()
 
     def test_one_configuration_per_first_party_component(self) -> None:
-        self.assertEqual(len(self.configs), 13)
+        self.assertEqual(len(self.configs), 15)
         self.assertEqual(
             sorted(self.configs), sorted(entry["name"] for entry in self.entries)
         )
@@ -313,7 +315,7 @@ class LicenseAuditDocumentation(unittest.TestCase):
             self.docs,
         )
         self.assertIn(
-            "Editing any one of the thirteen changes the deterministic archive id",
+            "Editing any one of the fifteen changes the deterministic archive id",
             self.docs,
         )
 

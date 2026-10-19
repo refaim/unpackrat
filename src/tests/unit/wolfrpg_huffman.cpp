@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -984,6 +985,10 @@ TEST_CASE("wolfrpg huffman supports move construction and assignment", "[wolfrpg
     huffman_reader original = make_reader(phrase, phrase_encoded.size(), phrase_plain.size());
     huffman_reader moved(std::move(original));
     require_bytes(decode_all(moved), phrase_plain);
+    // A moved-from reader is an explicitly guaranteed empty reader (remaining() == 0 and reads
+    // return zero), not a real use-after-move: clang-tidy documents this via NOLINT and MSVC's
+    // C26800 note needs the same statement-level suppression for this one contracted check.
+#pragma warning(suppress : 26800)
     REQUIRE(original.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
     REQUIRE(original.read(std::span<std::byte>(probe.data(), probe.size())) == 0);
 
@@ -993,6 +998,7 @@ TEST_CASE("wolfrpg huffman supports move construction and assignment", "[wolfrpg
     huffman_reader target = make_reader(repeat, repeat_encoded.size(), repeat_plain.size());
     target = std::move(donor);
     require_bytes(decode_all(target), ramp_plain);
+#pragma warning(suppress : 26800)
     REQUIRE(donor.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
     REQUIRE(donor.read(std::span<std::byte>(probe.data(), probe.size())) == 0);
 }
@@ -1125,6 +1131,7 @@ TEST_CASE("wolfrpg huffman bounded reader streams partial reads and moves", "[wo
         huffman_reader original = make_bounded_reader(source, phrase_encoded.size(), phrase_plain.size());
         huffman_reader moved(std::move(original));
         require_bytes(decode_all(moved), phrase_plain);
+#pragma warning(suppress : 26800)
         REQUIRE(original.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
         REQUIRE(original.read(std::span<std::byte>(probe.data(), probe.size())) == 0);
     }
@@ -1227,16 +1234,16 @@ TEST_CASE("wolfrpg shared huffman context is exercised directly", "[wolfrpg][huf
     SECTION("the vendor context decodes the frozen phrase on its own")
     {
         vendor_source source{phrase_encoded, 0, false};
-        bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, phrase_encoded.size(),
-                             phrase_plain.size()) == huffman_status::ok);
-        REQUIRE(decoder.original_size() == phrase_plain.size());
-        REQUIRE(decoder.produced() == 0);
+        auto decoder = std::make_unique<bounded_huffman>();
+        REQUIRE(decoder->init(&vendor_source::pull, &source, huffman_size_mode::exact, phrase_encoded.size(),
+                              phrase_plain.size()) == huffman_status::ok);
+        REQUIRE(decoder->original_size() == phrase_plain.size());
+        REQUIRE(decoder->produced() == 0);
         bytes out;
         std::array<unsigned char, 7> scratch{};
         for (;;) {
             std::size_t written = 0;
-            REQUIRE(decoder.read(scratch.data(), scratch.size(), &written) == huffman_status::ok);
+            REQUIRE(decoder->read(scratch.data(), scratch.size(), &written) == huffman_status::ok);
             out.insert(out.end(), reinterpret_cast<std::byte *>(scratch.data()),
                        reinterpret_cast<std::byte *>(scratch.data()) + written);
             if (written < scratch.size()) {
@@ -1244,16 +1251,16 @@ TEST_CASE("wolfrpg shared huffman context is exercised directly", "[wolfrpg][huf
             }
         }
         require_bytes(out, phrase_plain);
-        REQUIRE(decoder.remaining() == 0);
-        REQUIRE(decoder.produced() == phrase_plain.size());
+        REQUIRE(decoder->remaining() == 0);
+        REQUIRE(decoder->produced() == phrase_plain.size());
     }
 
     SECTION("the vendor context rejects an overfilling source before it overruns the window")
     {
         vendor_source source{phrase_encoded, 0, true};
-        bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, phrase_encoded.size(),
-                             phrase_plain.size()) == huffman_status::source_failure);
+        auto decoder = std::make_unique<bounded_huffman>();
+        REQUIRE(decoder->init(&vendor_source::pull, &source, huffman_size_mode::exact, phrase_encoded.size(),
+                              phrase_plain.size()) == huffman_status::source_failure);
     }
 }
 
@@ -1269,8 +1276,8 @@ TEST_CASE("wolfrpg shared huffman context reports a truncated header at every cu
     for (std::size_t cut = 0; cut < phrase_header_bytes; ++cut) {
         INFO("cut " << cut);
         vendor_source source{std::span<const std::byte>(phrase_encoded.data(), cut), 0, false};
-        bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, cut, phrase_plain.size()) ==
+        auto decoder = std::make_unique<bounded_huffman>();
+        REQUIRE(decoder->init(&vendor_source::pull, &source, huffman_size_mode::exact, cut, phrase_plain.size()) ==
                 huffman_status::header_truncated);
     }
 }
@@ -1290,8 +1297,8 @@ TEST_CASE("wolfrpg shared huffman context reports field-aligned header truncatio
         writer.put(4, 6); // pressed field = 4, so a five-bit value should follow but is absent
         writer.finish();
         vendor_source source{std::span<const std::byte>(writer.bytes_.data(), writer.bytes_.size()), 0, false};
-        bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, writer.bytes_.size(), 1) ==
+        auto decoder = std::make_unique<bounded_huffman>();
+        REQUIRE(decoder->init(&vendor_source::pull, &source, huffman_size_mode::exact, writer.bytes_.size(), 1) ==
                 huffman_status::header_truncated);
     }
 
@@ -1304,8 +1311,8 @@ TEST_CASE("wolfrpg shared huffman context reports field-aligned header truncatio
         writer.put(0, 3); // the next width field ends exactly on the byte boundary
         writer.finish();
         vendor_source source{std::span<const std::byte>(writer.bytes_.data(), writer.bytes_.size()), 0, false};
-        bounded_huffman decoder;
-        REQUIRE(decoder.init(&vendor_source::pull, &source, huffman_size_mode::exact, writer.bytes_.size(), 2) ==
+        auto decoder = std::make_unique<bounded_huffman>();
+        REQUIRE(decoder->init(&vendor_source::pull, &source, huffman_size_mode::exact, writer.bytes_.size(), 2) ==
                 huffman_status::header_truncated);
     }
 }

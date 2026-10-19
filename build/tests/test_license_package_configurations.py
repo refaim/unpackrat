@@ -152,9 +152,9 @@ class PackageConfigurationTests(unittest.TestCase):
         self.assertEqual(set(self.library), set(self.library_prefixes))
 
     def test_firstparty_fixture_covers_the_isolated_first_party_files(self):
-        # The thirteen reference-heavy first-party Python files are isolated as reviewed,
+        # The fifteen reference-heavy first-party Python files are isolated as reviewed,
         # byte-addressed components; each gets exactly one reviewed package configuration.
-        self.assertEqual(13, len(self.firstparty))
+        self.assertEqual(15, len(self.firstparty))
         configured = {
             ID_RE.match(config["id"]).group(1) for config in self.configs.values()
         }

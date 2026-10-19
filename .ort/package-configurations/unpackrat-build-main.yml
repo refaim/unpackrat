@@ -4,12 +4,12 @@
   "license_finding_curations": [
     {
       "path": "build/main.py",
-      "start_lines": "51,54,56,57,59,717",
+      "start_lines": "51,54,56,57,59,63,717",
       "line_count": 1,
       "detected_license": "GPL-3.0-only",
       "reason": "INCORRECT",
       "concluded_license": "NONE",
-      "comment": "Lines 51,54,56,57,59,717 share the identifier GPL-3.0-only; line 51 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+      "comment": "Lines 51,54,56,57,59,63,717 share the identifier GPL-3.0-only; line 63 is, for example, `\"wolfrpg\": (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\", \"json.txt\", \"YY-Thunks.txt\"),`. These are notice-filename literals and assertions in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
     },
     {
       "path": "build/main.py",

@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Reviewed artifact and curation table for the thirteen isolated first-party build/test",
+    "Reviewed artifact and curation table for the fifteen isolated first-party build/test",
     "Python components (2026-10-16 first-party curation). sha256 is the SHA-256 of the",
     "deterministic uncompressed tar (fixed PAX format, sorted members, mtime 0, uid/gid 0,",
     "empty uname/gname) built from the exact checked-out file bytes at review time (frozen",
@@ -43,12 +43,12 @@
       "curations": [
         {
           "path": "build/main.py",
-          "start_lines": "51,54,56,57,59,717",
+          "start_lines": "51,54,56,57,59,63,717",
           "line_count": 1,
           "detected_license": "GPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 51,54,56,57,59,717 share the identifier GPL-3.0-only; line 51 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 51,54,56,57,59,63,717 share the identifier GPL-3.0-only; line 63 is, for example, `\"wolfrpg\": (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\", \"json.txt\", \"YY-Thunks.txt\"),`. These are notice-filename literals and assertions in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         },
         {
           "path": "build/main.py",
@@ -90,11 +90,58 @@
       ]
     },
     {
+      "name": "unpackrat-build-tests-wolfrpg-registration",
+      "member": "build/tests/test_wolfrpg_registration.py",
+      "version": "313bc5dd31cb5b4962cf02ae73305df343c220f2c0312abea6fb53d9db63c9f2",
+      "sha256": "313bc5dd31cb5b4962cf02ae73305df343c220f2c0312abea6fb53d9db63c9f2",
+      "artifact_filename": "313bc5dd31cb5b4962cf02ae73305df343c220f2c0312abea6fb53d9db63c9f2.tar",
+      "extension": ".tar",
+      "curations": [
+        {
+          "path": "build/tests/test_wolfrpg_registration.py",
+          "start_lines": "63,65,69,188,192",
+          "line_count": 1,
+          "detected_license": "GPL-3.0-only",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Lines 63,65,69,188,192 share the identifier GPL-3.0-only; line 65 is, for example, `REQUIRED_WOLFRPG_NOTICES = (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\")`. These are notice-filename literals and assertions in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+        },
+        {
+          "path": "build/tests/test_wolfrpg_registration.py",
+          "start_lines": "63",
+          "line_count": 1,
+          "detected_license": "LGPL-3.0-only",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Line 63 carries `# API LGPLv3 notice with the GPLv3 text it incorporates, and the pinned UberWolf`. This first-party MIT build/test file holds the identifier only as prose describing the retained notice, not a grant; ScanCode reported LGPL-3.0-only as a false positive, so the finding is removed."
+        }
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-wolfrpg-license-registration",
+      "member": "build/tests/test_wolfrpg_license_registration.py",
+      "version": "ec9e2b3ce452b9950dfb1f6fe07145fca586847e9d0fcbd705e20b3aa7a8dbf7",
+      "sha256": "ec9e2b3ce452b9950dfb1f6fe07145fca586847e9d0fcbd705e20b3aa7a8dbf7",
+      "artifact_filename": "ec9e2b3ce452b9950dfb1f6fe07145fca586847e9d0fcbd705e20b3aa7a8dbf7.tar",
+      "extension": ".tar",
+      "curations": [
+        {
+          "path": "build/tests/test_wolfrpg_license_registration.py",
+          "start_lines": "47",
+          "line_count": 1,
+          "detected_license": "GPL-3.0-only",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Line 47 carries `\"GPL-3.0.txt\",`. This first-party MIT build/test file holds the identifier only as a notice-filename literal in the reviewed packaging assertion, not a grant; ScanCode reported GPL-3.0-only as a false positive, so the finding is removed."
+        }
+      ]
+    },
+    {
       "name": "unpackrat-build-tests-license-package-configurations",
       "member": "build/tests/test_license_package_configurations.py",
-      "version": "e071c66d48575519d4510849fb7f717f9e18cd5d3a1988f184ed4f56270afb3d",
-      "sha256": "e071c66d48575519d4510849fb7f717f9e18cd5d3a1988f184ed4f56270afb3d",
-      "artifact_filename": "e071c66d48575519d4510849fb7f717f9e18cd5d3a1988f184ed4f56270afb3d.tar",
+      "version": "9d865bbf73708e2b31479dd4e27591a9317063e79e6cbeb1a2c7ae97236f1352",
+      "sha256": "9d865bbf73708e2b31479dd4e27591a9317063e79e6cbeb1a2c7ae97236f1352",
+      "artifact_filename": "9d865bbf73708e2b31479dd4e27591a9317063e79e6cbeb1a2c7ae97236f1352.tar",
       "extension": ".tar",
       "curations": [
         {

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -278,22 +279,22 @@ TEST_CASE("shared RNG: the operation-local chain reproduces the frozen original 
         // The legacy CRT entry point and the operation-local entry point must both match the
         // frozen serialized chain, so the shared recurrence is pinned to the original algorithm
         // instead of only to a sibling refactor.
-        rng::RngData legacy;
-        rng::runRngChain(legacy, test.seed1, test.seed2);
-        rng::RngData owned;
-        wolf::crypt::modern::runRngChain(owned, test.seed1, test.seed2);
+        const auto legacy = std::make_unique<rng::RngData>();
+        rng::runRngChain(*legacy, test.seed1, test.seed2);
+        const auto owned = std::make_unique<rng::RngData>();
+        wolf::crypt::modern::runRngChain(*owned, test.seed1, test.seed2);
 
         // runRngChain mutates the whole state, so the post-chain seed/counter words are frozen
         // fields rather than the inputs.
-        CHECK(legacy.seed1 == test.out_seed1);
-        CHECK(legacy.seed2 == test.out_seed2);
-        CHECK(legacy.counter == test.out_counter);
-        CHECK(fingerprint(legacy) == test.fingerprint);
+        CHECK(legacy->seed1 == test.out_seed1);
+        CHECK(legacy->seed2 == test.out_seed2);
+        CHECK(legacy->counter == test.out_counter);
+        CHECK(fingerprint(*legacy) == test.fingerprint);
 
-        CHECK(owned.seed1 == test.out_seed1);
-        CHECK(owned.seed2 == test.out_seed2);
-        CHECK(owned.counter == test.out_counter);
-        CHECK(fingerprint(owned) == test.fingerprint);
+        CHECK(owned->seed1 == test.out_seed1);
+        CHECK(owned->seed2 == test.out_seed2);
+        CHECK(owned->counter == test.out_counter);
+        CHECK(fingerprint(*owned) == test.fingerprint);
     }
 }
 
@@ -306,25 +307,25 @@ TEST_CASE("shared RNG: the operation-local AES key schedule reproduces the froze
         std::copy(std::begin(test.seed_bytes), std::end(test.seed_bytes), cd.seedBytes.begin());
         std::copy(std::begin(test.key_bytes), std::end(test.key_bytes), cd.keyBytes.begin());
 
-        rng::RngData legacy_rng;
+        const auto legacy_rng = std::make_unique<rng::RngData>();
         aes::AesKey legacy_key{};
         aes::AesIV legacy_iv{};
-        wolf::crypt::aesKeyGen(cd, legacy_rng, legacy_key, legacy_iv);
+        wolf::crypt::aesKeyGen(cd, *legacy_rng, legacy_key, legacy_iv);
 
-        rng::RngData owned_rng;
+        const auto owned_rng = std::make_unique<rng::RngData>();
         aes::AesKey owned_key{};
         aes::AesIV owned_iv{};
-        wolf::crypt::modern::aesKeyGen(cd, owned_rng, owned_key, owned_iv);
+        wolf::crypt::modern::aesKeyGen(cd, *owned_rng, owned_key, owned_iv);
 
         CHECK(hex(legacy_key.data(), legacy_key.size()) == test.key_hex);
         CHECK(hex(legacy_iv.data(), legacy_iv.size()) == test.iv_hex);
-        CHECK(legacy_rng.counter == test.rng_counter);
-        CHECK(fingerprint(legacy_rng) == test.rng_fingerprint);
+        CHECK(legacy_rng->counter == test.rng_counter);
+        CHECK(fingerprint(*legacy_rng) == test.rng_fingerprint);
 
         CHECK(hex(owned_key.data(), owned_key.size()) == test.key_hex);
         CHECK(hex(owned_iv.data(), owned_iv.size()) == test.iv_hex);
-        CHECK(owned_rng.counter == test.rng_counter);
-        CHECK(fingerprint(owned_rng) == test.rng_fingerprint);
+        CHECK(owned_rng->counter == test.rng_counter);
+        CHECK(fingerprint(*owned_rng) == test.rng_fingerprint);
     }
 }
 
@@ -336,24 +337,24 @@ TEST_CASE("shared RNG: the operation-local derivations leave the CRT stream unto
     const int control_c = std::rand();
 
     std::srand(0x2468ACE0u); // NOLINT(bugprone-random-generator-seed): fixed seed for deterministic comparison
-    rng::RngData chain;
-    wolf::crypt::modern::runRngChain(chain, oracle::CHAIN_CASES[0].seed1, oracle::CHAIN_CASES[0].seed2);
+    const auto chain = std::make_unique<rng::RngData>();
+    wolf::crypt::modern::runRngChain(*chain, oracle::CHAIN_CASES[0].seed1, oracle::CHAIN_CASES[0].seed2);
     CryptData cd;
     std::copy(std::begin(oracle::KEYGEN_CASES[0].seed_bytes), std::end(oracle::KEYGEN_CASES[0].seed_bytes),
               cd.seedBytes.begin());
     std::copy(std::begin(oracle::KEYGEN_CASES[0].key_bytes), std::end(oracle::KEYGEN_CASES[0].key_bytes),
               cd.keyBytes.begin());
-    rng::RngData key_rng;
+    const auto key_rng = std::make_unique<rng::RngData>();
     aes::AesKey key{};
     aes::AesIV iv{};
-    wolf::crypt::modern::aesKeyGen(cd, key_rng, key, iv);
+    wolf::crypt::modern::aesKeyGen(cd, *key_rng, key, iv);
 
     CHECK(std::rand() == control_a);
     CHECK(std::rand() == control_b);
     CHECK(std::rand() == control_c);
 
     // The isolation is not an early out: both derivations still produced the frozen results.
-    CHECK(fingerprint(chain) == oracle::CHAIN_CASES[0].fingerprint);
+    CHECK(fingerprint(*chain) == oracle::CHAIN_CASES[0].fingerprint);
     CHECK(hex(key.data(), key.size()) == oracle::KEYGEN_CASES[0].key_hex);
     CHECK(hex(iv.data(), iv.size()) == oracle::KEYGEN_CASES[0].iv_hex);
 }

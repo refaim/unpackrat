@@ -57,7 +57,7 @@ file(WRITE "@PASSTHROUGH@" "${VCPKG_ENV_PASSTHROUGH}")
 # keeps parsing simple and side-steps CMake's quoting of paths and flags.
 HELPER_HARNESS = """@PREAMBLE@
 include("@HELPER@")
-file(WRITE "@OUT@" "${CMAKE_C_COMPILER}|${CMAKE_CXX_COMPILER}|${CMAKE_LINKER}|${CMAKE_C_COMPILER_TARGET}|${CMAKE_CXX_COMPILER_TARGET}|${VCPKG_LINKER_FLAGS}|${FAKE_STOCK_INCLUDED}|${FAKE_STOCK_ARCH}|${FAKE_STOCK_CRT}")
+file(WRITE "@OUT@" "${CMAKE_C_COMPILER}|${CMAKE_CXX_COMPILER}|${CMAKE_LINKER}|${CMAKE_C_COMPILER_TARGET}|${CMAKE_CXX_COMPILER_TARGET}|${VCPKG_LINKER_FLAGS}|${FAKE_STOCK_INCLUDED}|${FAKE_STOCK_ARCH}|${FAKE_STOCK_CRT}|${CMAKE_TRY_COMPILE_CONFIGURATION}")
 """
 
 # Minimal stand-in for vcpkg's scripts/toolchains/windows.cmake.  It records that it was
@@ -211,7 +211,18 @@ class ChainloadHelperTests(_CmakeScript):
     @staticmethod
     def _fields(out):
         values = out.read_text(encoding="utf-8").split("|")
-        keys = ("cc", "cxx", "ld", "ctarget", "cxxtarget", "flags", "stock", "stockarch", "stockcrt")
+        keys = (
+            "cc",
+            "cxx",
+            "ld",
+            "ctarget",
+            "cxxtarget",
+            "flags",
+            "stock",
+            "stockarch",
+            "stockcrt",
+            "tryconfig",
+        )
         return dict(zip(keys, values))
 
     def _preamble(self, arch, *, vcpkg=None, unset_toolchain=False, linker_flags=None):
@@ -243,6 +254,7 @@ class ChainloadHelperTests(_CmakeScript):
         self.assertEqual("TRUE", fields["stock"])
         self.assertEqual("x64", fields["stockarch"])
         self.assertEqual("static", fields["stockcrt"])
+        self.assertEqual("Release", fields["tryconfig"])
 
     def test_helper_maps_the_x86_architecture_to_its_runtime(self):
         vcpkg = self._vcpkg_layout()
@@ -255,6 +267,7 @@ class ChainloadHelperTests(_CmakeScript):
         runtime = f"{root.as_posix()}/x86/{TARGET_RUNTIME_PREFIX}"
         self.assertIn('"/LIBPATH:' + runtime + '"', fields["flags"])
         self.assertEqual("TRUE", fields["stock"])
+        self.assertEqual("Release", fields["tryconfig"])
 
     def test_helper_falls_back_to_the_vcpkg_root_environment(self):
         vcpkg = self._vcpkg_layout()

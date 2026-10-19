@@ -966,6 +966,8 @@ TEST_CASE("WolfX entry index bounds and moves are safe", "[wolfrpg][wolfx]")
     auto other = wolfx_archive::open(other_stream, "other.wolfx", file.candidates);
     REQUIRE(other != nullptr);
     *other = std::move(moved);
+    // This intentionally exercises the public move contract that leaves the source empty.
+#pragma warning(suppress : 26800)
     CHECK(moved.entries().empty()); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
     CHECK(other->entries().size() == 1);
 }

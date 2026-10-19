@@ -970,6 +970,48 @@
       ]
     },
     {
+      "name": "unpackrat-build-tests-wolfrpg-registration",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component with the exact single member build/tests/test_wolfrpg_registration.py. The detected identifiers are notice-filename literals and assertions in prose, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_wolfrpg_registration.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-wolfrpg-license-registration",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component with the exact single member build/tests/test_wolfrpg_license_registration.py. The detected identifier is a notice-filename literal in the reviewed packaging assertion, not a grant; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_wolfrpg_license_registration.py"
+      ]
+    },
+    {
       "name": "unpackrat-build-tests-license-package-configurations",
       "kind": "adopted-source",
       "scope": "build",

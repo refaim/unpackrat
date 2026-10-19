@@ -19,6 +19,10 @@
 
 include_guard(GLOBAL)
 
+# The Fuzz dependency builds Release, and ASan cannot link against the /MTd runtime that
+# CMake's default Debug compiler probe would otherwise select.
+set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
+
 # The pinned LLVM root must be supplied through the environment. Without it there is no
 # compiler to point at, so fail loudly rather than fall back to a toolset whose
 # instrumentation cannot link.

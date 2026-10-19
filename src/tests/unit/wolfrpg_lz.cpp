@@ -370,7 +370,8 @@ namespace
         // decoded 10, encoded 13, key 0xFF: 'A' then a width-0 backref
         const byte_vector stream =
             bytes({0x0A, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0xFF, 0x41, 0xFF, 0x28, 0x00});
-        const auto attempt = [](byte_vector prefix, const std::uint64_t encoded_size) {
+        // The explicit return type keeps the lambda operator's coverage name stable under LLVM 21.
+        const auto attempt = [](byte_vector prefix, const std::uint64_t encoded_size) -> void {
             lz_reader reader(slice_source(std::move(prefix)), encoded_size, 10);
             byte_vector out(10);
             while (reader.read(std::span<std::byte>(out)) != 0) {
@@ -582,6 +583,8 @@ namespace
 
         // The moved-from source must behave like an exhausted reader instead of dereferencing a
         // null state: remaining() is zero and reads return zero for empty and non-empty spans.
+        // This intentionally exercises the documented moved-from empty-reader contract.
+#pragma warning(suppress : 26800)
         REQUIRE(source.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
         std::array<std::byte, 1> probe{};
         REQUIRE(source.read(std::span<std::byte>(probe)) == 0);
@@ -606,6 +609,8 @@ namespace
         target = std::move(source);
 
         // Assignment must transfer the state and leave the source as a safe empty reader.
+        // This intentionally exercises the documented moved-from empty-reader contract.
+#pragma warning(suppress : 26800)
         REQUIRE(source.remaining() == 0); // NOLINT(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
         std::array<std::byte, 1> probe{};
         REQUIRE(source.read(std::span<std::byte>(probe)) == 0);
