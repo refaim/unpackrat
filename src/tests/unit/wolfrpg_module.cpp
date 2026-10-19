@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <ios>
 #include <memory>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include "../../core/wolfrpg/archive.h"
+#include "../../core/wolfrpg/crypto.h"
 #include "../../core/wolfrpg/lz_reader.h"
 #include "../support/wolfrpg_fixtures.h"
 
@@ -367,6 +369,38 @@ TEST_CASE("the adapter maps a malformed open to the extractor read error", "[wol
     distinct_token::distinct_token adapter;
     std::istringstream stream("this is not a DX8 archive at all", std::ios::binary);
     CHECK_THROWS_AS(adapter.get_archive_info(stream, {}, "malformed.wolf"), distinct_token::read_error);
+}
+
+TEST_CASE("the adapter maps a keyed open without its key to the password error", "[wolfrpg][module]")
+{
+    auto bytes = test::support::classic_dx8_payload();
+    REQUIRE(bytes.size() == 966);
+    // The frozen mode-3 image is intact; only its public dispatch tag changes to Pro1000, whose
+    // missing-companion open must surface a key requirement rather than a malformed-file error.
+    bytes[46] = std::byte{0xe8};
+    bytes[47] = std::byte{0x03};
+    const std::filesystem::path path = std::filesystem::path(__FILE__).parent_path().parent_path() /
+                                       "fixtures/wolfrpg/absent-module-password-context/owned.wolf";
+    REQUIRE_FALSE(std::filesystem::exists(path.parent_path()));
+
+    distinct_token::distinct_token adapter;
+    std::istringstream keyed = to_stream(bytes);
+    CHECK_THROWS_AS(adapter.get_archive_info(keyed, std::span<const std::byte>(bytes), path),
+                    distinct_token::password_required);
+
+    // The same bytes open with their correct explicit key, so the error above is about the missing
+    // key rather than damaged container data.
+    const std::span<const std::byte> material = unpackrat::wolfrpg::crypto::default_classic_password();
+    const std::string_view password(reinterpret_cast<const char *>(material.data()), material.size());
+    distinct_token::distinct_token control;
+    std::istringstream opened = to_stream(bytes);
+    const distinct_token::archive_info info =
+        control.get_archive_info(opened, std::span<const std::byte>(bytes), path, password);
+    CHECK(info.format == L"WolfRPG");
+    CHECK(info.comment == L"v8");
+    const std::vector<std::unique_ptr<distinct_token::file>> files = control.list_files(opened);
+    REQUIRE(files.size() == 2);
+    CHECK(files[0]->path == "hello.txt");
 }
 
 TEST_CASE("the adapter translates a genuine core read error during extraction", "[wolfrpg][module]")

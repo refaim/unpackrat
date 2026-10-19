@@ -108,11 +108,12 @@ namespace extractor
             forwarding_streambuf buffer_;
         };
 
-        // Streams one entry body. Only the reader's genuine errors are translated: a source-stream
-        // fault becomes our read_error and a required key becomes our password_required. A caller
-        // exception (destination-stream failure, cancellation or any other failure from the output
-        // stream or the progress callback) is rethrown as the very object that was raised, so its
-        // concrete type and payload survive even when they equal a reader error type.
+        // Streams one entry body. Only the reader's genuine extraction error is translated: a
+        // source-stream fault becomes our read_error. Key requirements are resolved before an
+        // archive reaches extraction, so there is no key translation here. A caller exception
+        // (destination-stream failure, cancellation or any other failure from the output stream or
+        // the progress callback) is rethrown as the very object that was raised, so its concrete
+        // type and payload survive even when they equal a reader error type.
         void extract_entry(wolfrpg_session &session, const std::size_t index, std::istream &in, std::ostream &out,
                            const std::function<void(int64_t)> &report_progress)
         {
@@ -133,8 +134,6 @@ namespace extractor
                 std::rethrow_exception(forwarded);
             } catch (const wolfrpg::read_error &) {
                 throw read_error();
-            } catch (const wolfrpg::key_required &) {
-                throw password_required();
             }
         }
     } // namespace

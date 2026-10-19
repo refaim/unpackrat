@@ -223,11 +223,14 @@ def run(
     cwd: Path | str | None = None,
     env: dict[str, str] | None = None,
     capture: bool = False,
+    merge_stderr: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     """Run one checked child and return its ``CompletedProcess``.
 
     The single checked subprocess entry point: a nonzero exit raises
-    ``CalledProcessError``.  ``capture`` merges the child's output into ``stdout``.
+    ``CalledProcessError``.  ``capture`` captures ``stdout``; when it is set,
+    ``stderr`` is merged into it by default, while ``merge_stderr=False`` inherits
+    ``stderr`` separately.
     """
 
     try:
@@ -237,7 +240,7 @@ def run(
             env=None if env is None else {**os.environ, **env},
             text=True,
             stdout=subprocess.PIPE if capture else None,
-            stderr=subprocess.STDOUT if capture else None,
+            stderr=subprocess.STDOUT if capture and merge_stderr else None,
             check=True,
         )
     except subprocess.CalledProcessError as error:
@@ -980,8 +983,18 @@ def _coverage(
         raw.extend(produced)
     profile = profiles / "coverage.profdata"
     run([str(llvm.profdata), "merge", "-sparse", *(str(path) for path in raw), "-o", str(profile)])
-    document = json.loads(run(_coverage_export(repository, architecture, profile, llvm), capture=True).stdout)
-    lcov = run(_coverage_lcov_export(repository, architecture, profile, llvm), capture=True).stdout
+    document = json.loads(
+        run(
+            _coverage_export(repository, architecture, profile, llvm),
+            capture=True,
+            merge_stderr=False,
+        ).stdout
+    )
+    lcov = run(
+        _coverage_lcov_export(repository, architecture, profile, llvm),
+        capture=True,
+        merge_stderr=False,
+    ).stdout
     # Write both reports before the gate so incomplete coverage stays reviewable when the run fails.
     summary = profiles / "coverage.json"
     summary.write_text(json.dumps(document), encoding="utf-8")

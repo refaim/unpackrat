@@ -36,19 +36,19 @@
     {
       "name": "unpackrat-build-main",
       "member": "build/main.py",
-      "version": "b12c5c6dbe6f1bec7c944a73a56e0d188d7000a5d20abf4271b0dbd477300350",
-      "sha256": "b12c5c6dbe6f1bec7c944a73a56e0d188d7000a5d20abf4271b0dbd477300350",
-      "artifact_filename": "b12c5c6dbe6f1bec7c944a73a56e0d188d7000a5d20abf4271b0dbd477300350.tar",
+      "version": "3e3d5c7dae19624c75727ecfae926a41545cab4b7a8ee66ddcde4bbee8f502a7",
+      "sha256": "3e3d5c7dae19624c75727ecfae926a41545cab4b7a8ee66ddcde4bbee8f502a7",
+      "artifact_filename": "3e3d5c7dae19624c75727ecfae926a41545cab4b7a8ee66ddcde4bbee8f502a7.tar",
       "extension": ".tar",
       "curations": [
         {
           "path": "build/main.py",
-          "start_lines": "51,54,56,57,59,63,717",
+          "start_lines": "51,54,56,57,59,63,720",
           "line_count": 1,
           "detected_license": "GPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 51,54,56,57,59,63,717 share the identifier GPL-3.0-only; line 63 is, for example, `\"wolfrpg\": (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\", \"json.txt\", \"YY-Thunks.txt\"),`. These are notice-filename literals and assertions in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 51,54,56,57,59,63,720 share the identifier GPL-3.0-only; line 63 is, for example, `\"wolfrpg\": (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\", \"json.txt\", \"YY-Thunks.txt\"),`. These are notice-filename literals and assertions in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         },
         {
           "path": "build/main.py",
@@ -61,12 +61,12 @@
         },
         {
           "path": "build/main.py",
-          "start_lines": "51,716",
+          "start_lines": "51,719",
           "line_count": 1,
           "detected_license": "LGPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 51,716 share the identifier LGPL-3.0-only; line 51 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 51,719 share the identifier LGPL-3.0-only; line 51 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         }
       ]
     },
@@ -350,9 +350,9 @@
     {
       "name": "unpackrat-build-tests-main-cli",
       "member": "build/tests/test_main_cli.py",
-      "version": "e42ead36a17ba57e601311ac10160cbb7babdc0d6963833e138fb57c3f47d153",
-      "sha256": "e42ead36a17ba57e601311ac10160cbb7babdc0d6963833e138fb57c3f47d153",
-      "artifact_filename": "e42ead36a17ba57e601311ac10160cbb7babdc0d6963833e138fb57c3f47d153.tar",
+      "version": "36ef3008c7f78d4990c9e55ab58d7ac2441032e6233e917adc36a06980182977",
+      "sha256": "36ef3008c7f78d4990c9e55ab58d7ac2441032e6233e917adc36a06980182977",
+      "artifact_filename": "36ef3008c7f78d4990c9e55ab58d7ac2441032e6233e917adc36a06980182977.tar",
       "extension": ".tar",
       "curations": [
         {
