@@ -29,7 +29,7 @@ namespace
     std::uint32_t read_u32(const std::vector<std::byte> &bytes, const std::size_t offset)
     {
         std::uint32_t value = 0;
-        for (int i = 0; i < 4u; ++i) {
+        for (unsigned i = 0; i < 4u; ++i) {
             value |=
                 static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + static_cast<std::size_t>(i)]))
                 << (8u * static_cast<unsigned>(i));
@@ -40,7 +40,7 @@ namespace
     std::uint64_t read_u64(const std::vector<std::byte> &bytes, const std::size_t offset)
     {
         std::uint64_t value = 0;
-        for (int i = 0; i < 8u; ++i) {
+        for (unsigned i = 0; i < 8u; ++i) {
             value |=
                 static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(bytes[offset + static_cast<std::size_t>(i)]))
                 << (8u * static_cast<unsigned>(i));

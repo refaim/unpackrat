@@ -82,7 +82,7 @@ namespace
         std::uint64_t h = 1469598103934665603ull;
         auto feed32 = [&](const std::uint32_t word) {
             std::uint8_t bytes[4];
-            for (int i = 0; i < 4u; ++i) {
+            for (unsigned i = 0; i < 4u; ++i) {
                 bytes[i] = static_cast<std::uint8_t>(word >> (8u * static_cast<unsigned>(i)));
             }
             for (const std::uint8_t byte : bytes) {

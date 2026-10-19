@@ -422,7 +422,7 @@ namespace
     {
         // decoded 70, encoded 79, key 0xFF, seventy plain literals so the source is refilled twice
         byte_vector stream = bytes({0x46, 0x00, 0x00, 0x00, 0x4F, 0x00, 0x00, 0x00, 0xFF});
-        for (int index = 0; index < 70u; ++index) {
+        for (unsigned index = 0; index < 70u; ++index) {
             stream.push_back(std::byte{0x41});
         }
         lz_reader reader(guarded_source(stream, 79), 79, 70);
@@ -453,7 +453,7 @@ namespace
         std::string first_text;
         std::string second_text;
         std::array<std::byte, 1> chunk{};
-        for (int index = 0; index < 5u; ++index) {
+        for (unsigned index = 0; index < 5u; ++index) {
             REQUIRE(first.read(std::span<std::byte>(chunk)) == 1);
             first_text.push_back(static_cast<char>(std::to_integer<unsigned char>(chunk[0])));
             REQUIRE(second.read(std::span<std::byte>(chunk)) == 1);

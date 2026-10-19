@@ -68,7 +68,7 @@ TEST_CASE("DefaultCryptModes entries carry terminated keys and functions", "[ube
     for (std::size_t index = 0; index < 3; ++index) {
         INFO("legacy mode index " << index);
         const auto &key = modes[index].key;
-        REQUIRE_FALSE(key.empty());
+        REQUIRE(!key.empty());
         CHECK(key.size() == 12);
         CHECK(static_cast<unsigned char>(key.back()) == kLegacyFinalByte[index]);
         CHECK(modes[index].decFunc != nullptr);
@@ -78,7 +78,7 @@ TEST_CASE("DefaultCryptModes entries carry terminated keys and functions", "[ube
     for (std::size_t index = 3; index < modes.size(); ++index) {
         INFO("mode " << modes[index].name);
         const auto &key = modes[index].key;
-        REQUIRE_FALSE(key.empty());
+        REQUIRE(!key.empty());
         CHECK(key.back() == 0x00);
         CHECK(modes[index].decFunc != nullptr);
         CHECK(modes[index].encFunc != nullptr);

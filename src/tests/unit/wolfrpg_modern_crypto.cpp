@@ -389,7 +389,7 @@ TEST_CASE("modern crypto: arbitrary headers are handled without crashing and det
     };
 
     std::uint32_t rng = 0x12345678u;
-    for (int iteration = 0; iteration < 3000u; ++iteration) {
+    for (unsigned iteration = 0; iteration < 3000u; ++iteration) {
         rng = rng * 1664525u + 1013904223u;
         const std::uint16_t version = (iteration % 2 == 0) ? 350 : 331;
         const std::uint64_t size = (iteration % 3 == 0) ? 1088 : ((iteration % 3 == 1) ? 2048 : 4096);
@@ -483,7 +483,7 @@ TEST_CASE("modern crypto: salt decision table and NUL controls match the oracle"
           "v331-dec-31byte", "v331-dec-64byte", "v331-dec-case4", "v350-dec-1", "v350-dec-nul", "v350-narrow-body"}) {
         INFO("case " << name);
         const golden::golden_case &entry = find_case(name);
-        REQUIRE_FALSE(entry.rejected);
+        REQUIRE(!entry.rejected);
         const std::vector<std::uint8_t> archive = archive_of(entry);
         const modern_crypto context =
             modern_crypto::create(unhex_header(entry.stored_header_hex), archive.size(), password_of(entry));
@@ -842,7 +842,7 @@ TEST_CASE("modern variants: a Pro archive needs a full pK2 tail and an empty pre
     for (const char *name : {"pro-nul1", "pro-nul63", "pro-nul64", "pro-prefix-long"}) {
         INFO("case " << name);
         const variants::variant_case &entry = find_variant(name);
-        REQUIRE_FALSE(entry.rejected);
+        REQUIRE(!entry.rejected);
         const std::vector<std::uint8_t> archive = archive_of_variant(entry);
         const modern_crypto context = modern_crypto::create(unhex_header(entry.stored_header_hex), archive.size(),
                                                             password_of_hex(entry.password_hex));
@@ -951,7 +951,7 @@ TEST_CASE("modern crypto: official small v3.31 archive supports bounded seek rea
     const auto before_empty_read = reverse;
     context.decode_outer_at(std::span<std::uint8_t>(reverse).subspan(reverse.size()), reverse.size());
     CHECK(reverse == before_empty_read);
-    CHECK_FALSE(observed_crypto_error([&] {
-                    context.decode_outer_at(std::span<std::uint8_t>(reverse).subspan(reverse.size()), reverse.size());
-                }).has_value());
+    CHECK(!(observed_crypto_error([&] {
+                context.decode_outer_at(std::span<std::uint8_t>(reverse).subspan(reverse.size()), reverse.size());
+            }).has_value()));
 }

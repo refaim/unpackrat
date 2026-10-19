@@ -22,7 +22,7 @@ namespace test::support::wolfrpg_default_mode
         static const std::string unit = "0123456789abcdef";
         std::vector<std::byte> out;
         out.reserve(8192);
-        for (int i = 0; i < 512u; ++i) {
+        for (unsigned i = 0; i < 512u; ++i) {
             std::transform(unit.begin(), unit.end(), std::back_inserter(out),
                            [](const char value) { return static_cast<std::byte>(static_cast<unsigned char>(value)); });
         }

@@ -343,7 +343,7 @@ namespace
                                       : dir == std::ios_base::cur ? static_cast<std::int64_t>(position_)
                                                                   : static_cast<std::int64_t>(size_);
             const std::int64_t next = base + off;
-            if (next < 0u || static_cast<std::uint64_t>(next) > size_)
+            if (next < 0 || static_cast<std::uint64_t>(next) > size_)
                 return pos_type(off_type(-1));
             position_ = static_cast<std::uint64_t>(next);
             return pos_type(static_cast<off_type>(position_));
@@ -562,7 +562,7 @@ namespace
                                       : dir == std::ios_base::cur ? static_cast<std::int64_t>(position_)
                                                                   : static_cast<std::int64_t>(bytes_.size());
             const std::int64_t next = base + off;
-            if (next < 0u || static_cast<std::uint64_t>(next) > bytes_.size())
+            if (next < 0 || static_cast<std::uint64_t>(next) > bytes_.size())
                 return pos_type(off_type(-1));
             position_ = static_cast<std::uint64_t>(next);
             return pos_type(static_cast<off_type>(position_));
@@ -1053,7 +1053,7 @@ TEST_CASE("WolfX contexts are independent and concurrent", "[wolfrpg][wolfx]")
                                    file.plaintext.size() - static_cast<std::size_t>(file.fixture.payload_offset));
         std::string results[2];
         std::thread threads[2];
-        for (int i = 0; i < 2u; ++i) {
+        for (unsigned i = 0; i < 2u; ++i) {
             threads[i] = std::thread([&, i] {
                 std::istringstream stream = open_stream(file.encrypted);
                 const auto archive = wolfx_archive::open(stream, "thread.wolfx", file.candidates);
@@ -1072,7 +1072,7 @@ TEST_CASE("WolfX implicit empty candidate key is rejected", "[wolfrpg][wolfx]")
     // The empty key is implicit (tried first by the backend), so storing it would only add an
     // unbounded, zero-cost key. Rejecting it keeps the byte budget a true bound.
     wolfx_candidates candidates;
-    for (int i = 0; i < 64u; ++i)
+    for (unsigned i = 0; i < 64u; ++i)
         require_message<std::invalid_argument>([&] { (void)(candidates.add_key("")); },
                                                "WolfX candidate key must not be empty");
     CHECK(candidates.keys().empty());

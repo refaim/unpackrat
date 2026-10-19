@@ -181,12 +181,23 @@ class ChainloadHelperTests(_CmakeScript):
         stock.write_text(STOCK_TOOLCHAIN, encoding="utf-8")
         return vcpkg
 
-    def _run_helper(self, preamble, root, vcpkg_root=None):
+    def _abi_vcpkg_layout(self):
+        vcpkg = self._vcpkg_layout()
+        wrapper = vcpkg / "scripts" / "buildsystems" / "vcpkg.cmake"
+        wrapper.write_text(
+            "# Harmless stand-in for vcpkg's ABI try_compile include.\n"
+            "unset(CMAKE_TOOLCHAIN_FILE)\n"
+            f'include("{HELPER.as_posix()}")\n',
+            encoding="utf-8",
+        )
+        return vcpkg
+
+    def _run_helper(self, preamble, root, vcpkg_root=None, include_path=HELPER):
         out = self.tmp / "helper-out.txt"
         out.unlink(missing_ok=True)
         harness = self.tmp / "helper-harness.cmake"
         text = HELPER_HARNESS.replace("@PREAMBLE@", preamble)
-        text = text.replace("@HELPER@", HELPER.as_posix())
+        text = text.replace("@HELPER@", include_path.as_posix())
         text = text.replace("@OUT@", out.as_posix())
         harness.write_text(text, encoding="utf-8")
         env = self._clean_env()
@@ -281,6 +292,28 @@ class ChainloadHelperTests(_CmakeScript):
         self.assertNotEqual(0, completed.returncode)
         diagnostic = " ".join((completed.stdout + completed.stderr).split())
         self.assertIn("stock vcpkg Windows toolchain", diagnostic)
+
+    def test_helper_locates_the_stock_toolchain_from_its_abi_parent_wrapper(self):
+        vcpkg = self._abi_vcpkg_layout()
+        wrapper = vcpkg / "scripts" / "buildsystems" / "vcpkg.cmake"
+        root = self._llvm_root()
+        completed, out = self._run_helper(
+            self._preamble("x64", vcpkg=vcpkg),
+            root,
+            include_path=wrapper,
+        )
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        fields = self._fields(out)
+        self.assertEqual(root.as_posix() + "/x64/bin/clang-cl.exe", fields["cc"])
+        self.assertEqual(fields["cc"], fields["cxx"])
+        self.assertEqual(root.as_posix() + "/x64/bin/lld-link.exe", fields["ld"])
+        self.assertEqual("x86_64-pc-windows-msvc", fields["ctarget"])
+        self.assertEqual(fields["ctarget"], fields["cxxtarget"])
+        runtime = f"{root.as_posix()}/x64/{TARGET_RUNTIME_PREFIX}"
+        self.assertEqual(f'"/LIBPATH:{runtime}"', fields["flags"])
+        self.assertEqual("TRUE", fields["stock"])
+        self.assertEqual("x64", fields["stockarch"])
+        self.assertEqual("static", fields["stockcrt"])
 
 
 if __name__ == "__main__":

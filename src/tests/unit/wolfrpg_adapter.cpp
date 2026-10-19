@@ -81,7 +81,7 @@ namespace
     {
         std::string text;
         text.reserve(131072);
-        for (int i = 0; i < 8192u; ++i) {
+        for (unsigned i = 0; i < 8192u; ++i) {
             text += "0123456789abcdef";
         }
         return text;
@@ -89,7 +89,7 @@ namespace
 
     void write_u64(std::vector<std::byte> &bytes, const std::size_t offset, const std::uint64_t value)
     {
-        for (int i = 0; i < 8u; ++i) {
+        for (unsigned i = 0; i < 8u; ++i) {
             bytes[offset + static_cast<std::size_t>(i)] =
                 static_cast<std::byte>((value >> (8u * static_cast<unsigned>(i))) & 0xffu);
         }

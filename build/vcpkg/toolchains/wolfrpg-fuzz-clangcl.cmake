@@ -79,13 +79,26 @@ endif()
 # Locate the stock vcpkg Windows toolchain instead of copying it, so CRT/SDK/charset and
 # flag handling stay owned by vcpkg. Z_VCPKG_ROOT_DIR is not yet defined this early (the
 # integration includes this chainload before initializing it), so derive <vcpkg>/scripts
-# from CMAKE_TOOLCHAIN_FILE and fall back to $VCPKG_ROOT.
+# from CMAKE_TOOLCHAIN_FILE, then from CMAKE_PARENT_LIST_FILE and finally from
+# $VCPKG_ROOT.
 set(_unpackrat_stock_windows_toolchain "")
 if(DEFINED CMAKE_TOOLCHAIN_FILE AND NOT CMAKE_TOOLCHAIN_FILE STREQUAL "")
     # <vcpkg>/scripts/buildsystems/vcpkg.cmake -> <vcpkg>/scripts
     get_filename_component(_unpackrat_tc_dir "${CMAKE_TOOLCHAIN_FILE}" DIRECTORY)
     get_filename_component(_unpackrat_scripts_dir "${_unpackrat_tc_dir}" DIRECTORY)
     set(_unpackrat_candidate "${_unpackrat_scripts_dir}/toolchains/windows.cmake")
+    if(EXISTS "${_unpackrat_candidate}")
+        set(_unpackrat_stock_windows_toolchain "${_unpackrat_candidate}")
+    endif()
+endif()
+
+if(NOT _unpackrat_stock_windows_toolchain AND DEFINED CMAKE_PARENT_LIST_FILE AND NOT CMAKE_PARENT_LIST_FILE STREQUAL "")
+    # CMake's ABI try_compile re-includes <vcpkg>/scripts/buildsystems/vcpkg.cmake without
+    # CMAKE_TOOLCHAIN_FILE, but the parent list file is still the full path of that
+    # vcpkg.cmake caller. Derive <vcpkg>/scripts from it the same way.
+    get_filename_component(_unpackrat_parent_dir "${CMAKE_PARENT_LIST_FILE}" DIRECTORY)
+    get_filename_component(_unpackrat_parent_scripts_dir "${_unpackrat_parent_dir}" DIRECTORY)
+    set(_unpackrat_candidate "${_unpackrat_parent_scripts_dir}/toolchains/windows.cmake")
     if(EXISTS "${_unpackrat_candidate}")
         set(_unpackrat_stock_windows_toolchain "${_unpackrat_candidate}")
     endif()
@@ -103,7 +116,8 @@ if(NOT _unpackrat_stock_windows_toolchain)
     message(FATAL_ERROR
         "The Wolf RPG Fuzz chainload toolchain could not locate the stock vcpkg Windows "
         "toolchain (scripts/toolchains/windows.cmake). It looked beside "
-        "CMAKE_TOOLCHAIN_FILE ('${CMAKE_TOOLCHAIN_FILE}') and under $ENV{VCPKG_ROOT}.")
+        "CMAKE_TOOLCHAIN_FILE ('${CMAKE_TOOLCHAIN_FILE}'), beside "
+        "CMAKE_PARENT_LIST_FILE ('${CMAKE_PARENT_LIST_FILE}') and under $ENV{VCPKG_ROOT}.")
 endif()
 
 # The compiler, target and runtime path are set above so the stock toolchain's

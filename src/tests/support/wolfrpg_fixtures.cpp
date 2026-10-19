@@ -37,7 +37,7 @@ namespace test::support
 
         void put_u32(std::vector<std::byte> &out, std::size_t offset, std::uint32_t value)
         {
-            for (int i = 0; i < 4u; ++i) {
+            for (unsigned i = 0; i < 4u; ++i) {
                 out[offset + static_cast<std::size_t>(i)] =
                     static_cast<std::byte>((value >> (8u * static_cast<unsigned>(i))) & 0xffu);
             }
@@ -45,7 +45,7 @@ namespace test::support
 
         void put_u64(std::vector<std::byte> &out, std::size_t offset, std::uint64_t value)
         {
-            for (int i = 0; i < 8u; ++i) {
+            for (unsigned i = 0; i < 8u; ++i) {
                 out[offset + static_cast<std::size_t>(i)] =
                     static_cast<std::byte>((value >> (8u * static_cast<unsigned>(i))) & 0xffu);
             }

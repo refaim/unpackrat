@@ -160,7 +160,7 @@ TEST_CASE("classic/legacy default-mode archives extract the exact payloads and a
                     // non-positive or oversized delta is recorded as a flag instead of being
                     // folded into `produced`, so a wrong progress report fails cleanly here
                     // rather than overflowing the running sum.
-                    if (delta < 0u) {
+                    if (delta < 0) {
                         negative_delta = true;
                         return;
                     }
@@ -174,8 +174,8 @@ TEST_CASE("classic/legacy default-mode archives extract the exact payloads and a
 
                 const std::vector<std::byte> payload = to_bytes(output.str());
                 REQUIRE(payload == expected.payload);
-                REQUIRE_FALSE(negative_delta);
-                REQUIRE_FALSE(over_budget);
+                REQUIRE(!negative_delta);
+                REQUIRE(!over_budget);
                 REQUIRE(produced == expected.unpacked_size);
                 REQUIRE(calls >= 1U);
             }

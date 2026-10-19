@@ -103,7 +103,8 @@ class UberWolfModesPatchContract(unittest.TestCase):
                 target.write_bytes(data)
 
             subprocess.run(
-                ["git", "apply", "--verbose", str(PATCH)],
+                ["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf",
+                 "apply", "--verbose", str(PATCH)],
                 cwd=work,
                 capture_output=True,
                 check=True,

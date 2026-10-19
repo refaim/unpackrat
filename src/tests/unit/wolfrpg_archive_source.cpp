@@ -98,7 +98,7 @@ namespace
                 if (end_seek_allowance == 0) {
                     return pos_type(off_type(-1));
                 }
-                if (end_seek_allowance > 0u) {
+                if (end_seek_allowance > 0) {
                     --end_seek_allowance;
                 }
             } else if (seek_fault) {
@@ -157,7 +157,7 @@ namespace
                     : (direction == std::ios_base::end ? static_cast<std::streamoff>(data_.size())
                                                        : static_cast<std::streamoff>(position_));
             const std::streamoff target = base + offset;
-            if (target < 0u) {
+            if (target < 0) {
                 return pos_type(off_type(-1));
             }
             position_ = static_cast<std::size_t>(target);
@@ -176,7 +176,7 @@ namespace
 
     void put_u32(std::vector<std::byte> &out, const std::size_t offset, const std::uint32_t value)
     {
-        for (int index = 0; index < 4u; ++index) {
+        for (unsigned index = 0; index < 4u; ++index) {
             out[offset + static_cast<std::size_t>(index)] =
                 static_cast<std::byte>((value >> (8u * static_cast<unsigned>(index))) & 0xffu);
         }
@@ -184,7 +184,7 @@ namespace
 
     void put_u64(std::vector<std::byte> &out, const std::size_t offset, const std::uint64_t value)
     {
-        for (int index = 0; index < 8u; ++index) {
+        for (unsigned index = 0; index < 8u; ++index) {
             out[offset + static_cast<std::size_t>(index)] =
                 static_cast<std::byte>((value >> (8u * static_cast<unsigned>(index))) & 0xffu);
         }
@@ -299,7 +299,7 @@ namespace
         DXArchive::Source source;
         source.physical_size = [&bytes]() -> s64 { return static_cast<s64>(bytes.size()); };
         source.read_at = [&bytes](const s64 offset, void *destination, const size_t size) -> bool {
-            if (offset < 0u || static_cast<std::uint64_t>(offset) + size > bytes.size()) {
+            if (offset < 0 || static_cast<std::uint64_t>(offset) + size > bytes.size()) {
                 return false;
             }
             std::memcpy(destination, bytes.data() + static_cast<std::size_t>(offset), size);

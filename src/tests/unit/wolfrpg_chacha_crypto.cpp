@@ -211,7 +211,7 @@ namespace
                 continue;
             }
 
-            if (high < 0u) {
+            if (high < 0) {
                 high = value;
             } else {
                 out.push_back(
@@ -489,7 +489,7 @@ TEST_CASE("only blob bytes 0..31 and 34..45 steer the cipher", "[wolfrpg][chacha
     auto key_blob = base_blob;
     key_blob[31] = static_cast<std::byte>(std::to_integer<unsigned>(key_blob[31]) ^ 0x01u);
     const auto key_keystream = apply_range(wolf_chacha_context{key_blob}, 0, 0, 64);
-    CHECK_FALSE(std::equal(key_keystream.begin(), key_keystream.end(), base_keystream.begin()));
+    CHECK(!std::equal(key_keystream.begin(), key_keystream.end(), base_keystream.begin()));
 
     // The nonce lives at offset 34, not 32: stamping the same 12 bytes at [32,44) changes nothing.
     auto misaligned_blob = base_blob;
@@ -497,13 +497,13 @@ TEST_CASE("only blob bytes 0..31 and 34..45 steer the cipher", "[wolfrpg][chacha
     misaligned_blob[33] = static_cast<std::byte>(default_nonce[1]);
     misaligned_blob[34] = static_cast<std::byte>(default_nonce[2]);
     const auto misaligned_keystream = apply_range(wolf_chacha_context{misaligned_blob}, 0, 0, 64);
-    CHECK_FALSE(std::equal(misaligned_keystream.begin(), misaligned_keystream.end(), base_keystream.begin()));
+    CHECK(!std::equal(misaligned_keystream.begin(), misaligned_keystream.end(), base_keystream.begin()));
 
     // A nonce byte at offset 45 is significant.
     auto nonce_blob = base_blob;
     nonce_blob[45] = static_cast<std::byte>(std::to_integer<unsigned>(nonce_blob[45]) ^ 0x80u);
     const auto nonce_keystream = apply_range(wolf_chacha_context{nonce_blob}, 0, 0, 64);
-    CHECK_FALSE(std::equal(nonce_keystream.begin(), nonce_keystream.end(), base_keystream.begin()));
+    CHECK(!std::equal(nonce_keystream.begin(), nonce_keystream.end(), base_keystream.begin()));
 }
 
 TEST_CASE("arbitrary slice partitions rebuild one original call", "[wolfrpg][chacha]")
@@ -666,7 +666,7 @@ TEST_CASE("barrier-synchronised concurrent reads observe no shared mutable state
         }
     };
     // The control must tell the codec contract error apart from any other failure type.
-    CHECK_FALSE(rejects_with_codec_error(std::make_exception_ptr(std::runtime_error("probe"))));
+    CHECK(!rejects_with_codec_error(std::make_exception_ptr(std::runtime_error("probe"))));
 
     for (std::size_t m = 0; m < worker_count; ++m) {
         INFO("worker " << m);

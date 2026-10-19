@@ -82,8 +82,8 @@ TEST_CASE("FileWriter rejects a size_t::max size without touching its state", "[
 TEST_CASE("FileWriter rejects unrepresentable uint64 sizes without touching its state", "[uberwolf][fileaccess]")
 {
     const std::array<std::uint8_t, 4> payload{1, 2, 3, 4};
-    const std::uint64_t first = rejected_uint64_size();
-    const std::uint64_t second = first + 1;
+    constexpr std::uint64_t first = rejected_uint64_size();
+    constexpr std::uint64_t second = first + 1;
 
     for (const std::uint64_t size : {first, second}) {
         FileWriter writer;
