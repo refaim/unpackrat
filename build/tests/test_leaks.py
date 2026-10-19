@@ -72,7 +72,7 @@ class LeakWorkerTests(unittest.TestCase):
         ]
 
     def test_setup_stages_binaries_and_symbols(self) -> None:
-        self.assertEqual(leaks.BINARIES[-1], "godot.so")
+        self.assertEqual(leaks.BINARIES[-1], "wolfrpg.so")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = root / "out"

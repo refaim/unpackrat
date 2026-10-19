@@ -128,6 +128,13 @@
       "sha256": "eea3fbf9852968c8ae40cdca41138d6020f6943951d667fd10168d66e59b6998",
       "artifact_filename": "eea3fbf9852968c8ae40cdca41138d6020f6943951d667fd10168d66e59b6998.tar.gz",
       "extension": ".tar.gz"
+    },
+    {
+      "name": "uberwolf",
+      "version": "0.6.4",
+      "sha256": "db7bcad1c6d9f550a31cd2d0c90c52f5c43a8d4576370565b658e78dabbcaf57",
+      "artifact_filename": "db7bcad1c6d9f550a31cd2d0c90c52f5c43a8d4576370565b658e78dabbcaf57.tar.gz",
+      "extension": ".tar.gz"
     }
   ]
 }

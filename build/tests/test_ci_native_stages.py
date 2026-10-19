@@ -194,6 +194,7 @@ class StageCase(unittest.TestCase):
             "build/projects/rpgmaker.vcxproj",
             "build/projects/zanzarah.vcxproj",
             "build/projects/godot.vcxproj",
+            "build/projects/wolfrpg.vcxproj",
             "build/projects/tests.vcxproj",
             "build/projects/leak-probe.vcxproj",
         ])
@@ -203,6 +204,7 @@ class StageCase(unittest.TestCase):
             "build/projects/rpgmaker.vcxproj",
             "build/projects/zanzarah.vcxproj",
             "build/projects/godot.vcxproj",
+            "build/projects/wolfrpg.vcxproj",
             "build/projects/tests.vcxproj",
         ])
 
@@ -353,7 +355,7 @@ class StageCase(unittest.TestCase):
             main.ci_arch(["x86", "x64"], stage="msvc-analysis", repository=self.repo)
         self.clang_tidy.assert_not_called()
         builds = run.by_tool("msbuild.exe")
-        self.assertEqual(len(builds), 5 + 6)
+        self.assertEqual(len(builds), 6 + 7)
         self.assertTrue(all("/t:ClCompile" in call for call in builds))
         self.assertTrue(all("/p:BuildProjectReferences=false" in call for call in builds))
         self.assertTrue(all("/m:1" in call for call in builds))
@@ -368,13 +370,13 @@ class StageCase(unittest.TestCase):
             main.ci_arch(["x64"], stage="clang-tidy", repository=self.repo, jobs=5)
         self.clang_tidy.assert_called_once_with()
         builds = run.by_tool("msbuild.exe")
-        self.assertEqual(len(builds), 6)
+        self.assertEqual(len(builds), 7)
         self.assertTrue(all("/t:GetCompileCommands" in call for call in builds))
         properties = _properties(builds[0])
         self.assertNotIn("MaxNumberOfProcesses", properties)
         self.assertEqual(properties["EnableClangTidyCodeAnalysis"], "true")
         runners = [call for call in run.calls if any("run-clang-tidy" in item for item in call)]
-        self.assertEqual(len(runners), 6)
+        self.assertEqual(len(runners), 7)
         self.assertTrue(all(("-j", "5") == call[call.index("-j"):call.index("-j") + 2]
                             for call in runners))
 

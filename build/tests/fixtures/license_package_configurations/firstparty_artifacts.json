@@ -36,111 +36,111 @@
     {
       "name": "unpackrat-build-main",
       "member": "build/main.py",
-      "version": "d172a43b17c44e3ce509555ebff6578f3d8ee7438a8b09fb02b54dce1cacf53a",
-      "sha256": "d172a43b17c44e3ce509555ebff6578f3d8ee7438a8b09fb02b54dce1cacf53a",
-      "artifact_filename": "d172a43b17c44e3ce509555ebff6578f3d8ee7438a8b09fb02b54dce1cacf53a.tar",
+      "version": "b12c5c6dbe6f1bec7c944a73a56e0d188d7000a5d20abf4271b0dbd477300350",
+      "sha256": "b12c5c6dbe6f1bec7c944a73a56e0d188d7000a5d20abf4271b0dbd477300350",
+      "artifact_filename": "b12c5c6dbe6f1bec7c944a73a56e0d188d7000a5d20abf4271b0dbd477300350.tar",
       "extension": ".tar",
       "curations": [
         {
           "path": "build/main.py",
-          "start_lines": "50,53,55,56,58,713",
+          "start_lines": "51,54,56,57,59,717",
           "line_count": 1,
           "detected_license": "GPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 50,53,55,56,58,713 share the identifier GPL-3.0-only; line 50 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 51,54,56,57,59,717 share the identifier GPL-3.0-only; line 51 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         },
         {
           "path": "build/main.py",
-          "start_lines": "51",
+          "start_lines": "52",
           "line_count": 1,
           "detected_license": "LGPL-2.0-or-later",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Line 51 carries `# text the LGPL incorporates, and then only that module's own third-party notices.`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.0-or-later as a false positive, so the finding is removed."
+          "comment": "Line 52 carries `# text the LGPL incorporates, and then only that module's own third-party notices.`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.0-or-later as a false positive, so the finding is removed."
         },
         {
           "path": "build/main.py",
-          "start_lines": "50,712",
+          "start_lines": "51,716",
           "line_count": 1,
           "detected_license": "LGPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 50,712 share the identifier LGPL-3.0-only; line 50 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 51,716 share the identifier LGPL-3.0-only; line 51 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         }
       ]
     },
     {
       "name": "unpackrat-build-tests-godot-minimal-registration",
       "member": "build/tests/test_godot_minimal_registration.py",
-      "version": "bfe3f1abd5b7670bdb3c2890bc0c2016007663a17981b74ead94cf74b9888d0b",
-      "sha256": "bfe3f1abd5b7670bdb3c2890bc0c2016007663a17981b74ead94cf74b9888d0b",
-      "artifact_filename": "bfe3f1abd5b7670bdb3c2890bc0c2016007663a17981b74ead94cf74b9888d0b.tar",
+      "version": "f4fdf0b6d21ee49499e48094c3d956991cc0cd00336d4c49a03b3b289db59a6b",
+      "sha256": "f4fdf0b6d21ee49499e48094c3d956991cc0cd00336d4c49a03b3b289db59a6b",
+      "artifact_filename": "f4fdf0b6d21ee49499e48094c3d956991cc0cd00336d4c49a03b3b289db59a6b.tar",
       "extension": ".tar",
       "curations": [
         {
           "path": "build/tests/test_godot_minimal_registration.py",
-          "start_lines": "67,84,212",
+          "start_lines": "69,86,216",
           "line_count": 1,
           "detected_license": "GPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 67,84,212 share the identifier GPL-3.0-only; line 67 is, for example, `\"GPL-3.0.txt\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 69,86,216 share the identifier GPL-3.0-only; line 69 is, for example, `\"GPL-3.0.txt\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         }
       ]
     },
     {
       "name": "unpackrat-build-tests-license-package-configurations",
       "member": "build/tests/test_license_package_configurations.py",
-      "version": "1a1dfada2ec36f01a70c36be9f1fa96de26d032dd8c195d685a4a2f0654016c6",
-      "sha256": "1a1dfada2ec36f01a70c36be9f1fa96de26d032dd8c195d685a4a2f0654016c6",
-      "artifact_filename": "1a1dfada2ec36f01a70c36be9f1fa96de26d032dd8c195d685a4a2f0654016c6.tar",
+      "version": "e071c66d48575519d4510849fb7f717f9e18cd5d3a1988f184ed4f56270afb3d",
+      "sha256": "e071c66d48575519d4510849fb7f717f9e18cd5d3a1988f184ed4f56270afb3d",
+      "artifact_filename": "e071c66d48575519d4510849fb7f717f9e18cd5d3a1988f184ed4f56270afb3d.tar",
       "extension": ".tar",
       "curations": [
         {
           "path": "build/tests/test_license_package_configurations.py",
-          "start_lines": "310,398,532,534,538,540,559,563",
+          "start_lines": "311,399,533,535,539,541,560,564",
           "line_count": 1,
           "detected_license": "GPL-1.0-or-later",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 310,398,532,534,538,540,559,563 share the identifier GPL-1.0-or-later; line 310 is, for example, `\"detected_license\": \"GPL-1.0-or-later\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 311,399,533,535,539,541,560,564 share the identifier GPL-1.0-or-later; line 311 is, for example, `\"detected_license\": \"GPL-1.0-or-later\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         },
         {
           "path": "build/tests/test_license_package_configurations.py",
-          "start_lines": "278,319,335,349,535,537,541,543,586,595,603,661",
+          "start_lines": "279,320,336,350,536,538,542,544,587,596,604,662",
           "line_count": 1,
           "detected_license": "GPL-2.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 278,319,335,349,535,537,541,543,586,595,603,661 share the identifier GPL-2.0-only; line 278 is, for example, `\"detected_license\": \"GPL-2.0-only OR Apache-2.0\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 279,320,336,350,536,538,542,544,587,596,604,662 share the identifier GPL-2.0-only; line 279 is, for example, `\"detected_license\": \"GPL-2.0-only OR Apache-2.0\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         },
         {
           "path": "build/tests/test_license_package_configurations.py",
-          "start_lines": "328,342,356,403",
+          "start_lines": "329,343,357,404",
           "line_count": 1,
           "detected_license": "GPL-2.0-or-later",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 328,342,356,403 share the identifier GPL-2.0-or-later; line 328 is, for example, `\"detected_license\": \"GPL-2.0-or-later\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 329,343,357,404 share the identifier GPL-2.0-or-later; line 329 is, for example, `\"detected_license\": \"GPL-2.0-or-later\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         },
         {
           "path": "build/tests/test_license_package_configurations.py",
-          "start_lines": "539",
+          "start_lines": "540",
           "line_count": 1,
           "detected_license": "GPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Line 539 carries `\"line_count\": 1, \"detected_license\": \"GPL-3.0-only\"},`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported GPL-3.0-only as a false positive, so the finding is removed."
+          "comment": "Line 540 carries `\"line_count\": 1, \"detected_license\": \"GPL-3.0-only\"},`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported GPL-3.0-only as a false positive, so the finding is removed."
         },
         {
           "path": "build/tests/test_license_package_configurations.py",
-          "start_lines": "286,304,311,357,387",
+          "start_lines": "287,305,312,358,388",
           "line_count": 1,
           "detected_license": "LicenseRef-scancode-unknown",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 286,304,311,357,387 share the identifier LicenseRef-scancode-unknown; line 286 is, for example, `\"concluded_license\": \"NONE\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 287,305,312,358,388 share the identifier LicenseRef-scancode-unknown; line 287 is, for example, `\"concluded_license\": \"NONE\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         }
       ]
     },
@@ -452,9 +452,9 @@
     {
       "name": "unpackrat-build-tests-workflow-contract",
       "member": "build/tests/test_workflow_contract.py",
-      "version": "422c5adb40822fc06ca234dc6be4895441d6c2079e87121a39557e31b42f9da5",
-      "sha256": "422c5adb40822fc06ca234dc6be4895441d6c2079e87121a39557e31b42f9da5",
-      "artifact_filename": "422c5adb40822fc06ca234dc6be4895441d6c2079e87121a39557e31b42f9da5.tar",
+      "version": "e7ca8e0c4ad171ae27cd4f1834859c6daabcd374cfbe0affd515af2953cacf69",
+      "sha256": "e7ca8e0c4ad171ae27cd4f1834859c6daabcd374cfbe0affd515af2953cacf69",
+      "artifact_filename": "e7ca8e0c4ad171ae27cd4f1834859c6daabcd374cfbe0affd515af2953cacf69.tar",
       "extension": ".tar",
       "curations": [
         {

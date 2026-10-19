@@ -19,7 +19,7 @@ Release contract, non-negotiable: Windows-only native C++23 through MSVC `cl.exe
 runtime and all third-party libraries linked statically (`/MT`, static vcpkg triplets); a release
 archive carries no redistributable runtime DLL; CMake is not part of this tree
 (vcpkg ports may use it internally); no `/clr`. Each shipped module (`renpy`, `rpgmaker`, `zanzarah`,
-`godot`) owns an independent semantic version in `src/modules/<module>/VERSION` and its own
+`godot`, `wolfrpg`) owns an independent semantic version in `src/modules/<module>/VERSION` and its own
 `<module>/vX.Y.Z` release lineage (for example, `godot/vX.Y.Z`); there is no repository release
 version.
 

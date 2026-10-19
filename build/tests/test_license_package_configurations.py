@@ -125,8 +125,8 @@ class PackageConfigurationTests(unittest.TestCase):
         cls.library_prefixes = cls.native["prefixes"]
         cls.prefixes = {**cls.library_prefixes, **{name: "" for name in cls.firstparty}}
 
-    def test_fixture_covers_all_sixteen_library_dependencies(self):
-        self.assertEqual(16, len(self.library))
+    def test_fixture_covers_all_seventeen_library_dependencies(self):
+        self.assertEqual(17, len(self.library))
         self.assertEqual(
             {
                 "bcdec",
@@ -145,6 +145,7 @@ class PackageConfigurationTests(unittest.TestCase):
                 "zycore",
                 "zydis",
                 "yy-thunks",
+                "uberwolf",
             },
             set(self.library),
         )

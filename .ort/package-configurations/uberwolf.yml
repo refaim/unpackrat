@@ -1,0 +1,36 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:uberwolf:0.6.4",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/db7bcad1c6d9f550a31cd2d0c90c52f5c43a8d4576370565b658e78dabbcaf57.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "UberWolf-f4191375d289171b1f29dbc5ca320133b2b4b96a/UberWolf/**",
+      "reason": "OPTIONAL_COMPONENT_OF",
+      "comment": "The UberWolf GUI front end. It is not compiled into the uberwolf library or the wolfrpg module: the port builds only the 16 UberWolfLib/3rdParty/DXLib/3rdParty/lz4 translation units, so this upstream tree keeps its own notices and is not shipped. Anchored on the archive top directory."
+    },
+    {
+      "pattern": "UberWolf-f4191375d289171b1f29dbc5ca320133b2b4b96a/UberWolfCli/**",
+      "reason": "OPTIONAL_COMPONENT_OF",
+      "comment": "The UberWolf command-line front end. Not compiled by the port and not shipped. Anchored on the archive top directory."
+    },
+    {
+      "pattern": "UberWolf-f4191375d289171b1f29dbc5ca320133b2b4b96a/doc/**",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Upstream project documentation, not compiled. Anchored on the archive top directory."
+    },
+    {
+      "pattern": "UberWolf-f4191375d289171b1f29dbc5ca320133b2b4b96a/3rdParty/CLI11/**",
+      "reason": "OPTIONAL_COMPONENT_OF",
+      "comment": "CLI11 is vendored upstream only for the UberWolfCli front end; it is not compiled into the uberwolf library, so its BSD-3-Clause notice does not attach to anything shipped here. Anchored on the archive top directory."
+    },
+    {
+      "pattern": "UberWolf-f4191375d289171b1f29dbc5ca320133b2b4b96a/3rdParty/nlohmann/**",
+      "reason": "OPTIONAL_COMPONENT_OF",
+      "comment": "The bundled nlohmann/json 3.11.2 copy. UberWolfLib/GameContext.cpp resolves nlohmann/json through the reviewed separate vcpkg dependency (nlohmann-json 3.12.0#2), so the bundled copy is not compiled; the shipped JSON notice is licenses/json.txt. Anchored on the archive top directory."
+    },
+    {
+      "pattern": "UberWolf-f4191375d289171b1f29dbc5ca320133b2b4b96a/.gitmodules",
+      "reason": "OTHER",
+      "comment": "Submodule pointers (including the optional self-updater) kept for reference; no submodule content is fetched, compiled or shipped. Anchored on the archive top directory."
+    }
+  ]
+}

@@ -1,0 +1,2197 @@
+diff --git a/3rdParty/DXLib/DXArchive.cpp b/3rdParty/DXLib/DXArchive.cpp
+index 22fc69c..72ad0c5 100644
+--- a/3rdParty/DXLib/DXArchive.cpp
++++ b/3rdParty/DXLib/DXArchive.cpp
+@@ -18,6 +18,19 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <windows.h>
++#include <cstddef>
++#include <cstdint>
++#include <exception>
++#include <functional>
++#include <memory>
++#include <span>
++#include <stdexcept>
++#include <unordered_set>
++#include <utility>
++#include <vector>
++#include <UberWolfLib/Archive/BoundedHuffman.hpp>
++#include <UberWolfLib/Archive/BoundedLz.hpp>
++#include <UberWolfLib/Archive/ClassicContext.hpp>
+ 
+ // define -----------------------------
+ 
+@@ -30,6 +43,11 @@
+ 
+ #define GLOBAL_CHAR_CODE 932
+ 
++// 共有走査カーネルの資源上限
++#define DXA_ENTRY_MAX  (100000)		// アーカイブ内の総レコード数の上限
++#define DXA_DEPTH_MAX  (128)		// ディレクトリの最大深さ
++#define DXA_PATH_MAX   (4092)		// 符号化パスの最大バイト数
++
+ uint8_t g_specialKey[768] = {};
+ bool g_newCrypt           = false;
+ bool g_chacha20           = false;
+@@ -63,6 +81,864 @@ size_t LogStringLength = 0;
+ // Functions for new Wolf Crypt
+ #include "../UberWolfLib/WolfCrypt/WolfCrypt.hpp"
+ 
++// ---------------------------------------------------------------------------------------------------
++// ソースベースの共有実装。
++// メタデータの解析( ParseMetadata )・テーブルの走査( WalkEntryRecords )・
++// 無圧縮データの取り出し( ExtractStored )はいずれも FILE* 側の入り口と共有される。
++// ---------------------------------------------------------------------------------------------------
++
++// アラインされていない可能性のあるメタデータから整数を読み取る
++static u64 DXA_LoadU64( const u8 *p )
++{
++	u64 v;
++	memcpy( &v, p, sizeof( v ) );
++	return v;
++}
++
++static u16 DXA_LoadU16( const u8 *p )
++{
++	u16 v;
++	memcpy( &v, p, sizeof( v ) );
++	return v;
++}
++
++// 生の符号化ファイル名レコードを検証し、原ケースコピーの NUL 終端までの長さを返す。
++// NameRegionSize は名前テーブル領域の長さ( メタデータ全体ではない )。
++static int DXA_ValidateNameRecord( const u8 *NameP, u64 NameRegionSize, u64 NameAddress, const u8 **NameOut, size_t *NameBytesOut )
++{
++	// ファイル名は 4 バイトブロック単位で配置される
++	if( ( NameAddress % 4 ) != 0 ) return -1;
++	if( NameAddress > NameRegionSize || NameRegionSize - NameAddress < 4 ) return -1;
++
++	const u64 PackNum = (u64)DXA_LoadU16( NameP + NameAddress );
++	const u64 Copies  = PackNum * 4;
++	const u64 RecordSize = 4 + Copies * 2;
++	if( RecordSize > NameRegionSize - NameAddress ) return -1;
++
++	if( PackNum == 0 )
++	{
++		*NameOut = NULL;
++		*NameBytesOut = 0;
++		return 0;
++	}
++
++	const u8 *Upper    = NameP + NameAddress + 4;
++	const u8 *Original = Upper + Copies;
++
++	// 大文字コピー・原ケースコピーの双方に範囲内の NUL 終端が必須
++	int UpperTerminated = 0;
++	for( u64 i = 0; i < Copies; i++ )
++	{
++		if( Upper[ i ] == 0 ) { UpperTerminated = 1; break; }
++	}
++	if( !UpperTerminated ) return -1;
++
++	size_t NameBytes = 0;
++	int OriginalTerminated = 0;
++	for( u64 i = 0; i < Copies; i++ )
++	{
++		if( Original[ i ] == 0 ) { NameBytes = (size_t)i; OriginalTerminated = 1; break; }
++	}
++	if( !OriginalTerminated ) return -1;
++
++	*NameOut = Original;
++	*NameBytesOut = NameBytes;
++	return 0;
++}
++
++// 生の符号化バイト列( コードページ 932 )を TCHAR 文字列へ変換する
++static TCHAR *DXA_RawNameToTCHAR( const u8 *Raw, size_t RawBytes )
++{
++	int Need = 0;
++	if( RawBytes != 0 )
++	{
++		Need = MultiByteToWideChar( GLOBAL_CHAR_CODE, 0, reinterpret_cast<LPCCH>( Raw ), (int)RawBytes, NULL, 0 );
++		if( Need < 0 ) Need = 0;
++	}
++	TCHAR *Out = new TCHAR[ (size_t)Need + 1 ]();
++	if( Need > 0 )
++	{
++		MultiByteToWideChar( GLOBAL_CHAR_CODE, 0, reinterpret_cast<LPCCH>( Raw ), (int)RawBytes, Out, Need );
++	}
++	Out[ Need ] = 0;
++	return Out;
++}
++
++// ---------------------------------------------------------------------------------------------------
++// 共有の有界コーデック。メタデータ解析とボディ展開は、同じ Huffman / LZ カーネルと、同じ
++// ボディ幾何ヘルパを共有する。ディスク上のデータに触れる前に、すべての範囲と算術を検査する。
++// ---------------------------------------------------------------------------------------------------
++
++// 出力 / 進捗へ渡すチャンクの上限
++#define DXA_OUTPUT_CHUNK  (32 * 1024)
++
++// 操作ローカルの古典的なバイト変換。Transform が NULL なら変換なし( NO_KEY )。変換はベンダの
++// 論理位置で適用する( メタデータはブロック内オフセット、ボディは DataSize + ボディ内物理オフセット )。
++struct DXA_CIPHER
++{
++	void *Context;
++	void (*Transform)( void *Context, void *Data, size_t Size, u64 Position );
++};
++
++// 操作ローカルの古典鍵。KeyConv に明示的な鍵を渡すためだけに保持する。
++struct DXA_CLASSIC_KEY
++{
++	unsigned char Key[ DXA_KEY_BYTES ];
++};
++
++// 操作ローカルの古典変換。DXArchive::KeyConv はプロセス全体の暗号モードフラグを参照するため
++// ここでは使わず、グローバルに依存しない純粋な apply_key_xor へ直接委譲する。
++static void DXA_ClassicTransform( void *Context, void *Data, size_t Size, u64 Position )
++{
++	DXA_CLASSIC_KEY *Classic = static_cast<DXA_CLASSIC_KEY *>( Context );
++	wolf::archive::classic::apply_key_xor(
++		std::span<std::byte>( static_cast<std::byte *>( Data ), Size ),
++		(size_t)( Position % wolf::archive::classic::key_bytes ),
++		std::span<const unsigned char, wolf::archive::classic::key_bytes>( Classic->Key, wolf::archive::classic::key_bytes ) );
++}
++
++// ボディの物理レイアウトはヘッダの公開型を共有する( 走査・展開・ファイル経路で単一の型 )
++typedef DXArchive::BodyPlan DXA_BODY_PLAN;
++
++// ボディ幾何の唯一の情報源。走査カーネルと展開器が同じ物理範囲を計算する。
++// partial: HSize + N - 2K、full: HSize、no-Huff: N。
++static int DXA_ComputeBodyPlan( u64 DataSize, u64 PressSize, u64 HuffSize, u8 HuffmanEncodeKB, DXA_BODY_PLAN &Plan )
++{
++	Plan.Huff        = ( HuffSize != 0xffffffffffffffffULL );
++	Plan.Lz          = ( PressSize != 0xffffffffffffffffULL );
++	Plan.OutputSize  = DataSize;
++	Plan.HuffEncoded = Plan.Huff ? HuffSize : 0;
++	Plan.Front       = 0;
++	Plan.RawMiddle   = 0;
++
++	const u64 N  = Plan.Lz ? PressSize : DataSize;
++	Plan.N = N;
++
++	if( Plan.Huff )
++	{
++		const u64 K       = (u64)HuffmanEncodeKB * 1024;
++		const bool Partial = ( HuffmanEncodeKB != 0xff ) && ( N > 2 * K );
++		if( Partial )
++		{
++			Plan.Front     = K;
++			Plan.RawMiddle = N - 2 * K;
++		}
++		else
++		{
++			Plan.Front = N;
++		}
++		if( Plan.RawMiddle > 0xffffffffffffffffULL - HuffSize ) return -1;
++		Plan.Physical = HuffSize + Plan.RawMiddle;
++	}
++	else
++	{
++		Plan.Physical = N;
++	}
++	return 0;
++}
++
++// ボディ範囲 [BodyStart, BodyStart + BodySize) がメタデータブロック範囲
++// [MetaStart, MetaStart + MetaSpan) と重ならないことを検証する。ボディはメタデータの前でも
++// 後ろでもよく( 上流は物理末尾、メタデータ先頭配置もある )、重なりのみを拒否する。
++// 呼び出し側は BodyStart と MetaStart+MetaSpan の加算オーバーフローを除いて MetaSpan を
++// 既に有界にしていること。
++static bool DXA_BodyDisjointFromMetadata( u64 MetaStart, u64 MetaSpan, u64 BodyStart, u64 BodySize )
++{
++	// 呼び出し元は BodyStart+BodySize と MetaStart+MetaSpan を PhysicalSize 以下に検査済みで、
++	// ここでの加算はオーバーフローしない。
++	const u64 BodyEnd   = BodyStart + BodySize;
++	const u64 MetaEnd   = MetaStart + MetaSpan;
++	if( BodyEnd <= MetaStart ) return true;	// メタデータより前
++	if( BodyStart >= MetaEnd ) return true;	// メタデータより後ろ
++	return false;							// 重なり
++}
++
++// レコードのボディ幾何を検証する唯一の決定点。走査カーネルと展開器が同じ物理範囲と計画を
++// 共有する。範囲の加減算はすべて検査し、メタデータブロックとの重なりもここで拒否する。
++static int DXA_ResolveBodyGeometry( const DARC_HEAD &Head, u64 PhysicalSize, u64 DataAddress,
++	u64 DataSize, u64 PressSize, u64 HuffSize, u64 &BodyAddress, DXArchive::BodyPlan &Plan )
++{
++	const u64 DataStart = (u64)Head.DataStartAddress;
++
++	if( DXA_ComputeBodyPlan( DataSize, PressSize, HuffSize, Head.HuffmanEncodeKB, Plan ) != 0 ) return DXArchive::SOURCE_RESULT_FORMAT;
++	if( DataAddress > PhysicalSize || PhysicalSize - DataAddress < DataStart ) return DXArchive::SOURCE_RESULT_FORMAT;
++	BodyAddress = DataStart + DataAddress;
++	if( PhysicalSize - BodyAddress < Plan.Physical ) return DXArchive::SOURCE_RESULT_FORMAT;
++
++	// メタデータブロックの物理範囲を確定する。非圧縮メタデータは宣言された HeadSize だけ
++	// 物理的に存在する( 疎なボディを飲み込まない )。圧縮メタデータは ParseMetadata と同じ
++	// 規則で範囲を求める。DataStart/FileNameTableStartAddress はオープン時に検査済みで、
++	// DataStart は物理末尾を越えない。
++	const u64 MetaStart = (u64)Head.FileNameTableStartAddress;
++	const bool HeaderCompressed = ( Head.Flags & DXA_FLAG_NO_HEAD_PRESS ) == 0;
++	u64 MetaSpan;
++	if( HeaderCompressed == false )
++	{
++		MetaSpan = (u64)Head.HeadSize;
++	}
++	else if( DataStart > MetaStart )
++	{
++		MetaSpan = DataStart - MetaStart;
++	}
++	else
++	{
++		MetaSpan = PhysicalSize - MetaStart;
++	}
++	if( !DXA_BodyDisjointFromMetadata( MetaStart, MetaSpan, BodyAddress, Plan.Physical ) ) return DXArchive::SOURCE_RESULT_FORMAT;
++	return DXArchive::SOURCE_RESULT_OK;
++}
++
++// 論理ソース位置の基点を伴う読み取り。例外はここで捕捉して保持し、コーデクのエラー翻訳より
++// 先に再送出する。各読み取りの前に保持した例外を消す。
++struct DXA_SOURCE_READER
++{
++	const DXArchive::Source *Src;
++	const DXA_CIPHER        *Cipher;
++	u64                       Base;
++	u64                       LogicalBase;
++	std::exception_ptr        Error;
++	bool                      Failed;
++
++	bool Read( u64 Offset, void *Data, size_t Size )
++	{
++		if( Size == 0 ) return true;
++		Error = nullptr;
++		try
++		{
++			if( !Src->read_at( (s64)( Base + Offset ), Data, Size ) )
++			{
++				Failed = true;
++				return false;
++			}
++		}
++		catch( ... )
++		{
++			Error  = std::current_exception();
++			Failed = true;
++			return false;
++		}
++		if( Cipher != nullptr && Cipher->Transform != nullptr )
++		{
++			Cipher->Transform( Cipher->Context, Data, Size, LogicalBase + Offset );
++		}
++		return true;
++	}
++};
++
++// Huffman カーネルへ供給する有界プル。ソース失敗は source_failed として伝える。
++struct DXA_HUFF_PULL
++{
++	DXA_SOURCE_READER *Reader;
++	u64                Offset;
++	u64                End;
++};
++
++static size_t DXA_HuffPullFn( void *Context, unsigned char *Destination, size_t Capacity )
++{
++	DXA_HUFF_PULL *Pull = static_cast<DXA_HUFF_PULL *>( Context );
++	const u64      Left = Pull->End - Pull->Offset;
++	const size_t   Want = (size_t)( (u64)Capacity < Left ? (u64)Capacity : Left );
++	if( Want == 0 ) return 0;
++	if( !Pull->Reader->Read( Pull->Offset, Destination, Want ) )
++	{
++		return uberwolf::archive::bounded_huffman::source_failed;
++	}
++	Pull->Offset += Want;
++	return Want;
++}
++
++// midstream = コーデック後段( LZ 入力、または LZ 無しの最終データ )。
++// RAW: ディスク上の生バイト、HUFF: Huffman 展開の全体、EDGES: 前後 K エッジ + 生の中間。
++enum DXA_MID_KIND { DXA_MID_RAW = 0, DXA_MID_HUFF = 1, DXA_MID_EDGES = 2 };
++
++struct DXA_MIDSTREAM
++{
++	DXA_SOURCE_READER *Reader;
++	DXA_MID_KIND       Kind;
++	u64                Total;
++	u64                Position;
++	u64                Front;		// EDGES: K
++	u64                Middle;		// EDGES: N - 2K
++	u64                HuffEncoded;	// EDGES: 生中間のディスクオフセット
++	uberwolf::archive::bounded_huffman *Huff;	// HUFF
++	std::vector<u8>    Edges;		// EDGES: 2K
++	bool               Failed;			// コーデック( ストリーム )の破損
++	bool               SourceFailed;	// バイトソースの読み込み失敗
++
++	size_t Pull( void *Destination, size_t Capacity )
++	{
++		if( Failed || Position >= Total ) return 0;
++		const u64    Left = Total - Position;
++		const size_t Want = (size_t)( (u64)Capacity < Left ? (u64)Capacity : Left );
++		if( Want == 0 ) return 0;
++
++		if( Kind == DXA_MID_RAW )
++		{
++			if( !Reader->Read( Position, Destination, Want ) ) { SourceFailed = true; return 0; }
++			Position += Want;
++			return Want;
++		}
++
++		if( Kind == DXA_MID_HUFF )
++		{
++			size_t Written = 0;
++			const uberwolf::archive::huffman_status Status = Huff->read( (unsigned char *)Destination, Want, &Written );
++			Position += Written;
++			if( Status != uberwolf::archive::huffman_status::ok )
++			{
++				if( Status == uberwolf::archive::huffman_status::source_failure ) SourceFailed = true;
++				else Failed = true;
++			}
++			return Written;
++		}
++
++		// EDGES
++		if( Position < Front )
++		{
++			const u64 Take = ( Front - Position ) < Want ? ( Front - Position ) : Want;
++			memcpy( Destination, Edges.data() + (size_t)Position, (size_t)Take );
++			Position += Take;
++			return (size_t)Take;
++		}
++		if( Position < Front + Middle )
++		{
++			const u64 Consumed = Position - Front;
++			const u64 Avail    = Middle - Consumed;
++			const u64 Take     = Avail < Want ? Avail : Want;
++			if( !Reader->Read( HuffEncoded + Consumed, Destination, (size_t)Take ) ) { SourceFailed = true; return 0; }
++			Position += Take;
++			return (size_t)Take;
++		}
++		const u64 TailPos = Position - Front - Middle;
++		const u64 Take    = ( Front - TailPos ) < Want ? ( Front - TailPos ) : Want;
++		memcpy( Destination, Edges.data() + (size_t)( Front + TailPos ), (size_t)Take );
++		Position += Take;
++		return (size_t)Take;
++	}
++};
++
++// 出力 / 進捗コールバックの中断をコーデクへ伝える内部キャリア。非 0 の戻り値は Code で、
++// コールバックが送出した任意の例外は Exception に保持して、コーデクのエラー翻訳より先に
++// そのまま再送出する( 出力 / 進捗の出自を失わせない )。
++struct DXA_OUTPUT_ABORT
++{
++	int                Code;
++	std::exception_ptr Exception;
++};
++
++// LZ 展開の出力リング。履歴は最長参照距離までで足りるので、ボディ全体を保持しない。
++struct DXA_RING_SINK
++{
++	std::vector<u8> Ring;
++	u64             Produced;
++	std::vector<u8> Staging;
++	const std::function<int( const void *, size_t )> *Output;
++	const std::function<int( u64 )> *Progress;
++	u64             OutputSize;
++};
++
++static void DXA_RingFlush( DXA_RING_SINK *Sink )
++{
++	if( Sink->Staging.empty() ) return;
++	int Result = 0;
++	try
++	{
++		Result = ( *Sink->Output )( Sink->Staging.data(), Sink->Staging.size() );
++	}
++	catch( ... )
++	{
++		Sink->Staging.clear();
++		throw DXA_OUTPUT_ABORT{ 0, std::current_exception() };
++	}
++	Sink->Staging.clear();
++	if( Result != 0 ) throw DXA_OUTPUT_ABORT{ Result, nullptr };
++	if( *Sink->Progress )
++	{
++		int ProgressResult = 0;
++		try
++		{
++			ProgressResult = ( *Sink->Progress )( Sink->Produced );
++		}
++		catch( ... )
++		{
++			throw DXA_OUTPUT_ABORT{ 0, std::current_exception() };
++		}
++		if( ProgressResult != 0 ) throw DXA_OUTPUT_ABORT{ ProgressResult, nullptr };
++	}
++}
++
++static std::byte DXA_RingRead( void *Context, u64 Position )
++{
++	DXA_RING_SINK *Sink = static_cast<DXA_RING_SINK *>( Context );
++	return (std::byte)Sink->Ring[ (size_t)( Position % (u64)Sink->Ring.size() ) ];
++}
++
++static void DXA_RingWrite( void *Context, std::byte Value )
++{
++	DXA_RING_SINK *Sink = static_cast<DXA_RING_SINK *>( Context );
++	Sink->Ring[ (size_t)( Sink->Produced % (u64)Sink->Ring.size() ) ] = (u8)Value;
++	Sink->Staging.push_back( (u8)Value );
++	++Sink->Produced;
++	if( Sink->Staging.size() >= DXA_OUTPUT_CHUNK || Sink->Produced == Sink->OutputSize )
++	{
++		DXA_RingFlush( Sink );
++	}
++}
++
++// 検証済みのボディ一つを有界に展開する。鍵なし( NO_KEY )を前提とし、鍵付きは呼び出し側で
++// 拒否する。コーデクのエラーは SOURCE_RESULT に、出力 / 進捗の戻り値はそのまま返す。
++static int DXA_DecodeBodyStream( DXA_SOURCE_READER &Reader, const DXA_BODY_PLAN &Plan,
++	const std::function<int( const void *, size_t )> &Output, const std::function<int( u64 )> &Progress )
++{
++	if( Output == nullptr ) return DXArchive::SOURCE_RESULT_FORMAT;
++
++	std::vector<u8> EdgeBuf;
++	uberwolf::archive::bounded_huffman HuffCtx;
++	DXA_HUFF_PULL HuffPull = { &Reader, 0, 0 };
++
++	DXA_MIDSTREAM Mid = {};
++	Mid.Reader = &Reader;
++	Mid.Kind   = DXA_MID_RAW;
++	Mid.Total  = Plan.N;
++
++	if( Plan.Huff )
++	{
++		const u64 Expected = Plan.RawMiddle != 0 ? 2 * Plan.Front : Plan.N;
++		HuffPull.Offset = 0;
++		HuffPull.End    = Plan.HuffEncoded;
++		const uberwolf::archive::huffman_status Status = HuffCtx.init( DXA_HuffPullFn, &HuffPull,
++			uberwolf::archive::huffman_size_mode::exact, Plan.HuffEncoded, Expected );
++		if( Status != uberwolf::archive::huffman_status::ok )
++		{
++			if( Reader.Error ) std::rethrow_exception( Reader.Error );
++			if( Reader.Failed ) return DXArchive::SOURCE_RESULT_SOURCE;
++			return DXArchive::SOURCE_RESULT_FORMAT;
++		}
++		if( Plan.RawMiddle != 0 )
++		{
++			EdgeBuf.resize( (size_t)( 2 * Plan.Front ) );
++			size_t Got = 0;
++			const uberwolf::archive::huffman_status ReadStatus = HuffCtx.read( EdgeBuf.data(), EdgeBuf.size(), &Got );
++			if( ReadStatus != uberwolf::archive::huffman_status::ok || Got != EdgeBuf.size() )
++			{
++				if( Reader.Error ) std::rethrow_exception( Reader.Error );
++				if( Reader.Failed || ReadStatus == uberwolf::archive::huffman_status::source_failure ) return DXArchive::SOURCE_RESULT_SOURCE;
++				return DXArchive::SOURCE_RESULT_FORMAT;
++			}
++			Mid.Kind        = DXA_MID_EDGES;
++			Mid.Edges       = std::move( EdgeBuf );
++			Mid.Front       = Plan.Front;
++			Mid.Middle      = Plan.RawMiddle;
++			Mid.HuffEncoded = Plan.HuffEncoded;
++		}
++		else
++		{
++			Mid.Kind = DXA_MID_HUFF;
++			Mid.Huff = &HuffCtx;
++		}
++	}
++
++	if( Plan.Lz )
++	{
++		const u64 History = Plan.OutputSize < wolf::archive::boundedlz::max_distance
++			? Plan.OutputSize : wolf::archive::boundedlz::max_distance;
++		DXA_RING_SINK Sink = {};
++		Sink.Ring.resize( (size_t)( History ? History : 1 ) );
++		Sink.Output     = &Output;
++		Sink.Progress   = &Progress;
++		Sink.OutputSize = Plan.OutputSize;
++
++		auto Pull = [&Mid]( std::span<std::byte> Destination ) -> size_t
++		{
++			return Mid.Pull( Destination.data(), Destination.size() );
++		};
++
++		try
++		{
++			wolf::archive::boundedlz::context Ctx( std::move( Pull ), Plan.N, Plan.OutputSize );
++			wolf::archive::boundedlz::emitter Emit = { &DXA_RingRead, &DXA_RingWrite, &Sink };
++			while( Ctx.produce( DXA_OUTPUT_CHUNK, Emit ) != 0 ) {}
++			DXA_RingFlush( &Sink );
++		}
++		catch( const DXA_OUTPUT_ABORT &Abort )
++		{
++			if( Abort.Exception ) std::rethrow_exception( Abort.Exception );
++			return Abort.Code;
++		}
++		catch( const wolf::archive::boundedlz::error & )
++		{
++			if( Reader.Error ) std::rethrow_exception( Reader.Error );
++			if( Reader.Failed || Mid.SourceFailed ) return DXArchive::SOURCE_RESULT_SOURCE;
++			return DXArchive::SOURCE_RESULT_FORMAT;
++		}
++		if( Reader.Failed || Mid.SourceFailed ) return DXArchive::SOURCE_RESULT_SOURCE;
++		if( Mid.Failed ) return DXArchive::SOURCE_RESULT_FORMAT;
++		return DXArchive::SOURCE_RESULT_OK;
++	}
++
++	std::vector<u8> Buffer( DXA_OUTPUT_CHUNK );
++	u64             Written = 0;
++	for( ;; )
++	{
++		const size_t Got = Mid.Pull( Buffer.data(), Buffer.size() );
++		if( Got == 0 ) break;
++		const int OutputResult = Output( Buffer.data(), Got );
++		if( OutputResult != 0 ) return OutputResult;
++		Written += Got;
++		if( Progress )
++		{
++			const int ProgressResult = Progress( Written );
++			if( ProgressResult != 0 ) return ProgressResult;
++		}
++	}
++	if( Reader.Error ) std::rethrow_exception( Reader.Error );
++	if( Reader.Failed || Mid.SourceFailed ) return DXArchive::SOURCE_RESULT_SOURCE;
++	if( Mid.Failed ) return DXArchive::SOURCE_RESULT_FORMAT;
++	return DXArchive::SOURCE_RESULT_OK;
++}
++
++// メタデータブロック( 非圧縮、または Huffman( LZ( metadata ) ) )を 1 か所で読む。
++// 中間 LZ サイズは共有 Huffman init から得て上限で検査し、最終バッファを LZ 履歴に使う。
++static int DXA_ReadMetadataBlock( DXA_SOURCE_READER &Reader, u64 EncodedExtent, bool Compressed,
++	u8 *Metadata, u64 MetadataSize )
++{
++	if( Metadata == nullptr ) return DXArchive::SOURCE_RESULT_FORMAT;
++
++	if( !Compressed )
++	{
++		if( EncodedExtent < MetadataSize ) return DXArchive::SOURCE_RESULT_FORMAT;
++		if( !Reader.Read( 0, Metadata, (size_t)MetadataSize ) )
++		{
++			if( Reader.Error ) std::rethrow_exception( Reader.Error );
++			return DXArchive::SOURCE_RESULT_SOURCE;
++		}
++		return DXArchive::SOURCE_RESULT_OK;
++	}
++
++	uberwolf::archive::bounded_huffman HuffCtx;
++	DXA_HUFF_PULL HuffPull = { &Reader, 0, EncodedExtent };
++	const uberwolf::archive::huffman_status InitStatus = HuffCtx.init( DXA_HuffPullFn, &HuffPull,
++		uberwolf::archive::huffman_size_mode::bounded, EncodedExtent, DXA_METADATA_MAX );
++	if( InitStatus != uberwolf::archive::huffman_status::ok )
++	{
++		if( Reader.Error ) std::rethrow_exception( Reader.Error );
++		if( Reader.Failed ) return DXArchive::SOURCE_RESULT_SOURCE;
++		return DXArchive::SOURCE_RESULT_FORMAT;
++	}
++
++	// init は bounded モードで original <= DXA_METADATA_MAX を不変条件として保証済みなので、
++	// ここで上限を再検査しない。zero 長は下の LZ 文脈が 9 バイトヘッダ未満として FORMAT へ翻訳する。
++	const u64 LzSize = HuffCtx.original_size();
++
++	DXA_MIDSTREAM Mid = {};
++	Mid.Reader = &Reader;
++	Mid.Kind   = DXA_MID_HUFF;
++	Mid.Huff   = &HuffCtx;
++	Mid.Total  = LzSize;
++
++	auto Pull = [&Mid]( std::span<std::byte> Destination ) -> size_t
++	{
++		return Mid.Pull( Destination.data(), Destination.size() );
++	};
++
++	struct DXA_META_SINK
++	{
++		u8 *Out;
++		u64 Pos;
++	};
++	DXA_META_SINK Sink = { Metadata, 0 };
++
++	try
++	{
++		wolf::archive::boundedlz::context Ctx( std::move( Pull ), LzSize, MetadataSize );
++		wolf::archive::boundedlz::emitter Emit = {
++			[]( void *Context, u64 Position ) -> std::byte
++			{
++				return (std::byte)( (const DXA_META_SINK *)Context )->Out[ Position ];
++			},
++			[]( void *Context, std::byte Value )
++			{
++				DXA_META_SINK *State = (DXA_META_SINK *)Context;
++				State->Out[ State->Pos++ ] = (u8)Value;
++			},
++			&Sink,
++		};
++		Ctx.produce( (size_t)MetadataSize, Emit );
++	}
++	catch( const wolf::archive::boundedlz::error & )
++	{
++		if( Reader.Error ) std::rethrow_exception( Reader.Error );
++		if( Reader.Failed || Mid.SourceFailed ) return DXArchive::SOURCE_RESULT_SOURCE;
++		return DXArchive::SOURCE_RESULT_FORMAT;
++	}
++	if( Reader.Failed || Mid.SourceFailed ) return DXArchive::SOURCE_RESULT_SOURCE;
++	if( Mid.Failed ) return DXArchive::SOURCE_RESULT_FORMAT;
++	return DXArchive::SOURCE_RESULT_OK;
++}
++
++// 検証済みメタデータブロックの唯一の所有者。ヘッダ検証・物理範囲確定・確保・復号
++// ( 非圧縮 / Huffman と LZ )を 1 か所に集約し、バッファは RAII で所有する。呼び出し元は
++// data() を借りるだけなので、元の static DecodeArchive と OpenArchive 経路が同じ実装を共有する。
++struct DXA_METADATA
++{
++	std::vector<u8> Bytes;
++};
++
++// 事前条件: Head のマジックとバージョンは検査済み。PhysicalSize は実ファイル長。Key は NoKey の
++// ときでも非 NULL の DXA_KEY_BYTES バッファを指す。保持したソース例外は再送出し、確保失敗も
++// そのまま伝播する。戻り値は SOURCE_RESULT_*。
++static int DXA_LoadMetadata( const DXArchive::Source &Src, const DARC_HEAD &Head, u64 PhysicalSize,
++	const u8 *Key, bool NoKey, DXA_METADATA &Out )
++{
++	// 実ファイル長は呼び出し元から受け取るので、ここで必要なのは読み取り口だけである。
++	if( !Src.read_at ) return DXArchive::SOURCE_RESULT_SOURCE;
++
++	// メタデータ長と各テーブル位置を、割り当て前に検査する( 上限は 64MiB )
++	const u64 HeadSize = (u64)Head.HeadSize;
++	if( HeadSize == 0 || HeadSize > DXA_METADATA_MAX ) return DXArchive::SOURCE_RESULT_FORMAT;
++	if( (u64)Head.FileNameTableStartAddress > PhysicalSize ) return DXArchive::SOURCE_RESULT_FORMAT;
++	if( (u64)Head.FileTableStartAddress > HeadSize ||
++		(u64)Head.DirectoryTableStartAddress > HeadSize ) return DXArchive::SOURCE_RESULT_FORMAT;
++
++	const bool HeaderCompressed = ( Head.Flags & DXA_FLAG_NO_HEAD_PRESS ) == 0;
++
++	// メタデータブロックの物理範囲。本文前置のレイアウトでは本文開始まで、通常は物理末尾まで。
++	u64 MetadataExtent;
++	if( (u64)Head.DataStartAddress > (u64)Head.FileNameTableStartAddress &&
++		(u64)Head.DataStartAddress <= PhysicalSize )
++	{
++		MetadataExtent = (u64)Head.DataStartAddress - (u64)Head.FileNameTableStartAddress;
++	}
++	else
++	{
++		MetadataExtent = PhysicalSize - (u64)Head.FileNameTableStartAddress;
++	}
++	if( MetadataExtent == 0 ) return DXArchive::SOURCE_RESULT_FORMAT;
++
++	u64 EncodedExtent;
++	if( HeaderCompressed == false )
++	{
++		if( HeadSize > MetadataExtent ) return DXArchive::SOURCE_RESULT_FORMAT;
++		EncodedExtent = HeadSize;
++	}
++	else
++	{
++		EncodedExtent = MetadataExtent;
++		if( EncodedExtent > DXA_METADATA_MAX ) return DXArchive::SOURCE_RESULT_FORMAT;
++	}
++
++	// RAII バッファ。確保失敗は呼び出し元へ伝播する。
++	Out.Bytes.assign( (size_t)HeadSize, 0 );
++
++	DXA_CLASSIC_KEY Classic = {};
++	memcpy( Classic.Key, Key, DXA_KEY_BYTES );
++	DXA_CIPHER Cipher;
++	Cipher.Context   = &Classic;
++	Cipher.Transform = NoKey ? NULL : &DXA_ClassicTransform;
++
++	DXA_SOURCE_READER Reader;
++	Reader.Src         = &Src;
++	Reader.Cipher      = NoKey ? NULL : &Cipher;
++	Reader.Base        = Head.FileNameTableStartAddress;
++	Reader.LogicalBase = 0;
++	Reader.Error       = nullptr;
++	Reader.Failed      = false;
++
++	return DXA_ReadMetadataBlock( Reader, EncodedExtent, HeaderCompressed, Out.Bytes.data(), HeadSize );
++}
++
++// 検証済みレコード一つをファイルシステムへ展開する( DirectoryDecode の各レコード処理 )
++int DXArchive::DecodeRecordToFileSystem( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD *Head, FILE *ArcP,
++	unsigned char *Key, const char *KeyString, size_t KeyStringBytes, bool NoKey, char *KeyStringBuffer,
++	const DXArchive::EntryRecord &Record )
++{
++	(void)Key;
++
++	if( Record.IsDirectory )
++	{
++		TCHAR *pDirName = DXA_RawNameToTCHAR( Record.Path, Record.PathBytes );
++		CreateDirectory( pDirName, NULL );
++		delete[] pDirName;
++		return 0;
++	}
++
++	DARC_FILEHEAD *File       = const_cast<DARC_FILEHEAD *>( Record.FileHead );
++	DARC_DIRECTORY *OwningDir = const_cast<DARC_DIRECTORY *>( Record.Directory );
++
++	FILE *DestP;
++
++	// ファイルを開く
++	TCHAR *pName = DXA_RawNameToTCHAR( Record.Path, Record.PathBytes );
++
++	DestP = _tfopen( pName, TEXT("wb") );
++	unsigned char lKey[DXA_KEY_BYTES] = {};
++	size_t KeyStringBufferBytes = 0;
++	// ファイル個別の鍵を作成
++	if( NoKey == false )
++	{
++		KeyStringBufferBytes = CreateKeyFileString( (int)Head->CharCodeFormat, KeyString, KeyStringBytes, OwningDir, File, FileP, DirP, NameP, (BYTE *)KeyStringBuffer );
++		KeyCreate( KeyStringBuffer, KeyStringBufferBytes, lKey );
++	}
++	(void)KeyStringBufferBytes;
++
++	delete[] pName;
++
++	// データがある場合のみ転送する。圧縮 / 非圧縮のボディ分岐は共有の有界コーデックが担う。
++	if( File->DataSize != 0 )
++	{
++		DXA_BODY_PLAN Plan;
++		if( DXA_ComputeBodyPlan( File->DataSize, File->PressDataSize, File->HuffPressDataSize, Head->HuffmanEncodeKB, Plan ) != 0 )
++		{
++			fclose( DestP );
++			return -1;
++		}
++
++		// ファイル個別の鍵があれば、操作ローカルの古典鍵として共有展開器へ渡す。
++		DXA_CLASSIC_KEY Classic = {};
++		DXA_CIPHER Cipher;
++		Cipher.Context   = &Classic;
++		Cipher.Transform = NULL;
++		if( NoKey == false )
++		{
++			memcpy( Classic.Key, lKey, DXA_KEY_BYTES );
++			Cipher.Transform = &DXA_ClassicTransform;
++		}
++
++		DXArchive::Source FileSource;
++		FileSource.read_at = [ArcP]( s64 Offset, void *Destination, size_t Size ) -> bool
++		{
++			if( Size == 0 ) return true;
++			if( _fseeki64( ArcP, Offset, SEEK_SET ) != 0 ) return false;
++			return fread( Destination, 1, Size, ArcP ) == Size;
++		};
++
++		DXA_SOURCE_READER Reader;
++		Reader.Src         = &FileSource;
++		Reader.Cipher      = NoKey ? NULL : &Cipher;
++		Reader.Base        = (u64)( Head->DataStartAddress + File->DataAddress );
++		Reader.LogicalBase = File->DataSize;
++		Reader.Error       = nullptr;
++		Reader.Failed      = false;
++
++		const std::function<int( const void *, size_t )> OutputSink =
++			[DestP]( const void *Data, size_t Size ) -> int
++			{
++				fwrite64( const_cast<void *>( Data ), (s64)Size, DestP );
++				return 0;
++			};
++
++		const int DecodeResult = DXA_DecodeBodyStream( Reader, Plan, OutputSink, {} );
++		if( DecodeResult != SOURCE_RESULT_OK )
++		{
++			fclose( DestP );
++			return -1;
++		}
++	}
++
++	// ファイルを閉じる
++	fclose( DestP );
++
++	//////////////////////////////
++	///// Remove Unpack Protection
++	const std::vector<std::wstring> UNPACK_PROTECTION_FILES = { L"game.dat", L"cdatabase.dat", L"database.dat", L"commonevent.dat" };
++	const uint8_t ANTI_UNPACK_DATA[62]                      = { 0x45, 0x78, 0x74, 0x72, 0x61, 0x63, 0x74, 0x69, 0x6E, 0x67, 0x20, 0x64, 0x61, 0x74, 0x61, 0x20, 0x66, 0x72, 0x6F, 0x6D, 0x20, 0x65, 0x6E, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x20, 0x66, 0x69, 0x6C, 0x65, 0x73, 0x20, 0x76, 0x69, 0x6F, 0x6C, 0x61, 0x74, 0x65, 0x73, 0x20, 0x74, 0x68, 0x65, 0x20, 0x67, 0x75, 0x69, 0x64, 0x65, 0x6C, 0x69, 0x6E, 0x65, 0x73, 0x2E, 0x00 };
++	const uint32_t ANTI_UNPACK_DATA_SIZE                    = 62;
++
++	TCHAR *pBareName = DXA_RawNameToTCHAR( Record.Name, Record.NameBytes );
++
++	std::wstring fileName = std::wstring( pBareName );
++	std::transform( fileName.begin(), fileName.end(), fileName.begin(), ::tolower );
++
++	// As I am not sure if the file name will contain only the actual file name or also a directory
++	// check if the file name ends with any of the unpack protection files
++	bool isUnpackProtectionFile = false;
++
++	for( const std::wstring &unpackProtectionFile : UNPACK_PROTECTION_FILES )
++	{
++		if( fileName.ends_with( unpackProtectionFile ) )
++		{
++			isUnpackProtectionFile = true;
++			break;
++		}
++	}
++
++	delete[] pBareName;
++
++	if( isUnpackProtectionFile )
++	{
++		TCHAR *pProtectName = DXA_RawNameToTCHAR( Record.Path, Record.PathBytes );
++
++		DestP = _tfopen( pProtectName, TEXT("rb") );
++
++		// Get the file size
++		_fseeki64( DestP, 0, SEEK_END );
++		int64_t fileSize = _ftelli64( DestP );
++
++		if( fileSize >= ANTI_UNPACK_DATA_SIZE )
++		{
++			// Check if the file begins with the anti-unpack data
++			_fseeki64( DestP, 0, SEEK_SET );
++
++			void *pFileBeginning = malloc( ANTI_UNPACK_DATA_SIZE );
++			fread64( pFileBeginning, ANTI_UNPACK_DATA_SIZE, DestP );
++
++			if( pFileBeginning && std::memcmp( pFileBeginning, ANTI_UNPACK_DATA, ANTI_UNPACK_DATA_SIZE ) == 0 )
++			{
++				fileSize -= ANTI_UNPACK_DATA_SIZE;
++
++				// Remove the first 62 bytes from the file
++				_fseeki64( DestP, ANTI_UNPACK_DATA_SIZE, SEEK_SET );
++
++				std::vector<uint8_t> buffer( fileSize );
++				fread64( buffer.data(), fileSize, DestP );
++				fclose( DestP );
++
++				DestP = _tfopen( pProtectName, TEXT("wb") );
++
++				fwrite64( buffer.data(), fileSize, DestP );
++			}
++
++			free( pFileBeginning );
++		}
++
++		fclose( DestP );
++
++		delete[] pProtectName;
++	}
++
++	///// Remove Unpack Protection
++	//////////////////////////////
++
++	// ファイルのタイムスタンプを設定する
++	{
++		HANDLE HFile;
++		FILETIME CreateTime, LastAccessTime, LastWriteTime;
++		TCHAR *pTimeName = DXA_RawNameToTCHAR( Record.Path, Record.PathBytes );
++		HFile        = CreateFile( pTimeName,
++								  GENERIC_WRITE, 0, NULL,
++								  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
++		delete[] pTimeName;
++
++		CreateTime.dwHighDateTime     = (u32)( File->Time.Create >> 32 );
++		CreateTime.dwLowDateTime      = (u32)( File->Time.Create & 0xffffffffffffffff );
++		LastAccessTime.dwHighDateTime = (u32)( File->Time.LastAccess >> 32 );
++		LastAccessTime.dwLowDateTime  = (u32)( File->Time.LastAccess & 0xffffffffffffffff );
++		LastWriteTime.dwHighDateTime  = (u32)( File->Time.LastWrite >> 32 );
++		LastWriteTime.dwLowDateTime   = (u32)( File->Time.LastWrite & 0xffffffffffffffff );
++		SetFileTime( HFile, &CreateTime, &LastAccessTime, &LastWriteTime );
++		CloseHandle( HFile );
++	}
++
++	// ファイル属性を付ける
++	{
++		TCHAR *pAttrName = DXA_RawNameToTCHAR( Record.Path, Record.PathBytes );
++		SetFileAttributes( pAttrName, (u32)File->Attributes & ~( FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN ) );
++		delete[] pAttrName;
++	}
++
++	return 0;
++}
++
+ // class code -------------------------
+ 
+ // ファイル名も一緒になっていると分かっているパス中からファイルパスとディレクトリパスを分割する
+@@ -1020,364 +1896,108 @@ int DXArchive::DirectoryEncode(int CharCodeFormat, TCHAR *DirectoryName, u8 *Nam
+ 							}
+ 
+ 							// メモリの解放
+-							free(SrcBuf);
+-							free(HuffData);
+-						}
+-						else
+-						{
+-							// 転送開始
+-							WriteSize = 0;
+-							while (WriteSize < FileSize)
+-							{
+-								// 転送サイズ決定
+-								MoveSize = DXA_BUFFERSIZE < FileSize - WriteSize ? DXA_BUFFERSIZE : FileSize - WriteSize;
+-								MoveSize = (MoveSize + 3) / 4 * 4; // サイズは４の倍数に合わせる
+-
+-								// ファイルの鍵適用読み込み
+-								memset(TempBuffer, 0, (size_t)MoveSize);
+-								KeyConvFileRead(TempBuffer, MoveSize, SrcP, NoKey ? NULL : lKey, File.DataSize + WriteSize);
+-
+-								// 書き出し
+-								fwrite64(TempBuffer, MoveSize, DestFp);
+-
+-								// 書き出しサイズの加算
+-								WriteSize += MoveSize;
+-							}
+-						}
+-					}
+-
+-					// 書き出したファイルを閉じる
+-					fclose(SrcP);
+-
+-					// データサイズの加算
+-					Size->DataSize += WriteSize;
+-				}
+-
+-				// ファイルヘッダを書き出す
+-				memcpy(FileP + Dir.FileHeadAddress + sizeof(DARC_FILEHEAD) * i, &File, sizeof(DARC_FILEHEAD));
+-			}
+-
+-			i++;
+-		} while (FindNextFile(FindHandle, &FindData) != 0);
+-
+-		// Find ハンドルを閉じる
+-		FindClose(FindHandle);
+-	}
+-
+-	// もとのディレクトリをカレントディレクトリにセット
+-	SetCurrentDirectory(DirPath);
+-
+-	// 終了
+-	return 0;
+-}
+-
+-// 指定のディレクトリデータにあるファイルを展開する
+-int DXArchive::DirectoryDecode(u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD *Head, DARC_DIRECTORY *Dir, FILE *ArcP, unsigned char *Key, const char *KeyString, size_t KeyStringBytes, bool NoKey, char *KeyStringBuffer)
+-{
+-	TCHAR DirPath[MAX_PATH];
+-
+-	// 現在のカレントディレクトリを保存
+-	GetCurrentDirectory(MAX_PATH, DirPath);
+-
+-	// ディレクトリ情報がある場合は、まず展開用のディレクトリを作成する
+-	if (Dir->DirectoryAddress != 0xffffffffffffffff && Dir->ParentDirectoryAddress != 0xffffffffffffffff)
+-	{
+-		DARC_FILEHEAD *DirFile;
+-
+-		// DARC_FILEHEAD のアドレスを取得
+-		DirFile = (DARC_FILEHEAD *)(FileP + Dir->DirectoryAddress);
+-
+-		// ディレクトリの作成
+-		TCHAR *pName = GetOriginalFileName(NameP + DirFile->NameAddress);
+-		CreateDirectory(pName, NULL);
+-		delete[] pName;
+-
+-		// そのディレクトリにカレントディレクトリを移す
+-		pName = GetOriginalFileName(NameP + DirFile->NameAddress);
+-		SetCurrentDirectory(pName);
+-		delete[] pName;
+-	}
+-
+-	// 展開処理開始
+-	{
+-		u32 i, FileHeadSize;
+-		DARC_FILEHEAD *File;
+-		size_t KeyStringBufferBytes;
+-		unsigned char lKey[DXA_KEY_BYTES];
+-
+-		// 格納されているファイルの数だけ繰り返す
+-		FileHeadSize = sizeof(DARC_FILEHEAD);
+-		File         = (DARC_FILEHEAD *)(FileP + Dir->FileHeadAddress);
+-		for (i = 0; i < Dir->FileHeadNum; i++, File = (DARC_FILEHEAD *)((u8 *)File + FileHeadSize))
+-		{
+-			// ディレクトリかどうかで処理を分岐
+-			if (File->Attributes & FILE_ATTRIBUTE_DIRECTORY)
+-			{
+-				// ディレクトリの場合は再帰をかける
+-				DirectoryDecode(NameP, DirP, FileP, Head, (DARC_DIRECTORY *)(DirP + File->DataAddress), ArcP, Key, KeyString, KeyStringBytes, NoKey, KeyStringBuffer);
+-			}
+-			else
+-			{
+-				FILE *DestP;
+-				void *Buffer;
+-
+-				// ファイルの場合は展開する
+-
+-				// バッファを確保する
+-				Buffer = malloc(DXA_BUFFERSIZE);
+-				if (Buffer == NULL) return -1;
+-
+-				// ファイルを開く
+-				TCHAR *pName = GetOriginalFileName(NameP + File->NameAddress);
+-
+-				DestP = _tfopen(pName, TEXT("wb"));
+-				// ファイル個別の鍵を作成
+-				if (NoKey == false)
+-				{
+-					KeyStringBufferBytes = CreateKeyFileString((int)Head->CharCodeFormat, KeyString, KeyStringBytes, Dir, File, FileP, DirP, NameP, (BYTE *)KeyStringBuffer);
+-					KeyCreate(KeyStringBuffer, KeyStringBufferBytes, lKey);
+-				}
+-
+-				delete[] pName;
+-
+-				// データがある場合のみ転送
+-				if (File->DataSize != 0)
+-				{
+-					void *temp;
+-
+-					// 初期位置をセットする
+-					if (_ftelli64(ArcP) != (s32)(Head->DataStartAddress + File->DataAddress))
+-						_fseeki64(ArcP, Head->DataStartAddress + File->DataAddress, SEEK_SET);
+-
+-					// データが圧縮されているかどうかで処理を分岐
+-					if (File->PressDataSize != 0xffffffffffffffff)
+-					{
+-						// 圧縮されている場合
+-
+-						// ハフマン圧縮もされているかどうかで処理を分岐
+-						if (File->HuffPressDataSize != 0xffffffffffffffff)
+-						{
+-							// 圧縮データが収まるメモリ領域の確保
+-							temp = malloc((size_t)(File->PressDataSize + File->HuffPressDataSize + File->DataSize));
+-
+-							// 圧縮データの読み込み
+-							KeyConvFileRead(temp, File->HuffPressDataSize, ArcP, NoKey ? NULL : lKey, File->DataSize);
+-
+-							// ハフマン圧縮を解凍
+-							Huffman_Decode(temp, (u8 *)temp + File->HuffPressDataSize);
+-
+-							// ファイルの前後をハフマン圧縮している場合は処理を分岐
+-							if (Head->HuffmanEncodeKB != 0xff && File->PressDataSize > Head->HuffmanEncodeKB * 1024 * 2)
+-							{
+-								// 解凍したデータの内、後ろ半分を移動する
+-								memmove(
+-									(u8 *)temp + File->HuffPressDataSize + File->PressDataSize - Head->HuffmanEncodeKB * 1024,
+-									(u8 *)temp + File->HuffPressDataSize + Head->HuffmanEncodeKB * 1024,
+-									Head->HuffmanEncodeKB * 1024);
+-
+-								// 残りのLZ圧縮データを読み込む
+-								KeyConvFileRead(
+-									(u8 *)temp + File->HuffPressDataSize + Head->HuffmanEncodeKB * 1024,
+-									File->PressDataSize - Head->HuffmanEncodeKB * 1024 * 2,
+-									ArcP, NoKey ? NULL : lKey, File->DataSize + File->HuffPressDataSize);
+-							}
+-
+-							// 解凍
+-							Decode((u8 *)temp + File->HuffPressDataSize, (u8 *)temp + File->HuffPressDataSize + File->PressDataSize);
+-
+-							// 書き出し
+-							fwrite64((u8 *)temp + File->HuffPressDataSize + File->PressDataSize, File->DataSize, DestP);
+-
+-							// メモリの解放
+-							free(temp);
+-						}
+-						else
+-						{
+-							// 圧縮データが収まるメモリ領域の確保
+-							temp = malloc((size_t)(File->PressDataSize + File->DataSize));
+-
+-							// 圧縮データの読み込み
+-							KeyConvFileRead(temp, File->PressDataSize, ArcP, NoKey ? NULL : lKey, File->DataSize);
+-
+-							// 解凍
+-							Decode(temp, (u8 *)temp + File->PressDataSize);
+-
+-							// 書き出し
+-							fwrite64((u8 *)temp + File->PressDataSize, File->DataSize, DestP);
+-
+-							// メモリの解放
+-							free(temp);
+-						}
+-					}
+-					else
+-					{
+-						// 圧縮されていない場合
+-
+-						// ハフマン圧縮はされているかどうかで処理を分岐
+-						if (File->HuffPressDataSize != 0xffffffffffffffff)
+-						{
+-							// 圧縮データが収まるメモリ領域の確保
+-							temp = malloc((size_t)(File->HuffPressDataSize + File->DataSize));
+-
+-							// 圧縮データの読み込み
+-							KeyConvFileRead(temp, File->HuffPressDataSize, ArcP, NoKey ? NULL : lKey, File->DataSize);
+-
+-							// ハフマン圧縮を解凍
+-							Huffman_Decode(temp, (u8 *)temp + File->HuffPressDataSize);
+-
+-							// ファイルの前後のみハフマン圧縮している場合は処理を分岐
+-							if (Head->HuffmanEncodeKB != 0xff && File->DataSize > Head->HuffmanEncodeKB * 1024 * 2)
+-							{
+-								// 解凍したデータの内、後ろ半分を移動する
+-								memmove(
+-									(u8 *)temp + File->HuffPressDataSize + File->DataSize - Head->HuffmanEncodeKB * 1024,
+-									(u8 *)temp + File->HuffPressDataSize + Head->HuffmanEncodeKB * 1024,
+-									Head->HuffmanEncodeKB * 1024);
+-
+-								// 残りのデータを読み込む
+-								KeyConvFileRead(
+-									(u8 *)temp + File->HuffPressDataSize + Head->HuffmanEncodeKB * 1024,
+-									File->DataSize - Head->HuffmanEncodeKB * 1024 * 2,
+-									ArcP, NoKey ? NULL : lKey, File->DataSize + File->HuffPressDataSize);
+-							}
+-
+-							// 書き出し
+-							fwrite64((u8 *)temp + File->HuffPressDataSize, File->DataSize, DestP);
+-
+-							// メモリの解放
+-							free(temp);
++							free(SrcBuf);
++							free(HuffData);
+ 						}
+ 						else
+ 						{
+-							u64 MoveSize, WriteSize;
+-
+-							// 転送処理開始
++							// 転送開始
+ 							WriteSize = 0;
+-							while (WriteSize < File->DataSize)
++							while (WriteSize < FileSize)
+ 							{
+-								MoveSize = File->DataSize - WriteSize > DXA_BUFFERSIZE ? DXA_BUFFERSIZE : File->DataSize - WriteSize;
++								// 転送サイズ決定
++								MoveSize = DXA_BUFFERSIZE < FileSize - WriteSize ? DXA_BUFFERSIZE : FileSize - WriteSize;
++								MoveSize = (MoveSize + 3) / 4 * 4; // サイズは４の倍数に合わせる
+ 
+-								// ファイルの反転読み込み
+-								KeyConvFileRead(Buffer, MoveSize, ArcP, NoKey ? NULL : lKey, File->DataSize + WriteSize);
++								// ファイルの鍵適用読み込み
++								memset(TempBuffer, 0, (size_t)MoveSize);
++								KeyConvFileRead(TempBuffer, MoveSize, SrcP, NoKey ? NULL : lKey, File.DataSize + WriteSize);
+ 
+ 								// 書き出し
+-								fwrite64(Buffer, MoveSize, DestP);
++								fwrite64(TempBuffer, MoveSize, DestFp);
+ 
++								// 書き出しサイズの加算
+ 								WriteSize += MoveSize;
+ 							}
+ 						}
+ 					}
+-				}
+-
+-				// ファイルを閉じる
+-				fclose(DestP);
+-
+-				// バッファを開放する
+-				free(Buffer);
+ 
+-				//////////////////////////////
+-				///// Remove Unpack Protection
+-				const std::vector<std::wstring> UNPACK_PROTECTION_FILES = { L"game.dat", L"cdatabase.dat", L"database.dat", L"commonevent.dat" };
+-				const uint8_t ANTI_UNPACK_DATA[62]                      = { 0x45, 0x78, 0x74, 0x72, 0x61, 0x63, 0x74, 0x69, 0x6E, 0x67, 0x20, 0x64, 0x61, 0x74, 0x61, 0x20, 0x66, 0x72, 0x6F, 0x6D, 0x20, 0x65, 0x6E, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x20, 0x66, 0x69, 0x6C, 0x65, 0x73, 0x20, 0x76, 0x69, 0x6F, 0x6C, 0x61, 0x74, 0x65, 0x73, 0x20, 0x74, 0x68, 0x65, 0x20, 0x67, 0x75, 0x69, 0x64, 0x65, 0x6C, 0x69, 0x6E, 0x65, 0x73, 0x2E, 0x00 };
+-				const uint32_t ANTI_UNPACK_DATA_SIZE                    = 62;
+-
+-				pName = GetOriginalFileName(NameP + File->NameAddress);
+-
+-				std::wstring fileName = std::wstring(pName);
+-				std::transform(fileName.begin(), fileName.end(), fileName.begin(), ::tolower);
+-
+-				// As I am not sure if the file name will contain only the actual file name or also a directory
+-				// check if the file name ends with any of the unpack protection files
+-				bool isUnpackProtectionFile = false;
++					// 書き出したファイルを閉じる
++					fclose(SrcP);
+ 
+-				for (const std::wstring &unpackProtectionFile : UNPACK_PROTECTION_FILES)
+-				{
+-					if (fileName.ends_with(unpackProtectionFile))
+-					{
+-						isUnpackProtectionFile = true;
+-						break;
+-					}
++					// データサイズの加算
++					Size->DataSize += WriteSize;
+ 				}
+ 
+-				if (isUnpackProtectionFile)
+-				{
+-					DestP = _tfopen(pName, TEXT("rb"));
+-
+-					// Get the file size
+-					_fseeki64(DestP, 0, SEEK_END);
+-					int64_t fileSize = _ftelli64(DestP);
+-
+-					if (fileSize >= ANTI_UNPACK_DATA_SIZE)
+-					{
+-						// Check if the file begins with the anti-unpack data
+-						_fseeki64(DestP, 0, SEEK_SET);
+-
+-						void *pFileBeginning = malloc(ANTI_UNPACK_DATA_SIZE);
+-						fread64(pFileBeginning, ANTI_UNPACK_DATA_SIZE, DestP);
+-
+-						if (pFileBeginning && std::memcmp(pFileBeginning, ANTI_UNPACK_DATA, ANTI_UNPACK_DATA_SIZE) == 0)
+-						{
+-							fileSize -= ANTI_UNPACK_DATA_SIZE;
++				// ファイルヘッダを書き出す
++				memcpy(FileP + Dir.FileHeadAddress + sizeof(DARC_FILEHEAD) * i, &File, sizeof(DARC_FILEHEAD));
++			}
+ 
+-							// Remove the first 62 bytes from the file
+-							_fseeki64(DestP, ANTI_UNPACK_DATA_SIZE, SEEK_SET);
++			i++;
++		} while (FindNextFile(FindHandle, &FindData) != 0);
+ 
+-							std::vector<uint8_t> buffer(fileSize);
+-							fread64(buffer.data(), fileSize, DestP);
+-							fclose(DestP);
++		// Find ハンドルを閉じる
++		FindClose(FindHandle);
++	}
+ 
+-							DestP = _tfopen(pName, TEXT("wb"));
++	// もとのディレクトリをカレントディレクトリにセット
++	SetCurrentDirectory(DirPath);
+ 
+-							fwrite64(buffer.data(), fileSize, DestP);
+-						}
++	// 終了
++	return 0;
++}
+ 
+-						free(pFileBeginning);
+-					}
++// 指定のディレクトリデータにあるファイルを展開する
++int DXArchive::DirectoryDecode(u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD *Head, DARC_DIRECTORY *Dir, FILE *ArcP, unsigned char *Key, const char *KeyString, size_t KeyStringBytes, bool NoKey, char *KeyStringBuffer)
++{
++	TCHAR DirPath[MAX_PATH];
+ 
+-					fclose(DestP);
+-				}
++	// 現在のカレントディレクトリを保存
++	GetCurrentDirectory(MAX_PATH, DirPath);
+ 
+-				delete[] pName;
++	// ディレクトリ情報がある場合は、まず展開用のディレクトリを作成する
++	if (Dir->DirectoryAddress != 0xffffffffffffffff && Dir->ParentDirectoryAddress != 0xffffffffffffffff)
++	{
++		DARC_FILEHEAD *DirFile;
+ 
+-				///// Remove Unpack Protection
+-				//////////////////////////////
++		// DARC_FILEHEAD のアドレスを取得
++		DirFile = (DARC_FILEHEAD *)(FileP + Dir->DirectoryAddress);
+ 
+-				// ファイルのタイムスタンプを設定する
+-				{
+-					HANDLE HFile;
+-					FILETIME CreateTime, LastAccessTime, LastWriteTime;
+-					TCHAR *pName = GetOriginalFileName(NameP + File->NameAddress);
+-					HFile        = CreateFile(pName,
+-											  GENERIC_WRITE, 0, NULL,
+-											  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+-					delete[] pName;
+-
+-					if (HFile == INVALID_HANDLE_VALUE)
+-					{
+-						HFile = HFile;
+-					}
++		// ディレクトリの作成
++		TCHAR *pName = GetOriginalFileName(NameP + DirFile->NameAddress);
++		CreateDirectory(pName, NULL);
++		delete[] pName;
+ 
+-					CreateTime.dwHighDateTime     = (u32)(File->Time.Create >> 32);
+-					CreateTime.dwLowDateTime      = (u32)(File->Time.Create & 0xffffffffffffffff);
+-					LastAccessTime.dwHighDateTime = (u32)(File->Time.LastAccess >> 32);
+-					LastAccessTime.dwLowDateTime  = (u32)(File->Time.LastAccess & 0xffffffffffffffff);
+-					LastWriteTime.dwHighDateTime  = (u32)(File->Time.LastWrite >> 32);
+-					LastWriteTime.dwLowDateTime   = (u32)(File->Time.LastWrite & 0xffffffffffffffff);
+-					SetFileTime(HFile, &CreateTime, &LastAccessTime, &LastWriteTime);
+-					CloseHandle(HFile);
+-				}
++		// そのディレクトリにカレントディレクトリを移す
++		pName = GetOriginalFileName(NameP + DirFile->NameAddress);
++		SetCurrentDirectory(pName);
++		delete[] pName;
++	}
+ 
+-				// ファイル属性を付ける
+-				pName = GetOriginalFileName(NameP + File->NameAddress);
+-				SetFileAttributes(pName, (u32)File->Attributes & ~(FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN));
+-				delete[] pName;
+-			}
++	// 走査カーネルのボディ範囲検証に使う物理サイズを取得する
++	u64 PhysicalSize = 0;
++	{
++		const s64 Current = _ftelli64(ArcP);
++		if (_fseeki64(ArcP, 0, SEEK_END) == 0)
++		{
++			const s64 End = _ftelli64(ArcP);
++			if (End > 0) PhysicalSize = (u64)End;
+ 		}
++		if (Current >= 0) _fseeki64(ArcP, Current, SEEK_SET);
+ 	}
+ 
++	// 共有の検証済み走査カーネルでレコードを列挙し、ファイルシステムへ展開する
++	const int WalkResult = WalkEntryRecords(NameP, DirP, FileP, Head, PhysicalSize,
++		[&](const EntryRecord &Record) -> int
++		{
++			return DecodeRecordToFileSystem(NameP, DirP, FileP, Head, ArcP, Key, KeyString, KeyStringBytes, NoKey, KeyStringBuffer, Record);
++		});
++
+ 	// カレントディレクトリを元に戻す
+ 	SetCurrentDirectory(DirPath);
+ 
++	if (WalkResult != 0) return -1;
++
+ 	// 終了
+ 	return 0;
+ }
+@@ -1621,13 +2241,14 @@ int DXArchive::Encode(void *Src, u32 SrcSize, void *Dest, bool OutStatus, bool M
+ 	}
+ 
+ 	// 圧縮元のサイズをセット
+-	((u32 *)destp)[0] = SrcSize;
++	// サイズ照会( Dest == NULL )では出力へ書き込まない。Huffman_Encode / Decode と同じ契約。
++	if (destp != NULL) ((u32 *)destp)[0] = SrcSize;
+ 
+ 	// キーコードをセット
+-	destp[8] = keycode;
++	if (destp != NULL) destp[8] = keycode;
+ 
+ 	// 圧縮処理
+-	dp               = destp + 9;
++	dp               = (destp != NULL) ? destp + 9 : destp;
+ 	sp               = srcp;
+ 	srcaddress       = 0;
+ 	dstsize          = 0;
+@@ -1869,7 +2490,7 @@ int DXArchive::Encode(void *Src, u32 SrcSize, void *Dest, bool OutStatus, bool M
+ 	}
+ 
+ 	// 圧縮後のデータサイズを保存する
+-	*((u32 *)&destp[4]) = dstsize + 9;
++	if (destp != NULL) *((u32 *)&destp[4]) = dstsize + 9;
+ 
+ 	// 確保したメモリの解放
+ 	free(usesublistflagtable);
+@@ -2716,6 +3337,7 @@ int DXArchive::DecodeArchive(TCHAR *ArchiveName, const TCHAR *OutputPath, const
+ 	size_t KeyStringBytes;
+ 	char KeyStringBuffer[DXA_KEY_STRING_MAXLENGTH];
+ 	bool NoKey;
++	DXA_METADATA Meta;
+ 
+ 	// 鍵文字列の保存と鍵の作成
+ 	{
+@@ -2849,56 +3471,23 @@ int DXArchive::DecodeArchive(TCHAR *ArchiveName, const TCHAR *OutputPath, const
+ 		// 鍵処理が行われていないかを取得する
+ 		NoKey = (Head.Flags & DXA_FLAG_NO_KEY) != 0;
+ 
+-		// ヘッダのサイズ分のメモリを確保する
+-		HeadBuffer = (u8 *)malloc((size_t)Head.HeadSize);
+-		if (HeadBuffer == NULL) goto ERR;
+-
+-		// ヘッダが圧縮されている場合は解凍する
+-		if ((Head.Flags & DXA_FLAG_NO_HEAD_PRESS) != 0)
+-		{
+-			// 圧縮されていない場合は普通に読み込む
+-			KeyConvFileRead(HeadBuffer, Head.HeadSize, ArcP, NoKey ? NULL : Key, 0);
+-		}
+-		else
++		// メタデータブロック( 範囲確定・確保・復号 )は共有の有界所有者へ委譲する。
+ 		{
+-			void *HuffHeadBuffer;
+-			u64 HuffHeadSize;
+-			void *LzHeadBuffer;
+-			u64 LzHeadSize;
+-
+-			// ハフマン圧縮されたヘッダのサイズを取得する
+ 			_fseeki64(ArcP, 0, SEEK_END);
+ 			FileSize = _ftelli64(ArcP);
+-			_fseeki64(ArcP, Head.FileNameTableStartAddress, SEEK_SET);
+-			HuffHeadSize = (u32)(FileSize - _ftelli64(ArcP));
+-
+-			// ハフマン圧縮されたヘッダを読み込むメモリを確保する
+-			HuffHeadBuffer = malloc((size_t)HuffHeadSize);
+-			if (HuffHeadBuffer == NULL) goto ERR;
+-
+-			// ハフマン圧縮されたヘッダをコピーと暗号化解除
+-			KeyConvFileRead(HuffHeadBuffer, HuffHeadSize, ArcP, NoKey ? NULL : Key, 0);
+-
+-			// ハフマン圧縮されたヘッダの解凍後の容量を取得する
+-			LzHeadSize = Huffman_Decode(HuffHeadBuffer, NULL);
++			if (FileSize <= 0) goto ERR;
+ 
+-			// ハフマン圧縮されたヘッダの解凍後のデータを格納するメモリ用域の確保
+-			LzHeadBuffer = malloc((size_t)LzHeadSize);
+-			if (LzHeadBuffer == NULL)
++			DXArchive::Source ArcSource;
++			ArcSource.read_at = [ArcP]( s64 Offset, void *Destination, size_t Size ) -> bool
+ 			{
+-				free(HuffHeadBuffer);
+-				goto ERR;
+-			}
+-
+-			// ハフマン圧縮されたヘッダを解凍する
+-			Huffman_Decode(HuffHeadBuffer, LzHeadBuffer);
+-
+-			// LZ圧縮されたヘッダを解凍する
+-			Decode(LzHeadBuffer, HeadBuffer);
+-
+-			// メモリの解放
+-			free(HuffHeadBuffer);
+-			free(LzHeadBuffer);
++				if( Size == 0 ) return true;
++				if( _fseeki64( ArcP, Offset, SEEK_SET ) != 0 ) return false;
++				return fread( Destination, 1, Size, ArcP ) == Size;
++			};
++
++			const int MetadataResult = DXA_LoadMetadata( ArcSource, Head, (u64)FileSize, Key, NoKey, Meta );
++			if (MetadataResult != SOURCE_RESULT_OK) goto ERR;
++			HeadBuffer = Meta.Bytes.data();
+ 		}
+ 
+ 		// 各アドレスをセットする
+@@ -2913,9 +3502,6 @@ int DXArchive::DecodeArchive(TCHAR *ArchiveName, const TCHAR *OutputPath, const
+ 	// ファイルを閉じる
+ 	fclose(ArcP);
+ 
+-	// ヘッダを読み込んでいたメモリを解放する
+-	free(HeadBuffer);
+-
+ 	if (g_newCrypt)
+ 	{
+ 		// Remove the decrypted file
+@@ -2929,7 +3515,6 @@ int DXArchive::DecodeArchive(TCHAR *ArchiveName, const TCHAR *OutputPath, const
+ 	return 0;
+ 
+ ERR:
+-	if (HeadBuffer != NULL) free(HeadBuffer);
+ 	if (ArcP != NULL) fclose(ArcP);
+ 
+ 	// カレントディレクトリを元に戻す
+@@ -2947,6 +3532,7 @@ DXArchive::DXArchive(TCHAR *ArchivePath)
+ 	this->NameP = this->DirP = this->FileP = NULL;
+ 	this->CurrentDirectory                 = NULL;
+ 	this->CacheBuffer                      = NULL;
++	this->PhysicalSize                     = 0;
+ 
+ 	if (ArchivePath != NULL)
+ 	{
+@@ -2960,7 +3546,7 @@ DXArchive::~DXArchive()
+ 	if (this->fp != NULL) this->CloseArchiveFile();
+ 
+ 	if (this->fp != NULL) fclose(this->fp);
+-	if (this->HeadBuffer != NULL) free(this->HeadBuffer);
++	this->HeadStorage.clear();
+ 	if (this->CacheBuffer != NULL) free(this->CacheBuffer);
+ 
+ 	this->fp         = NULL;
+@@ -3044,26 +3630,23 @@ int DXArchive::DirectoryKeyConv(DARC_DIRECTORY *Dir, char *KeyStringBuffer)
+ 	return 0;
+ }
+ 
+-// アーカイブファイルを開く
+-int DXArchive::OpenArchiveFile(const TCHAR *ArchivePath, const char *KeyString_)
++// バイトソースからヘッダとテーブルを解析する( OpenArchiveFile と OpenArchiveSource が共有する )
++int DXArchive::ParseMetadata( const Source &Src, const char *KeyString_, bool DecodeHeader )
+ {
+-	// 既になんらかのアーカイブを開いていた場合はエラー
+-	if (this->fp != NULL) return -1;
+-
+-	// アーカイブファイルを開こうと試みる
+-	this->fp = _tfopen(ArchivePath, TEXT("rb"));
+-	if (this->fp == NULL) return -1;
++	// 既にメタデータを読み込んでいた場合はエラー
++	if( this->HeadBuffer != NULL ) return SOURCE_RESULT_FORMAT;
++	if( !Src.physical_size || !Src.read_at ) return SOURCE_RESULT_SOURCE;
+ 
+ 	// 鍵文字列の保存と鍵の作成
+ 	{
+ 		// 指定が無い場合はデフォルトの鍵文字列を使用する
+-		if (KeyString_ == NULL)
++		if( KeyString_ == NULL )
+ 		{
+ 			KeyString_ = DefaultKeyString;
+ 		}
+ 
+ 		KeyStringBytes = CL_strlen(CHARCODEFORMAT_ASCII, KeyString_);
+-		if (KeyStringBytes > DXA_KEY_STRING_LENGTH)
++		if( KeyStringBytes > DXA_KEY_STRING_LENGTH )
+ 		{
+ 			KeyStringBytes = DXA_KEY_STRING_LENGTH;
+ 		}
+@@ -3074,106 +3657,382 @@ int DXArchive::OpenArchiveFile(const TCHAR *ArchivePath, const char *KeyString_)
+ 		KeyCreate(KeyString, KeyStringBytes, Key);
+ 	}
+ 
+-	// ヘッダを解析する
++	// ヘッダの読み込み
++	if( !Src.read_at( 0, &this->Head, sizeof( DARC_HEAD ) ) ) return SOURCE_RESULT_SOURCE;
++
++	// ＩＤの検査
++	if( this->Head.Head != DXA_HEAD ) return SOURCE_RESULT_FORMAT;
++
++	// バージョン検査
++	if( this->Head.Version > DXA_VER || this->Head.Version < DXA_VER_MIN ) return SOURCE_RESULT_FORMAT;
++
++	// 鍵処理が行われていないかを取得する
++	this->NoKey = ( this->Head.Flags & DXA_FLAG_NO_KEY ) != 0;
++
++	// 物理サイズの取得
++	const s64 PhysicalSizeSigned = Src.physical_size();
++	if( PhysicalSizeSigned < 0 ) return SOURCE_RESULT_SOURCE;
++	const u64 ArchiveSize = (u64)PhysicalSizeSigned;
++
++	// メタデータブロック( 検証・範囲確定・確保・復号 )は共有の有界所有者へ委譲する。
++	DXA_METADATA Meta;
++	const int MetadataResult = DXA_LoadMetadata( Src, this->Head, ArchiveSize, this->Key, this->NoKey, Meta );
++	if( MetadataResult != SOURCE_RESULT_OK ) return MetadataResult;
++
++	// 所有バッファをクラスへ移し、テーブルポインタはそのビューとする
++	this->HeadStorage = std::move( Meta.Bytes );
++	this->HeadBuffer  = this->HeadStorage.data();
++
++	// 各アドレスをセットする
++	this->NameP = this->HeadBuffer;
++	this->FileP = this->NameP + this->Head.FileTableStartAddress;
++	this->DirP  = this->NameP + this->Head.DirectoryTableStartAddress;
++
++	// カレントディレクトリのセット
++	this->CurrentDirectory = (DARC_DIRECTORY *)this->DirP;
++
++	// メモリイメージから開いている、フラグを倒す
++	MemoryOpenFlag = false;
++	this->PhysicalSize = ArchiveSize;
++
++	// 終了
++	return SOURCE_RESULT_OK;
++}
++
++// 検証済みの深さ優先走査カーネル( DirectoryDecode と WalkEntries が共有する )
++int DXArchive::WalkEntryRecords( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD *Head, u64 PhysicalSize, const std::function<int( const EntryRecord & )> &Visitor )
++{
++	if( Head == NULL || Visitor == nullptr ) return SOURCE_RESULT_FORMAT;
++
++	const u64 MetadataSize   = (u64)Head->HeadSize;
++	const u64 FileTableStart = (u64)Head->FileTableStartAddress;
++	const u64 DirTableStart  = (u64)Head->DirectoryTableStartAddress;
++
++	if( MetadataSize == 0 || MetadataSize > DXA_METADATA_MAX ) return SOURCE_RESULT_FORMAT;
++	if( FileTableStart > MetadataSize || MetadataSize - FileTableStart < sizeof( DARC_FILEHEAD ) ) return SOURCE_RESULT_FORMAT;
++	if( DirTableStart > MetadataSize || MetadataSize - DirTableStart < sizeof( DARC_DIRECTORY ) ) return SOURCE_RESULT_FORMAT;
++
++	// テーブル領域の順序は名前 / ファイル / ディレクトリ。各レコードは自分の領域内に収まること。
++	if( FileTableStart > DirTableStart ) return SOURCE_RESULT_FORMAT;
++
++	// 名前領域はメタデータ先頭からファイルテーブル先頭まで、ファイル領域はファイルテーブル先頭
++	// からディレクトリテーブル先頭まで、ディレクトリ領域はその先からメタデータ末尾まで。
++	const u64 NameTableSpan = FileTableStart;
++	const u64 FileTableSpan = DirTableStart - FileTableStart;
++	const u64 DirTableSpan  = MetadataSize - DirTableStart;
++
++	// ルートディレクトリの自己参照( 0 )と親なし( 0xffffffffffffffff )を検証する
++	if( DXA_LoadU64( DirP + offsetof( DARC_DIRECTORY, DirectoryAddress ) ) != 0 ) return SOURCE_RESULT_FORMAT;
++	if( DXA_LoadU64( DirP + offsetof( DARC_DIRECTORY, ParentDirectoryAddress ) ) != 0xffffffffffffffffULL ) return SOURCE_RESULT_FORMAT;
++
++	// 一つのディレクトリのファイルヘッド列と、まだ読んでいない位置を保持する枠
++	struct DXA_FRAME
+ 	{
+-		// ヘッダの読み込み
+-		fread64(&this->Head, sizeof(DARC_HEAD), this->fp);
++		const u8       *Directory;
++		u64             DirectoryOffset;
++		u64             FileHeadAddress;
++		u64             FileHeadNum;
++		u64             NextIndex;
++		u32             Depth;
++		std::vector<u8> Path;
++	};
++
++	// ファイルヘッド列の範囲を検証する
++	const auto ValidateFrame = [ FileTableSpan ]( u64 FileHeadAddress, u64 FileHeadNum ) -> bool
++	{
++		if( FileHeadNum > DXA_ENTRY_MAX ) return false;
++		if( ( FileHeadAddress % sizeof( DARC_FILEHEAD ) ) != 0 ) return false;
++		if( FileHeadAddress > FileTableSpan ) return false;
++		return FileHeadNum <= ( FileTableSpan - FileHeadAddress ) / sizeof( DARC_FILEHEAD );
++	};
+ 
+-		// ＩＤの検査
+-		if (this->Head.Head != DXA_HEAD)
+-		{
+-			goto ERR;
+-		}
++	std::unordered_set<u64> Visited;
++	std::vector<DXA_FRAME> Stack;
+ 
+-		// バージョン検査
+-		if (this->Head.Version > DXA_VER || this->Head.Version < DXA_VER_MIN) goto ERR;
++	// ディレクトリテーブルのオフセット 0( ルート )を訪問済みにする
++	Visited.insert( 0 );
+ 
+-		// 鍵処理が行われていないかを取得する
+-		this->NoKey = (Head.Flags & DXA_FLAG_NO_KEY) != 0;
++	{
++		DXA_FRAME Root;
++		Root.Directory       = DirP;
++		Root.DirectoryOffset = 0;
++		Root.FileHeadAddress = DXA_LoadU64( DirP + offsetof( DARC_DIRECTORY, FileHeadAddress ) );
++		Root.FileHeadNum     = DXA_LoadU64( DirP + offsetof( DARC_DIRECTORY, FileHeadNum ) );
++		Root.NextIndex       = 0;
++		Root.Depth           = 0;
++		if( !ValidateFrame( Root.FileHeadAddress, Root.FileHeadNum ) ) return SOURCE_RESULT_FORMAT;
++		Stack.push_back( std::move( Root ) );
++	}
+ 
+-		// ヘッダのサイズ分のメモリを確保する
+-		this->HeadBuffer = (u8 *)malloc((size_t)this->Head.HeadSize);
+-		if (this->HeadBuffer == NULL) goto ERR;
++	u64 TotalRecords = 0;
+ 
+-		// ヘッダが圧縮されている場合は解凍する
+-		if ((Head.Flags & DXA_FLAG_NO_HEAD_PRESS) != 0)
++	// 深さ優先の前順走査。ディレクトリのレコードを渡した直後にその子を降りる
++	while( !Stack.empty() )
++	{
++		if( Stack.back().NextIndex >= Stack.back().FileHeadNum )
+ 		{
+-			// 圧縮されていない場合は普通に読み込む
+-			_fseeki64(this->fp, this->Head.FileNameTableStartAddress, SEEK_SET);
+-			KeyConvFileRead(HeadBuffer, this->Head.HeadSize, this->fp, this->NoKey ? NULL : this->Key, 0);
++			Stack.pop_back();
++			continue;
++		}
++
++		const u64  i            = Stack.back().NextIndex++;
++		const u64  RecordOffset = Stack.back().FileHeadAddress + i * sizeof( DARC_FILEHEAD );
++		const u8  *Record       = FileP + RecordOffset;
++
++		const u64 NameAddress = DXA_LoadU64( Record + offsetof( DARC_FILEHEAD, NameAddress ) );
++		const u64 Attributes  = DXA_LoadU64( Record + offsetof( DARC_FILEHEAD, Attributes ) );
++		const u64 DataAddress = DXA_LoadU64( Record + offsetof( DARC_FILEHEAD, DataAddress ) );
++		const u64 DataSize    = DXA_LoadU64( Record + offsetof( DARC_FILEHEAD, DataSize ) );
++		const u64 PressSize   = DXA_LoadU64( Record + offsetof( DARC_FILEHEAD, PressDataSize ) );
++		const u64 HuffSize    = DXA_LoadU64( Record + offsetof( DARC_FILEHEAD, HuffPressDataSize ) );
++
++		const u8 *Name      = NULL;
++		size_t    NameBytes = 0;
++		if( DXA_ValidateNameRecord( NameP, NameTableSpan, NameAddress, &Name, &NameBytes ) != 0 ) return SOURCE_RESULT_FORMAT;
++		if( NameBytes == 0 ) return SOURCE_RESULT_FORMAT;
++
++		std::vector<u8> ChildPath = Stack.back().Path;
++		if( !ChildPath.empty() ) ChildPath.push_back( '/' );
++		ChildPath.insert( ChildPath.end(), Name, Name + NameBytes );
++		if( ChildPath.size() > DXA_PATH_MAX ) return SOURCE_RESULT_FORMAT;
++
++		// 訪問数の予算は Visitor を呼ぶ前に消費する( 100001 番目の呼び出しを許さない )
++		TotalRecords++;
++		if( TotalRecords > DXA_ENTRY_MAX ) return SOURCE_RESULT_FORMAT;
++
++		EntryRecord RecordOut;
++		RecordOut.FileHead      = reinterpret_cast<const DARC_FILEHEAD *>( Record );
++		RecordOut.Directory     = reinterpret_cast<const DARC_DIRECTORY *>( Stack.back().Directory );
++		RecordOut.Name          = Name;
++		RecordOut.NameBytes     = NameBytes;
++		RecordOut.Path          = ChildPath.data();
++		RecordOut.PathBytes     = ChildPath.size();
++		RecordOut.FileHeadIndex = (u32)( RecordOffset / sizeof( DARC_FILEHEAD ) );
++		RecordOut.Depth         = Stack.back().Depth;
++		RecordOut.IsDirectory   = ( Attributes & FILE_ATTRIBUTE_DIRECTORY ) != 0;
++
++		if( RecordOut.IsDirectory )
++		{
++			if( ( DataAddress % sizeof( DARC_DIRECTORY ) ) != 0 ) return SOURCE_RESULT_FORMAT;
++			if( DataAddress > DirTableSpan || DirTableSpan - DataAddress < sizeof( DARC_DIRECTORY ) ) return SOURCE_RESULT_FORMAT;
++
++			// 循環参照の検出( 償却 O(1) の集合で照合する )
++			if( !Visited.insert( DataAddress ).second ) return SOURCE_RESULT_FORMAT;
++
++			const u8 *ChildDirectory = DirP + DataAddress;
++			if( DXA_LoadU64( ChildDirectory + offsetof( DARC_DIRECTORY, DirectoryAddress ) ) != RecordOffset ) return SOURCE_RESULT_FORMAT;
++			if( DXA_LoadU64( ChildDirectory + offsetof( DARC_DIRECTORY, ParentDirectoryAddress ) ) != Stack.back().DirectoryOffset ) return SOURCE_RESULT_FORMAT;
++			if( Stack.back().Depth + 1 > DXA_DEPTH_MAX ) return SOURCE_RESULT_FORMAT;
++
++			DXA_FRAME Child;
++			Child.Directory       = ChildDirectory;
++			Child.DirectoryOffset = DataAddress;
++			Child.FileHeadAddress = DXA_LoadU64( ChildDirectory + offsetof( DARC_DIRECTORY, FileHeadAddress ) );
++			Child.FileHeadNum     = DXA_LoadU64( ChildDirectory + offsetof( DARC_DIRECTORY, FileHeadNum ) );
++			Child.NextIndex       = 0;
++			Child.Depth           = Stack.back().Depth + 1;
++			Child.Path            = std::move( ChildPath );
++			if( !ValidateFrame( Child.FileHeadAddress, Child.FileHeadNum ) ) return SOURCE_RESULT_FORMAT;
++
++			// ディレクトリレコードを前順で渡してから子を降りる
++			RecordOut.Path      = Child.Path.data();
++			RecordOut.PathBytes = Child.Path.size();
++
++			const int VisitorResult = Visitor( RecordOut );
++			if( VisitorResult != 0 ) return VisitorResult;
++
++			Stack.push_back( std::move( Child ) );
+ 		}
+ 		else
+ 		{
+-			void *HuffHeadBuffer;
+-			u64 HuffHeadSize;
+-			void *LzHeadBuffer;
+-			u64 LzHeadSize;
+-			s64 FileSize;
++			// ボディの物理範囲とメタデータとの非重複を、展開器と共有する唯一の幾何ヘルパで検証する。
++			DXA_BODY_PLAN Plan;
++			u64 BodyAddress = 0;
++			if( DXA_ResolveBodyGeometry( *Head, PhysicalSize, DataAddress, DataSize, PressSize, HuffSize,
++				BodyAddress, Plan ) != SOURCE_RESULT_OK ) return SOURCE_RESULT_FORMAT;
++
++			const int VisitorResult = Visitor( RecordOut );
++			if( VisitorResult != 0 ) return VisitorResult;
++		}
+ 
+-			// 圧縮されたヘッダの容量を取得する
+-			_fseeki64(this->fp, 0, SEEK_END);
+-			FileSize = _ftelli64(this->fp);
+-			_fseeki64(this->fp, this->Head.FileNameTableStartAddress, SEEK_SET);
+-			HuffHeadSize = (u32)(FileSize - _ftelli64(this->fp));
++	}
+ 
+-			// ハフマン圧縮されたヘッダを読み込むメモリを確保する
+-			HuffHeadBuffer = malloc((size_t)HuffHeadSize);
+-			if (HuffHeadBuffer == NULL) goto ERR;
++	return SOURCE_RESULT_OK;
++}
++// バイトソースからアーカイブを開く
++int DXArchive::OpenArchiveSource( const Source &Src, const char *KeyString_ )
++{
++	// 既になんらかのアーカイブを開いていた場合はエラー
++	if( this->HeadBuffer != NULL || this->fp != NULL ) return SOURCE_RESULT_FORMAT;
++	return this->ParseMetadata( Src, KeyString_, false );
++}
+ 
+-			// ハフマン圧縮されたヘッダをメモリに読み込む
+-			KeyConvFileRead(HuffHeadBuffer, HuffHeadSize, this->fp, NoKey ? NULL : Key, 0);
++// 検証済みレコードを順に訪問する
++int DXArchive::WalkEntries( const std::function<int( const EntryRecord & )> &Visitor ) const
++{
++	if( this->NameP == NULL || this->FileP == NULL || this->DirP == NULL ) return SOURCE_RESULT_FORMAT;
++	return DXArchive::WalkEntryRecords( this->NameP, this->DirP, this->FileP, const_cast<DARC_HEAD *>( &this->Head ), this->PhysicalSize, Visitor );
++}
+ 
+-			// ハフマン圧縮されたヘッダの解凍後の容量を取得する
+-			LzHeadSize = Huffman_Decode(HuffHeadBuffer, NULL);
++// 検証済みレコードの個別鍵を導出する。鍵文字列( パスワード )と、原ケース側の UPPER 名・
++// 最も外側へ遡る祖先名を連結し、既存の KeyCreate で 7 バイト鍵を作る( 元の実装を保つ )。
++// 事前条件: 呼び出し元が ResolveEntry 済みのレコードと非 NULL のテーブルを渡す。
++void DXArchive::ResolveRecordKey( const EntryRecord &Record, unsigned char *Key ) const
++{
++	char KeyStringBuffer[ DXA_KEY_STRING_MAXLENGTH ];
++	DARC_FILEHEAD  *File      = const_cast<DARC_FILEHEAD *>( Record.FileHead );
++	DARC_DIRECTORY *OwningDir = const_cast<DARC_DIRECTORY *>( Record.Directory );
++	const size_t Bytes = CreateKeyFileString( (int)this->Head.CharCodeFormat, this->KeyString, this->KeyStringBytes,
++		OwningDir, File, this->FileP, this->DirP, this->NameP, (u8 *)KeyStringBuffer );
++	KeyCreate( KeyStringBuffer, Bytes, Key );
++}
+ 
+-			// ハフマン圧縮されたヘッダの解凍後のデータを格納するメモリ用域の確保
+-			LzHeadBuffer = malloc((size_t)LzHeadSize);
+-			if (LzHeadBuffer == NULL)
+-			{
+-				free(HuffHeadBuffer);
+-				goto ERR;
+-			}
++// 検証済みレコードのハンドルと共通幾何を 1 か所で検証する( ExtractStored / ExtractEntry が共有する )
++int DXArchive::ResolveEntry( const EntryRecord &Record, const Source &Src, u64 &BodyAddress, BodyPlan &Plan ) const
++{
++	if( this->NameP == NULL ) return SOURCE_RESULT_UNSUPPORTED;
++	if( Record.FileHead == NULL || Record.Directory == NULL ) return SOURCE_RESULT_FORMAT;
++	if( Record.IsDirectory ) return SOURCE_RESULT_UNSUPPORTED;
++
++	// 渡された不透明ハンドルがこのアーカイブのメタデータバッファ内にあることを、参照を辿る前に
++	// 検証する。別アーカイブや不正なポインタは FORMAT で拒否する( 無関係なポインタ間の比較演算も避ける )。
++	const u64 MetadataSize   = (u64)this->Head.HeadSize;
++	const u64 FileTableStart = (u64)this->Head.FileTableStartAddress;
++	const u64 DirTableStart  = (u64)this->Head.DirectoryTableStartAddress;
++	if( MetadataSize == 0 || MetadataSize > DXA_METADATA_MAX ) return SOURCE_RESULT_FORMAT;
++	if( FileTableStart > DirTableStart || DirTableStart > MetadataSize ) return SOURCE_RESULT_FORMAT;
++	const u64 FileTableSpan = DirTableStart - FileTableStart;
++	const u64 DirTableSpan  = MetadataSize - DirTableStart;
++	if( FileTableSpan < sizeof( DARC_FILEHEAD ) || DirTableSpan < sizeof( DARC_DIRECTORY ) ) return SOURCE_RESULT_FORMAT;
++
++	const uintptr_t FileBase = reinterpret_cast<uintptr_t>( this->FileP );
++	const uintptr_t DirBase  = reinterpret_cast<uintptr_t>( this->DirP );
++	const uintptr_t HeadPtr  = reinterpret_cast<uintptr_t>( Record.FileHead );
++	const uintptr_t DirPtr   = reinterpret_cast<uintptr_t>( Record.Directory );
++
++	if( HeadPtr < FileBase || HeadPtr - FileBase > FileTableSpan - sizeof( DARC_FILEHEAD ) ) return SOURCE_RESULT_FORMAT;
++	if( ( HeadPtr - FileBase ) % sizeof( DARC_FILEHEAD ) != 0 ) return SOURCE_RESULT_FORMAT;
++	if( Record.FileHeadIndex != (u32)( ( HeadPtr - FileBase ) / sizeof( DARC_FILEHEAD ) ) ) return SOURCE_RESULT_FORMAT;
++	if( DirPtr < DirBase || DirPtr - DirBase > DirTableSpan - sizeof( DARC_DIRECTORY ) ) return SOURCE_RESULT_FORMAT;
++	if( ( DirPtr - DirBase ) % sizeof( DARC_DIRECTORY ) != 0 ) return SOURCE_RESULT_FORMAT;
++
++	const u8 *RecordBytes = reinterpret_cast<const u8 *>( Record.FileHead );
++	const u64 DataAddress = DXA_LoadU64( RecordBytes + offsetof( DARC_FILEHEAD, DataAddress ) );
++	const u64 DataSize    = DXA_LoadU64( RecordBytes + offsetof( DARC_FILEHEAD, DataSize ) );
++	const u64 PressSize   = DXA_LoadU64( RecordBytes + offsetof( DARC_FILEHEAD, PressDataSize ) );
++	const u64 HuffSize    = DXA_LoadU64( RecordBytes + offsetof( DARC_FILEHEAD, HuffPressDataSize ) );
++
++	if( !Src.physical_size || !Src.read_at ) return SOURCE_RESULT_SOURCE;
++	const s64 PhysicalSizeSigned = Src.physical_size();
++	if( PhysicalSizeSigned < 0 ) return SOURCE_RESULT_SOURCE;
++	const u64 ArchiveSize = (u64)PhysicalSizeSigned;
++
++	// 走査カーネルと共有する唯一の幾何ヘルパで範囲とメタデータ非重複を検証する。
++	if( DXA_ResolveBodyGeometry( this->Head, ArchiveSize, DataAddress, DataSize, PressSize, HuffSize,
++		BodyAddress, Plan ) != SOURCE_RESULT_OK ) return SOURCE_RESULT_FORMAT;
++	return SOURCE_RESULT_OK;
++}
+ 
+-			// ハフマン圧縮されたヘッダを解凍する
+-			Huffman_Decode(HuffHeadBuffer, LzHeadBuffer);
++// 検証済みレコード一つを無圧縮ストアとして ``Output`` へ流す。無圧縮ストア以外はデータに
++// 触れる前に UNSUPPORTED を返し、実際の展開は共通の ExtractEntry に委譲する。
++int DXArchive::ExtractStored( const EntryRecord &Record, const Source &Src,
++	const std::function<int( const void *, size_t )> &Output, const std::function<int( u64 )> &Progress ) const
++{
++	if( Output == nullptr ) return SOURCE_RESULT_FORMAT;
+ 
+-			// LZ圧縮されたヘッダを解凍する
+-			Decode(LzHeadBuffer, this->HeadBuffer);
++	u64      BodyAddress = 0;
++	BodyPlan Plan;
++	const int ResolveResult = this->ResolveEntry( Record, Src, BodyAddress, Plan );
++	if( ResolveResult != SOURCE_RESULT_OK ) return ResolveResult;
+ 
+-			// メモリの解放
+-			free(HuffHeadBuffer);
+-			free(LzHeadBuffer);
+-		}
++	// 現段階は無圧縮ストアのみを扱う
++	if( Plan.Huff || Plan.Lz ) return SOURCE_RESULT_UNSUPPORTED;
++	return this->ExtractEntry( Record, Src, Output, Progress );
++}
+ 
+-		// 各アドレスをセットする
+-		this->NameP = this->HeadBuffer;
+-		this->FileP = this->NameP + this->Head.FileTableStartAddress;
+-		this->DirP  = this->NameP + this->Head.DirectoryTableStartAddress;
++// 検証済みレコード一つを、格納でも圧縮でも有界に ``Output`` へ流す。鍵付きは前提の操作ローカル
++// 古典ヘルパが入るまで UNSUPPORTED を返す。
++int DXArchive::ExtractEntry( const EntryRecord &Record, const Source &Src,
++	const std::function<int( const void *, size_t )> &Output, const std::function<int( u64 )> &Progress ) const
++{
++	if( Output == nullptr ) return SOURCE_RESULT_FORMAT;
++
++	u64      BodyAddress = 0;
++	BodyPlan Plan;
++	const int ResolveResult = this->ResolveEntry( Record, Src, BodyAddress, Plan );
++	if( ResolveResult != SOURCE_RESULT_OK ) return ResolveResult;
++
++	// 鍵付きなら、レコードの個別鍵から操作ローカルの古典変換を設定する( 鍵なしなら変換なし )
++	DXA_CLASSIC_KEY Classic = {};
++	DXA_CIPHER Cipher;
++	DXA_CIPHER *CipherP = NULL;
++	if( this->NoKey == false )
++	{
++		this->ResolveRecordKey( Record, Classic.Key );
++		Cipher.Context   = &Classic;
++		Cipher.Transform = &DXA_ClassicTransform;
++		CipherP          = &Cipher;
+ 	}
+ 
+-	// カレントディレクトリのセット
+-	this->CurrentDirectory = (DARC_DIRECTORY *)this->DirP;
++	DXA_SOURCE_READER Reader;
++	Reader.Src         = &Src;
++	Reader.Cipher      = CipherP;
++	Reader.Base        = BodyAddress;
++	Reader.LogicalBase = Plan.OutputSize;
++	Reader.Error       = nullptr;
++	Reader.Failed      = false;
+ 
+-	// メモリイメージから開いている、フラグを倒す
+-	MemoryOpenFlag = false;
++	return DXA_DecodeBodyStream( Reader, Plan, Output, Progress );
++}
+ 
+-	// 終了
+-	return 0;
++// アーカイブファイルを開く
++int DXArchive::OpenArchiveFile(const TCHAR *ArchivePath, const char *KeyString_)
++{
++	// 既になんらかのアーカイブを開いていた場合はエラー
++	// FILE* 側だけを検査すると、ソース側で開いたメタデータ( HeadBuffer )を上書き解放してしまう。
++	// 開いていないことを示すのは fp と HeadBuffer の両方が空であること。
++	if (this->fp != NULL || this->HeadBuffer != NULL) return -1;
+ 
+-ERR:
+-	if (this->fp != NULL)
++	// アーカイブファイルを開こうと試みる
++	this->fp = _tfopen(ArchivePath, TEXT("rb"));
++	if (this->fp == NULL) return -1;
++
++	// FILE* をバイトソースへ適合させ、共有のメタデータ解析ルーチンへ委譲する
++	Source Src;
++	Src.physical_size = [this]( ) -> s64
+ 	{
+-		fclose(this->fp);
+-		this->fp = NULL;
+-	}
+-	if (this->HeadBuffer != NULL)
++		const s64 Current = _ftelli64( this->fp );
++		if( _fseeki64( this->fp, 0, SEEK_END ) != 0 ) return -1;
++		const s64 End = _ftelli64( this->fp );
++		if( Current >= 0 ) _fseeki64( this->fp, Current, SEEK_SET );
++		return End < 0 ? -1 : End;
++	};
++	Src.read_at = [this]( s64 Offset, void *Buffer, size_t Size ) -> bool
++	{
++		if( Size == 0 ) return true;
++		if( _fseeki64( this->fp, Offset, SEEK_SET ) != 0 ) return false;
++		return fread( Buffer, 1, Size, this->fp ) == Size;
++	};
++
++	const int Result = this->ParseMetadata( Src, KeyString_, true );
++	if (Result != SOURCE_RESULT_OK)
+ 	{
+-		free(this->HeadBuffer);
++		if (this->fp != NULL)
++		{
++			fclose(this->fp);
++			this->fp = NULL;
++		}
++		this->HeadStorage.clear();
+ 		this->HeadBuffer = NULL;
++		this->NameP = this->DirP = this->FileP = NULL;
++		this->CurrentDirectory = NULL;
++
++		// 終了
++		return -1;
+ 	}
+ 
+ 	// 終了
+-	return -1;
++	return 0;
+ }
+ 
+ // アーカイブファイルを開き最初にすべてメモリ上に読み込んでから処理する( 0:成功  -1:失敗 )
+@@ -3249,7 +4108,8 @@ int DXArchive::OpenArchiveFileMem(const TCHAR *ArchivePath, const char *KeyStrin
+ 		this->NoKey = (Head.Flags & DXA_FLAG_NO_KEY) != 0;
+ 
+ 		// ヘッダのサイズ分のメモリを確保する
+-		this->HeadBuffer = (u8 *)malloc((size_t)this->Head.HeadSize);
++		this->HeadStorage.assign((size_t)this->Head.HeadSize, 0);
++		this->HeadBuffer = this->HeadStorage.data();
+ 		if (this->HeadBuffer == NULL) goto ERR;
+ 
+ 		// ヘッダが圧縮されている場合は解凍する
+@@ -3385,7 +4245,8 @@ int DXArchive::OpenArchiveMem(void *ArchiveImage, s64 ArchiveSize, const char *K
+ 		this->NoKey = (Head.Flags & DXA_FLAG_NO_KEY) != 0;
+ 
+ 		// ヘッダのサイズ分のメモリを確保する
+-		this->HeadBuffer = (u8 *)malloc((size_t)this->Head.HeadSize);
++		this->HeadStorage.assign((size_t)this->Head.HeadSize, 0);
++		this->HeadBuffer = this->HeadStorage.data();
+ 		if (this->HeadBuffer == NULL) goto ERR;
+ 
+ 		// ヘッダが圧縮されている場合は解凍する
+@@ -3471,37 +4332,41 @@ ERR:
+ // アーカイブファイルを閉じる
+ int DXArchive::CloseArchiveFile(void)
+ {
+-	// 既に閉じていたら何もせず終了
+-	if (this->fp == NULL) return 0;
++	// ファイルもメタデータも無ければ何もせず終了
++	if (this->fp == NULL && this->HeadBuffer == NULL) return 0;
+ 
+-	// メモリから開いているかどうかで処理を分岐
+-	if (MemoryOpenFlag == true)
++	// ファイルから開いている場合のみ、その入り口に応じて後始末する
++	if (this->fp != NULL)
+ 	{
+-		// アーカイブクラスが読み込んだ場合とそうでない場合で処理を分岐
+-		if (UserMemoryImageFlag == true)
++		// メモリから開いているかどうかで処理を分岐
++		if (MemoryOpenFlag == true)
+ 		{
+-			// 反転したデータを元に戻す
+-			if (this->NoKey == false)
++			// アーカイブクラスが読み込んだ場合とそうでない場合で処理を分岐
++			if (UserMemoryImageFlag == true)
++			{
++				// 反転したデータを元に戻す
++				if (this->NoKey == false)
++				{
++					char KeyStringBuffer[DXA_KEY_STRING_MAXLENGTH];
++					DirectoryKeyConv((DARC_DIRECTORY *)this->DirP, KeyStringBuffer);
++					KeyConv(this->HeadBuffer, this->Head.HeadSize, 0, this->Key);
++				}
++			}
++			else
+ 			{
+-				char KeyStringBuffer[DXA_KEY_STRING_MAXLENGTH];
+-				DirectoryKeyConv((DARC_DIRECTORY *)this->DirP, KeyStringBuffer);
+-				KeyConv(this->HeadBuffer, this->Head.HeadSize, 0, this->Key);
++				// 確保していたメモリを開放する
++				free(this->fp);
+ 			}
+ 		}
+ 		else
+ 		{
+-			// 確保していたメモリを開放する
+-			free(this->fp);
++			// アーカイブファイルを閉じる
++			fclose(this->fp);
+ 		}
+ 	}
+-	else
+-	{
+-		// アーカイブファイルを閉じる
+-		fclose(this->fp);
+-	}
+ 
+ 	// ヘッダバッファを解放
+-	free(this->HeadBuffer);
++	this->HeadStorage.clear();
+ 
+ 	// ポインタ初期化
+ 	this->fp         = NULL;
+@@ -4153,7 +5018,7 @@ s64 DXArchiveFile::Read(void *Buffer, s64 ReadLength)
+ 
+ 	// アーカイブファイルポインタと、仮想ファイルポインタが一致しているか調べる
+ 	// 一致していなかったらアーカイブファイルポインタを移動する
+-	if (this->DataBuffer == NULL && _ftelli64(this->Archive->GetFilePointer()) != (s32)(this->FileData->DataAddress + this->Archive->GetHeader()->DataStartAddress + this->FilePoint))
++	if (this->DataBuffer == NULL && _ftelli64(this->Archive->GetFilePointer()) != (s64)(this->FileData->DataAddress + this->Archive->GetHeader()->DataStartAddress + this->FilePoint))
+ 	{
+ 		_fseeki64(this->Archive->GetFilePointer(), this->FileData->DataAddress + this->Archive->GetHeader()->DataStartAddress + this->FilePoint, SEEK_SET);
+ 	}
+@@ -4250,4 +5115,4 @@ static char *utf82sjis(const WCHAR *utf8)
+ 	WideCharToMultiByte(932, 0, utf8, -1, pSJIS, sizeRequired, NULL, NULL);
+ 
+ 	return pSJIS;
+-}
+\ No newline at end of file
++}
+diff --git a/3rdParty/DXLib/DXArchive.h b/3rdParty/DXLib/DXArchive.h
+index 5311e24..b9855c5 100644
+--- a/3rdParty/DXLib/DXArchive.h
++++ b/3rdParty/DXLib/DXArchive.h
+@@ -18,6 +18,8 @@
+ 
+ #include <string>
+ #include <vector>
++#include <cstddef>
++#include <functional>
+ 
+ // define ---------------------------------------
+ 
+@@ -77,6 +79,8 @@
+ #define DXA_KEY_BYTES					(7)				// 鍵のバイト数
+ #define DXA_KEY_STRING_LENGTH			(63)			// 鍵用文字列の長さ
+ #define DXA_KEY_STRING_MAXLENGTH		(2048)			// 鍵用文字列バッファのサイズ
++// メタデータ( ファイル名 / ファイル / ディレクトリテーブル )に許容する最大サイズ( 64MiB )
++#define DXA_METADATA_MAX				(0x4000000)
+ 
+ // フラグ
+ #define DXA_FLAG_NO_KEY					(0x00000001)	// 鍵処理無し
+@@ -204,6 +208,84 @@ public :
+ 	int					OpenArchiveMem( void *ArchiveImage, s64 ArchiveSize, const char *KeyString_ = NULL ) ;	// メモリ上にあるアーカイブファイルイメージを開く( 0:成功  -1:失敗 )
+ 	int					CloseArchiveFile( void ) ;																// アーカイブファイルを閉じる
+ 
++	// ---------------------------------------------------------------------------------------------------
++	// ソースベースの入り口( FILE* を使用しない )。
++	// メタデータの解析・テーブルの走査・無圧縮データの取り出しは
++	// FILE* 側の入り口( OpenArchiveFile / DirectoryDecode )と同一の実装を共有する。
++	// ---------------------------------------------------------------------------------------------------
++
++	// 呼び出し側が用意するバイトソース。
++	// physical_size() はアーカイブの正確なバイト長を返す( 取得できない場合は負の値 )。
++	// read_at() は Offset から Size バイトを Buffer へ完全に読み込んだ場合のみ true を返す。
++	// 途中までの読み込み( ショートリード )は失敗として扱う。
++	struct Source
++	{
++		std::function<s64( )> physical_size;
++		std::function<bool( s64 Offset, void *Buffer, size_t Size )> read_at;
++	};
++
++	// ソースベースの入り口が返す結果コード。
++	enum SOURCE_RESULT
++	{
++		SOURCE_RESULT_OK          =  0,	// 成功
++		SOURCE_RESULT_FORMAT      = -1,	// 構造が壊れている、または一貫していない
++		SOURCE_RESULT_UNSUPPORTED = -2,	// 現段階では扱わない有効なコンテナ( 鍵付き / 圧縮ボディ )
++		SOURCE_RESULT_SOURCE      = -3,	// バイトソースがサイズ取得または読み込みに失敗した
++	};
++
++	// WalkEntries が渡す検証済みのレコード。FileHead / Directory / Name はアーカイブが保持する
++	// メタデータバッファを借用したもので、対象のアーカイブが明示的に閉じられるまで有効。
++	// Path は連結のための一時バッファを指すため、コールバック呼び出し中だけ有効。呼び出し側が
++	// 呼び出し後に使う場合は、その場でコピーすること。
++	struct EntryRecord
++	{
++		const DARC_FILEHEAD  *FileHead;		// 検証済みのファイルヘッドレコード
++		const DARC_DIRECTORY *Directory;	// レコードを所有するディレクトリ
++		const u8             *Name;			// 生の符号化ファイル名( 原ケース側 )
++		size_t                NameBytes;	// 終端を除く符号化ファイル名長
++		const u8             *Path;			// '/' で連結した生の符号化パス
++		size_t                PathBytes;	// 終端を除く符号化パス長
++		u32                   FileHeadIndex;// ファイルテーブル内の安定した位置
++		u32                   Depth;		// ルート直下は 0
++		bool                  IsDirectory;
++	};
++
++	// 検証済みレコードの共通ボディ幾何。ExtractStored / ExtractEntry が共有する。
++	// N = Huffman 層の展開後サイズ( LZ 有なら PressDataSize、無なら DataSize )
++	struct BodyPlan
++	{
++		bool Huff;			// Huffman 層を持つか
++		bool Lz;			// LZ 圧縮されているか
++		u64  HuffEncoded;	// ディスク上の Huffman 符号化バイト数
++		u64  N;				// Huffman 層の展開後サイズ
++		u64  Front;			// 前側エッジ K( 分割時 )。全体 Huffman の場合は N
++		u64  RawMiddle;		// 生の中間 N - 2K( 分割時のみ )
++		u64  OutputSize;	// 最終的な展開後サイズ( DataSize )
++		u64  Physical;		// ディスク上のボディ総バイト数
++	};
++
++	// バイトソース ``Src`` からアーカイブを開く。メタデータの読み込み・ヘッダ検証・
++	// テーブル解析は OpenArchiveFile と同じルーチンを通る。
++	int					OpenArchiveSource( const Source &Src, const char *KeyString_ = NULL ) ;
++
++	// アーカイブ内の全レコードを、ファイルシステム側の展開と同じ検証済み深さ優先順で
++	// ``Visitor`` へ一度ずつ渡す。Visitor が 0 を返せば継続し、非 0 を返せばその値で走査を止める。
++	int					WalkEntries( const std::function<int( const EntryRecord & )> &Visitor ) const ;
++
++	// 検証済みレコード一つを無圧縮ストアとして ``Output`` へ流す。鍵・位置の扱いは既存の
++	// 読み込み規則をそのまま使う。無圧縮かつ鍵なしのストアのみ対応し、それ以外はデータに
++	// 触れる前に SOURCE_RESULT_UNSUPPORTED を返す。Output / Progress の例外はそのまま伝播する。
++	int					ExtractStored( const EntryRecord &Record, const Source &Src,
++									   const std::function<int( const void *Data, size_t Size )> &Output,
++									   const std::function<int( u64 TotalWritten )> &Progress ) const ;
++
++	// 検証済みレコード一つを、格納( 無圧縮 )でも圧縮でも有界に ``Output`` へ流す。
++	// 現段階は鍵なし( NO_KEY )のみを扱い、鍵付きはデータに触れる前に SOURCE_RESULT_UNSUPPORTED。
++	// Output / Progress の例外はそのまま伝播する。
++	int					ExtractEntry( const EntryRecord &Record, const Source &Src,
++									  const std::function<int( const void *Data, size_t Size )> &Output,
++									  const std::function<int( u64 TotalWritten )> &Progress ) const ;
++
+ 	s64					LoadFileToMem( const TCHAR *FilePath, void *Buffer, u64 BufferLength ) ;		// アーカイブファイル中の指定のファイルをメモリに読み込む( -1:エラー 0以上:ファイルサイズ )
+ 	s64					GetFileSize( const TCHAR *FilePath ) ;										// アーカイブファイル中の指定のファイルをサイズを取得する( -1:エラー )
+ 	int					GetFileInfo( const TCHAR *FilePath, u64 *PositionP, u64 *SizeP ) ;			// アーカイブファイル中の指定のファイルのファイル内の位置とファイルの大きさを得る( -1:エラー )
+@@ -250,6 +332,7 @@ public :
+ protected :
+ 	FILE *fp ;							// アーカイブファイルのポインタ	
+ 	u8 *HeadBuffer ;					// ヘッダーバッファー
++	std::vector<u8> HeadStorage ;		// メタデータブロックを所有する RAII バッファ( HeadBuffer はその非所有ビュー )
+ 	u8 *FileP, *DirP, *NameP ;			// 各種テーブル(ファイルヘッダ情報テーブル、ディレクトリ情報テーブル、名前情報テーブル)へのポインタ
+ 	DARC_DIRECTORY *CurrentDirectory ;	// カレントディレクトリデータへのポインタ
+ 
+@@ -264,6 +347,7 @@ protected :
+ 	size_t KeyStringBytes ;				// 鍵文字列のバイト数
+ 
+ 	DARC_HEAD Head ;					// アーカイブのヘッダ
++	u64 PhysicalSize ;					// 開いた時点のアーカイブの物理サイズ
+ 
+ 	// サイズ保存用構造体
+ 	typedef struct tagSIZESAVE
+@@ -284,6 +368,16 @@ protected :
+ 
+ 	static int DirectoryEncode( int CharCodeFormat, TCHAR *DirectoryName, u8 *NameP, u8 *DirP, u8 *FileP, DARC_DIRECTORY *ParentDir, SIZESAVE *Size, int DataNumber, FILE *DestFp, void *TempBuffer, bool Press, bool MaxPress, bool AlwaysHuffman, u8 HuffmanEncodeKB, const char *KeyString, size_t KeyStringBytes, bool NoKey, char *KeyStringBuffer, DARC_ENCODEINFO *EncodeInfo ) ;	// 指定のディレクトリにあるファイルをアーカイブデータに吐き出す
+ 	static int DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD *Head, DARC_DIRECTORY *Dir, FILE *ArcP, unsigned char *Key, const char *KeyString, size_t KeyStringBytes, bool NoKey, char *KeyStringBuffer ) ;											// 指定のディレクトリデータにあるファイルを展開する
++	static int WalkEntryRecords( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD *Head, u64 PhysicalSize, const std::function<int( const EntryRecord & )> &Visitor ) ;	// 検証済みの深さ優先走査カーネル( DirectoryDecode と WalkEntries が共有する )
++	static int DecodeRecordToFileSystem( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD *Head, FILE *ArcP, unsigned char *Key, const char *KeyString, size_t KeyStringBytes, bool NoKey, char *KeyStringBuffer, const EntryRecord &Record ) ;	// 検証済みレコード一つをファイルシステムへ展開する
++	// バイトソースからヘッダとテーブルを解析する( OpenArchiveFile と OpenArchiveSource が共有する )。
++	// DecodeHeader が false のソース経路では、鍵付き・圧縮ヘッダを復号せずに UNSUPPORTED を返す。
++	int ParseMetadata( const Source &Src, const char *KeyString_, bool DecodeHeader ) ;
++	// 検証済みレコードのハンドルと共通幾何を 1 か所で検証する( ExtractStored / ExtractEntry が共有する )
++	int ResolveEntry( const EntryRecord &Record, const Source &Src, u64 &BodyAddress, BodyPlan &Plan ) const ;
++	// 検証済みレコードの個別鍵を、記録済みの鍵文字列と原ケース側の UPPER 名・祖先名から導出する。
++	// 事前条件: Record は ResolveEntry が検証済みで、鍵なし経路では呼び出さない。
++	void ResolveRecordKey( const EntryRecord &Record, unsigned char *Key ) const ;
+ 	static int StrICmp( const TCHAR *Str1, const TCHAR *Str2 ) ;							// 比較対照の文字列中の大文字を小文字として扱い比較する( 0:等しい  1:違う )
+ 	static int ConvSearchData( SEARCHDATA *Dest, const TCHAR *Src, int *Length ) ;		// 文字列を検索用のデータに変換( ヌル文字か \ があったら終了 )
+ 	static int AddFileNameData( const TCHAR *FileName, u8 *FileNameTable ) ;				// ファイル名データを追加する( 戻り値は使用したデータバイト数 )

@@ -172,6 +172,17 @@
       "packageNameTemplate": "godotengine/godot",
       "datasourceTemplate": "github-tags",
       "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(?:\\.(?<patch>\\d+))?-stable$"
+    },
+    {
+      "customType": "regex",
+      "description": "Sinflower/UberWolf is pinned by source revision; an upgrade replaces both the port REF and its SHA512 after a compatibility review.",
+      "managerFilePatterns": ["/^build/vcpkg/ports/uberwolf/portfile\\.cmake$/"],
+      "matchStrings": ["REF\\s+(?<currentDigest>[a-f0-9]{40})"],
+      "depNameTemplate": "uberwolf",
+      "packageNameTemplate": "https://github.com/Sinflower/UberWolf",
+      "datasourceTemplate": "git-refs",
+      "versioningTemplate": "exact",
+      "currentValueTemplate": "main"
     }
   ]
 }

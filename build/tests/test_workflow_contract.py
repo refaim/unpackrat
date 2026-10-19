@@ -216,7 +216,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_release_publishes_three_selected_archives_from_verified_outputs(self) -> None:
         workflow = self.main_workflow()
 
-        self.assertIn("tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*', 'godot/v*']", workflow)
+        self.assertIn("tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*', 'godot/v*', 'wolfrpg/v*']", workflow)
         self.assertIn("  packaging:\n", workflow)
         # Packaging waits on every real verification job directly, so a failed, skipped or
         # cancelled slice fails closed through GitHub's own `needs` instead of a bash gate.

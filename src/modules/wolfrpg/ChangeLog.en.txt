@@ -1,0 +1,3 @@
+Version 1.0.0
+-------------
+ + Added the WolfRPG module for browsing and extracting files from .wolf and .wolfx archives.

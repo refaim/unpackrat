@@ -1,0 +1,17 @@
+{
+  "name": "uberwolf",
+  "version-string": "0.6.4",
+  "description": "Pinned UberWolfLib Wolf RPG archive reader for the Wolf RPG module",
+  "homepage": "https://github.com/Sinflower/UberWolf",
+  "license": "MIT AND BSD-2-Clause AND Unlicense",
+  "supports": "windows & !uwp",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "nlohmann-json"
+    }
+  ]
+}

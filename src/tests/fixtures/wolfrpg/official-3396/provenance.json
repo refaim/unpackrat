@@ -1,0 +1,36 @@
+{
+  "producer": "Official WOLF RPG Editor 3.396",
+  "editor_version": "3.396.2024.913",
+  "editor_sha256": "fa5dd004f38e156cedc391bbabdeeab8b026fdacd7b49e08d3d30225582cb3b5",
+  "official_download": "https://silversecond.com/WolfRPGEditor/Data/WolfRPGEditor_3.396.zip",
+  "command": [
+    "C:\\Users\\Roma\\AppData\\Local\\Temp\\wolfrpg-official-3396-ab3c3e429d9b\\WOLF_RPG_Editor3\\Editor.exe",
+    "-gamedata",
+    "-name",
+    "Owned3396",
+    "-output",
+    "C:\\Users\\Roma\\Dev\\ObserverModules-wolfrpg-recovery\\out\\official-producer-small-v1\\export",
+    "-crypt",
+    "DIR",
+    "-c_dir",
+    "OwnedFixture",
+    "-c_ver",
+    "331"
+  ],
+  "plaintext_contract": "Exactly 256 bytes, byte at offset n equals n (00..FF).",
+  "archive_unmodified": true,
+  "expected_member": "payload.bin",
+  "pins": [
+    {
+      "path": "C:\\Users\\Roma\\Dev\\ObserverModules-wolfrpg-recovery\\src\\tests\\fixtures\\wolfrpg\\official-3396\\OwnedFixture.wolf",
+      "size": 866,
+      "sha256": "cd50784894e0dcae7fa6c3e376d4df7447ed79333473e4d3699ab618d5473377"
+    },
+    {
+      "path": "C:\\Users\\Roma\\Dev\\ObserverModules-wolfrpg-recovery\\src\\tests\\fixtures\\wolfrpg\\official-3396\\payload.bin",
+      "size": 256,
+      "sha256": "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880"
+    }
+  ],
+  "scope": "Repository-owned plaintext exported by official Editor; no game executable executed. Producer output copied without transformation. Full producer evidence in out/official-producer-small-v1."
+}

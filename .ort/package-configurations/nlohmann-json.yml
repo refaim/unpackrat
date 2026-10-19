@@ -5,7 +5,7 @@
     {
       "pattern": "json-3.12.0/tests/**",
       "reason": "TEST_OF",
-      "comment": "Upstream tests, including tests/thirdparty/Fuzzer and its NCSA-labeled files and the GPL-3.0-only tests/thirdparty/imapdl/filterbr.py. The repository uses nlohmann/json for its own tests only; these upstream files are not shipped. Anchored on the archive top directory json-3.12.0/ that the real ORT ScanCode run keeps in the extracted tree."
+      "comment": "Upstream tests, including tests/thirdparty/Fuzzer and its NCSA-labeled files and the GPL-3.0-only tests/thirdparty/imapdl/filterbr.py. The repository ships nlohmann/json as a packaged runtime dependency of the wolfrpg module (GameContext.cpp) and also uses it in its own build/test tooling; these upstream test files are not shipped. Anchored on the archive top directory json-3.12.0/ that the real ORT ScanCode run keeps in the extracted tree."
     },
     {
       "pattern": "json-3.12.0/.github/**",

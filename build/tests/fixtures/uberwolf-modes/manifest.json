@@ -1,0 +1,21 @@
+{
+  "name": "uberwolf-modes",
+  "description": "Pinned WolfDec.{h,cpp} snapshots used by test_wolfrpg_modes_api.py to prove the default-crypt-modes patch applies cleanly.",
+  "repository": "https://github.com/Sinflower/UberWolf",
+  "tag": "v0.6.4",
+  "ref": "f4191375d289171b1f29dbc5ca320133b2b4b96a",
+  "files": [
+    {
+      "member": "UberWolfLib/WolfDec.h",
+      "fixture": "WolfDec.h.fixture",
+      "bytes": 4209,
+      "sha256": "06db5028d1f0cd126ca9ff81ef3a0a985dcbd9abf664cd435eafd1c08a958f66"
+    },
+    {
+      "member": "UberWolfLib/WolfDec.cpp",
+      "fixture": "WolfDec.cpp.fixture",
+      "bytes": 15120,
+      "sha256": "c5541978e2e238c6dc353d1a4a884dc768fad8573ae8b8dd61711080f1be4a1d"
+    }
+  ]
+}
