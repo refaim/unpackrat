@@ -73,9 +73,9 @@
     {
       "name": "unpackrat-build-tests-godot-minimal-registration",
       "member": "build/tests/test_godot_minimal_registration.py",
-      "version": "bfe3f1abd5b7670bdb3c2890bc0c2016007663a17981b74ead94cf74b9888d0b",
-      "sha256": "bfe3f1abd5b7670bdb3c2890bc0c2016007663a17981b74ead94cf74b9888d0b",
-      "artifact_filename": "bfe3f1abd5b7670bdb3c2890bc0c2016007663a17981b74ead94cf74b9888d0b.tar",
+      "version": "473786ddb7678644a345e252388e96bf9e7e59b9fe6f3dd10d2f5d1f507c62be",
+      "sha256": "473786ddb7678644a345e252388e96bf9e7e59b9fe6f3dd10d2f5d1f507c62be",
+      "artifact_filename": "473786ddb7678644a345e252388e96bf9e7e59b9fe6f3dd10d2f5d1f507c62be.tar",
       "extension": ".tar",
       "curations": [
         {

@@ -1,3 +1,8 @@
+Version 1.1.1
+-------------
+ * Encryption-key recovery now scans executable sections through a bounded read window, reducing transient memory use on large binaries.
+ * Metadata probing reuses the archive size measured when it was opened instead of seeking to the stream end for every entry.
+
 Version 1.1.0
 -------------
  * Added support for all Windows versions from XP through Windows 11.

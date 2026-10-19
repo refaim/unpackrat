@@ -26,11 +26,17 @@ namespace unpackrat::godot
             used += amount;
             return true;
         }
+        // The longest single x86 instruction is 15 bytes and the anchor look-back is 14 bytes.
+        // One 64 KiB window therefore holds the look-back, any decoded instruction and the whole
+        // default pattern scan (max_pattern_instructions * 15 bytes) while keeping the retained
+        // executable-byte footprint independent of section size.
+        constexpr std::uint64_t cache_bytes = 64ULL * 1024ULL;
+        constexpr std::uint64_t instruction_bytes = 15;
+        constexpr std::uint64_t look_back_bytes = 14;
         struct section final
         {
             std::uint64_t address = 0, virtual_size = 0, raw_offset = 0, raw_size = 0;
             bool executable = false;
-            std::vector<std::byte> code;
         };
         struct secret final
         {
@@ -44,7 +50,7 @@ namespace unpackrat::godot
         {
           public:
             image(std::istream &input, key_recovery_budget &budget, const key_recovery_limits &limits)
-                : reader_(input), budget_(budget), limits_(limits)
+                : reader_(input), budget_(budget), limits_(limits), cache_(static_cast<std::size_t>(cache_bytes))
             {
             }
             std::vector<std::byte> read(std::uint64_t offset, std::size_t count)
@@ -103,11 +109,29 @@ namespace unpackrat::godot
                                    previous.address < entry.address + entry.virtual_size;
                         }))
                         throw key_recovery_error("overlapping PE virtual sections");
+                    // Charge the whole section as the scan allowance without retaining its bytes;
+                    // the windowed reads below reuse this exact authorization as before.
                     if (entry.executable)
-                        entry.code = read(entry.raw_offset, static_cast<std::size_t>(entry.raw_size));
-                    sections_.push_back(std::move(entry));
+                        authorize_read(entry.raw_offset, static_cast<std::size_t>(entry.raw_size));
+                    sections_.push_back(entry);
                 }
                 return true;
+            }
+            // A bounded forward window into one executable section. The returned span is only
+            // valid until the next fetch; callers never hold it across another read or decode.
+            // Callers bound ``offset`` by the section's raw size, so the subtraction is safe.
+            std::span<const std::byte> fetch(const section &entry, std::uint64_t offset, std::uint64_t length)
+            {
+                if (cached_section_ == &entry && offset >= cache_start_ && offset + length <= cache_start_ + cache_len_)
+                    return std::span(cache_).subspan(static_cast<std::size_t>(offset - cache_start_),
+                                                     static_cast<std::size_t>(cache_len_ - (offset - cache_start_)));
+                const auto want = std::min<std::uint64_t>(cache_bytes, entry.raw_size - offset);
+                reader_.seek_absolute(static_cast<std::streamoff>(entry.raw_offset + offset));
+                reader_.read_exact(reinterpret_cast<char *>(cache_.data()), static_cast<std::size_t>(want));
+                cached_section_ = &entry;
+                cache_start_ = offset;
+                cache_len_ = want;
+                return std::span(cache_).first(static_cast<std::size_t>(want));
             }
             const section *mapped(std::uint64_t address, std::size_t count, bool code, bool backed) const
             {
@@ -163,6 +187,10 @@ namespace unpackrat::godot
             std::vector<section> sections_;
             std::uint64_t base_ = 0;
             bool wide_ = false;
+            std::vector<std::byte> cache_;
+            const section *cached_section_ = nullptr;
+            std::uint64_t cache_start_ = 0;
+            std::uint64_t cache_len_ = 0;
         };
         struct pattern final
         {
@@ -191,13 +219,13 @@ namespace unpackrat::godot
                         if (!entry.executable)
                             continue;
                         constexpr std::array magic{std::byte{0x47}, std::byte{0x44}, std::byte{0x50}, std::byte{0x43}};
-                        auto cursor = entry.code.begin();
-                        while ((cursor = std::search(cursor, entry.code.end(), magic.begin(), magic.end())) !=
-                               entry.code.end()) {
-                            const auto position = static_cast<std::size_t>(cursor - entry.code.begin());
+                        for (std::uint64_t position = 0; position + magic.size() <= entry.raw_size; ++position) {
+                            const auto bytes = source_.fetch(entry, position, magic.size());
+                            if (!std::equal(magic.begin(), magic.end(), bytes.begin()))
+                                continue;
                             // The literal must belong to a decoded instruction, not just appear in code bytes.
-                            const auto begin = position > 14 ? position - 14 : 0;
-                            for (std::size_t start = begin; start <= position; ++start) {
+                            const auto begin = position > look_back_bytes ? position - look_back_bytes : 0;
+                            for (std::uint64_t start = begin; start <= position; ++start) {
                                 const auto decoded = decode(entry, start);
                                 if (decoded && decoded->pack_magic &&
                                     start + decoded->length >= position + magic.size()) {
@@ -206,12 +234,11 @@ namespace unpackrat::godot
                                     for (const auto call : found.calls) {
                                         const auto *target = source_.mapped(call, 1, true, true);
                                         if (target != nullptr)
-                                            consume(window(*target, static_cast<std::size_t>(call - target->address)));
+                                            consume(window(*target, call - target->address));
                                     }
                                     break;
                                 }
                             }
-                            ++cursor;
                         }
                     }
                     // One bounded pass over syntactically plausible address references finds initializers
@@ -220,10 +247,11 @@ namespace unpackrat::godot
                         for (const auto &entry : source_.sections()) {
                             if (!entry.executable)
                                 continue;
-                            if (!charge(budget_.scanned_bytes, entry.code.size(), limits_.max_scanned_bytes))
+                            if (!charge(budget_.scanned_bytes, entry.raw_size, limits_.max_scanned_bytes))
                                 throw allowance_exhausted{};
-                            for (std::size_t start = 0; start < entry.code.size(); ++start) {
-                                const auto first = std::to_integer<unsigned>(entry.code[start]);
+                            for (std::uint64_t start = 0; start < entry.raw_size; ++start) {
+                                const auto head = source_.fetch(entry, start, 1);
+                                const auto first = std::to_integer<unsigned>(head[0]);
                                 if (!((first >= 0x48 && first <= 0x4f) || (first >= 0xb8 && first <= 0xbf) ||
                                       first == 0x8d || first == 0x8b))
                                     continue;
@@ -256,17 +284,18 @@ namespace unpackrat::godot
             {
                 return {candidates_.begin(), candidates_.begin() + static_cast<std::ptrdiff_t>(candidate_count_)};
             }
-            std::optional<codecs::x86_instruction> decode(const section &entry, std::size_t start)
+            std::optional<codecs::x86_instruction> decode(const section &entry, std::uint64_t start)
             {
                 if (!charge(budget_.instructions, 1, limits_.max_instructions))
                     throw allowance_exhausted{};
-                return codecs::decode_x86(std::span(entry.code).subspan(start), entry.address + start,
+                const auto bytes = source_.fetch(entry, start, instruction_bytes);
+                return codecs::decode_x86(bytes, entry.address + start,
                                           source_.wide() ? codecs::x86_mode::x64 : codecs::x86_mode::x86);
             }
-            pattern window(const section &entry, std::size_t start)
+            pattern window(const section &entry, std::uint64_t start)
             {
                 pattern result;
-                for (std::uint64_t count = 0; count < limits_.max_pattern_instructions && start < entry.code.size();
+                for (std::uint64_t count = 0; count < limits_.max_pattern_instructions && start < entry.raw_size;
                      ++count) {
                     const auto instruction = decode(entry, start);
                     if (!instruction)

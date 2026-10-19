@@ -1,6 +1,7 @@
 #include "archive_session.h"
 
 #include "../../core/godot/encrypted_payload.h"
+#include "../../core/io/bounded_stream.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -108,6 +109,7 @@ namespace unpackrat::godot
         {
             file_owner file;
             std::ifstream input;
+            std::uint64_t length = 0;
 
             explicit opened_source(const std::filesystem::path &path) : file(open_leased_file(path)), input(file.get())
             {
@@ -116,6 +118,12 @@ namespace unpackrat::godot
                 // FILE owner, whose fclose releases both CRT descriptor and leased native handle.
                 input.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
                                                                      static_cast<unsigned>(std::ios::badbit)));
+                // The authoritative length of exactly this leased stream, measured once from the
+                // same bounded stream every later read borrows (never by re-resolving the path)
+                // and cached for the whole session, so a listing does not seek to the end per
+                // probed entry. A stream that cannot be sized fails as a source open fault through
+                // the bounded reader, exactly like every other bounded read.
+                length = static_cast<std::uint64_t>(io::bounded_stream(input).size());
             }
         };
 
@@ -364,6 +372,10 @@ namespace unpackrat::godot
     std::istream &archive_session::stream() noexcept
     {
         return state_->source->input;
+    }
+    std::uint64_t archive_session::source_size() const noexcept
+    {
+        return state_->source->length;
     }
     bool archive_session::decode_resources() const noexcept
     {

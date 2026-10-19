@@ -7,6 +7,7 @@
 //   struct resource_descriptor { resource_kind kind; std::string extension; };
 //   class resource_source_error final : public std::runtime_error { ... };
 //   std::optional<resource_descriptor> probe_resource(std::istream&, byte_range);
+//   std::optional<resource_descriptor> probe_resource(std::istream&, byte_range, std::uint64_t stream_size);
 //   void write_resource(std::istream&, byte_range, const resource_descriptor&,
 //                       const std::function<void(std::span<const std::byte>)>&);
 //
@@ -1696,4 +1697,139 @@ TEST_CASE("godot resource converter: one size scan and callback seeks preserve f
                    });
     CHECK(output == as_byte_vector(font));
     CHECK(stream.counts().end_scans == 1);
+}
+
+TEST_CASE("godot resource converter: a caller-supplied source size removes the per-probe end scan",
+          "[godot][resource-converter][perf3-opening]")
+{
+    // Opening a listing probes every stored physical resource window through ``probe_resource``.
+    // The scanning overload re-derives the stream length by seeking to the stream end and back, so
+    // an archive with N resource entries pays N seek-to-end/seek-back pairs inside one listing even
+    // though the length never changes. ``list_files`` knows the length of the leased source
+    // (``read_pack`` validated every entry range against it, and an encrypted member exposes
+    // exactly ``logical_size`` decrypted bytes), so the size is a caller-owned input and the
+    // length-supplying overload must probe without any end scan. The companion
+    // ``[perf2-converter]`` test records the single end scan the scanning overload still performs.
+    const auto resource = modern_image_resource(4, 6, 2, 2, zero_bytes(16));
+    seek_count_stream stream(as_text(resource));
+    const auto descriptor = probe_resource(stream, whole(resource), static_cast<std::uint64_t>(resource.size()));
+    REQUIRE(descriptor.has_value());
+    if (!descriptor.has_value()) {
+        return;
+    }
+    CHECK(descriptor->kind == resource_kind::image);
+    CHECK(descriptor->extension == ".png");
+    CHECK(stream.counts().end_scans == 0);
+}
+
+TEST_CASE("godot resource converter: a supplied size rejects an out-of-range window before probing",
+          "[godot][resource-converter][perf3-opening]")
+{
+    // The supplied length is authoritative, so a window it cannot contain is a source fault before
+    // any magic is inspected, including when the bytes at the window start carry no recognized
+    // magic. The scanning two-argument overload keeps its previous behaviour.
+    const std::string body = "ABCD";
+    const byte_range window{0, body.size()};
+    seek_count_stream stream(body);
+
+    SECTION("unknown magic inside the supplied length is declined, not a fault")
+    {
+        CHECK(!(probe_resource(stream, window, body.size()).has_value()));
+        CHECK(stream.counts().end_scans == 0);
+    }
+    SECTION("a window one byte past the supplied length is a source fault")
+    {
+        CHECK_THROWS_AS(probe_resource(stream, byte_range{0, body.size() + 1}, body.size()), resource_source_error);
+    }
+    SECTION("a window that starts past the supplied length is a source fault")
+    {
+        CHECK_THROWS_AS(probe_resource(stream, byte_range{body.size(), 1}, body.size()), resource_source_error);
+    }
+    SECTION("an overflowing window is a source fault")
+    {
+        constexpr std::uint64_t huge = (std::numeric_limits<std::uint64_t>::max)();
+        CHECK_THROWS_AS(probe_resource(stream, byte_range{huge, 2}, body.size()), resource_source_error);
+    }
+    SECTION("a supplied length wider than a stream offset is a source fault")
+    {
+        constexpr std::uint64_t huge = (std::numeric_limits<std::uint64_t>::max)();
+        CHECK_THROWS_AS(probe_resource(stream, window, huge), resource_source_error);
+    }
+}
+
+TEST_CASE("godot resource converter: a supplied size that excludes a texture window is a source fault",
+          "[godot][resource-converter][perf3-opening]")
+{
+    gdst_fixture fixture;
+    fixture.width = 4;
+    fixture.height = 4;
+    fixture.data_format = test::support::image_format_rgba8;
+    fixture.raw_data = godot_bytes(std::size_t{4} * 4 * 4, 0x11);
+    const godot_bytes image = build_gdst(fixture);
+    const auto length = static_cast<std::uint64_t>(image.size());
+
+    seek_count_stream accepted(as_text(image));
+    CHECK(probe_resource(accepted, whole(image), length).has_value());
+    CHECK(accepted.counts().end_scans == 0);
+
+    // The texture path must honour the supplied length too: a window the length cannot contain is
+    // the same source fault a scan would report, and it must not scan to discover that.
+    seek_count_stream rejected(as_text(image));
+    CHECK_THROWS_AS(probe_resource(rejected, whole(image), length - 1), resource_source_error);
+    CHECK(rejected.counts().end_scans == 0);
+}
+
+TEST_CASE("godot resource converter: a supplied source size is validated against the probe window",
+          "[godot][resource-converter][perf3-opening]")
+{
+    // Decision table for the caller-supplied length. The reader must still reject a window whose
+    // tail lies past the supplied stream length (a genuine source fault), accept a window that is
+    // fully contained, and never fall back to scanning the stream end itself.
+    const auto resource = modern_image_resource(4, 6, 2, 2, zero_bytes(16));
+    const auto window = static_cast<std::uint64_t>(resource.size());
+
+    struct decision final
+    {
+        std::uint64_t supplied;
+        bool accepted;
+    };
+    const decision table[] = {
+        {window, true},      // exact length: the window ends exactly at the stream end
+        {window + 1, true},  // a longer stream still contains the window
+        {window - 1, false}, // one byte short: the window tail is past the supplied end
+        {0, false},          // an empty stream cannot contain a non-empty window
+    };
+
+    for (const decision &row : table) {
+        seek_count_stream stream(as_text(resource));
+        if (row.accepted) {
+            CHECK(probe_resource(stream, whole(resource), row.supplied).has_value());
+        } else {
+            CHECK_THROWS_AS(probe_resource(stream, whole(resource), row.supplied), resource_source_error);
+        }
+        CHECK(stream.counts().end_scans == 0);
+    }
+}
+
+TEST_CASE("godot resource converter: a caller-supplied source size removes the texture probe end scan",
+          "[godot][resource-converter][perf3-opening]")
+{
+    // The GDST/GST2 envelope path reaches the stream length through ``io::bounded_stream`` inside
+    // the texture prober, so the same per-probe scan reappears for texture entries. The supplied
+    // size must reach that path too, otherwise a pack of Godot 3 texture envelopes keeps paying one
+    // end scan per entry.
+    gdst_fixture fixture;
+    fixture.width = 64;
+    fixture.height = 64;
+    fixture.data_format = test::support::image_format_rgba8;
+    fixture.raw_data = godot_bytes(std::size_t{64} * 64 * 4, 0x7F);
+    const godot_bytes image = build_gdst(fixture);
+    seek_count_stream stream(as_text(image));
+    const auto descriptor = probe_resource(stream, whole(image), static_cast<std::uint64_t>(image.size()));
+    REQUIRE(descriptor.has_value());
+    if (!descriptor.has_value()) {
+        return;
+    }
+    CHECK(descriptor->extension == ".png");
+    CHECK(stream.counts().end_scans == 0);
 }
