@@ -28,10 +28,10 @@ DOCUMENTS = (README, AGENTS, BUILD_SYSTEM, METHODOLOGY)
 MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
 LANGUAGES = ("en", "ru")
 
-# The v145 master announced Windows XP..11 support.  Godot and Ren'Py carry that announcement in
-# a historical section because a later licence-notices patch re-released them; the other modules
+# The v145 master announced Windows XP..11 support.  Godot, Ren'Py and Zanzarah carry that
+# announcement in a historical section because a later patch re-released them; the other modules
 # still publish it as their current section.
-PLATFORM_VERSION = {"godot": "1.1.0", "renpy": "3.2.0"}
+PLATFORM_VERSION = {"godot": "1.1.0", "renpy": "3.2.0", "zanzarah": "2.2.0"}
 
 # A word-start match for "arm" catches "ARM", "ARM64" and "arm64" without tripping on
 # unrelated words such as the "farmanager" host domain.

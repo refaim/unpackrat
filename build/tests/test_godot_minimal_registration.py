@@ -44,7 +44,7 @@ PROJECTS = REPOSITORY_ROOT / "build" / "projects"
 NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 
 GODOT = "godot"
-GODOT_VERSION = "1.1.0"
+GODOT_VERSION = "1.1.1"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
 BASELINE = "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
 
@@ -545,7 +545,7 @@ class GodotDocsContract(GuardedCase):
             with self.subTest(language=language):
                 notes = (REPOSITORY_ROOT / f"src/modules/godot/ChangeLog.{language}.txt").read_text(encoding="utf-8")
                 versions = re.findall(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE)
-                self.assertEqual(versions, ["1.1.0", "1.0.1", "1.0.0"])
+                self.assertEqual(versions, ["1.1.1", "1.1.0", "1.0.1", "1.0.0"])
 
 
 if __name__ == "__main__":  # pragma: no cover

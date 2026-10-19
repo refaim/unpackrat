@@ -25,6 +25,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // The Godot PCK Observer adapter. It locates a pack inside a standalone, PE-section or trailing
@@ -353,6 +354,10 @@ namespace extractor
         std::vector<godot::conversion_hint> hints;
         std::unordered_map<std::size_t, godot::resource_descriptor> descriptors;
         if (session.decode_resources()) {
+            // The leased source length is authoritative for every plaintext entry, and a decrypted
+            // member view is exactly its logical size. Supplying it removes the reader's
+            // end-of-stream scan, so probing N entries no longer seeks to the stream end N times.
+            const std::uint64_t source_length = session.source_size();
             for (std::size_t position = 0; position < index.entries.size(); ++position) {
                 const auto &entry = index.entries[position];
                 if (entry.kind != godot::pck_entry_kind::file)
@@ -361,7 +366,8 @@ namespace extractor
                     entry_source source(session, position, false);
                     auto &input = source.stream();
                     const auto range = source.range();
-                    const auto descriptor = godot::probe_resource(input, range);
+                    const std::uint64_t stream_length = entry.encrypted ? entry.logical_size : source_length;
+                    const auto descriptor = godot::probe_resource(input, range, stream_length);
                     if (descriptor.has_value()) {
                         hints.push_back(godot::conversion_hint{position, descriptor->extension});
                         descriptors.emplace(position, *descriptor);

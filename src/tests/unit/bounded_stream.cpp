@@ -111,6 +111,45 @@ TEST_CASE("bounded stream: reads and rejects out-of-range operations")
     REQUIRE_THROWS_AS(input.seek_absolute(5), unpackrat::io::read_error);
 }
 
+TEST_CASE("bounded stream: a caller-supplied length bounds reads without a size scan")
+{
+    // The supplied length is used verbatim even though the stream itself holds more bytes, so the
+    // value cannot have come from an end scan, and reads stay bounded by it.
+    controlled_stream_buffer buffer("abcd");
+    std::istream source(&buffer);
+    unpackrat::io::bounded_stream input(source, 2);
+    REQUIRE(input.size() == 2);
+    std::array<char, 2> value{};
+    input.read_exact(value.data(), value.size());
+    REQUIRE(value == std::array{'a', 'b'});
+    REQUIRE(input.remaining() == 0);
+    REQUIRE_THROWS_AS(input.read_exact(value.data(), 1), unpackrat::io::read_error);
+    REQUIRE_THROWS_AS(input.seek_absolute(3), unpackrat::io::read_error);
+}
+
+TEST_CASE("bounded stream: a negative caller-supplied length is rejected at construction")
+{
+    SECTION("a negative length throws instead of building a wrapped window")
+    {
+        controlled_stream_buffer buffer("abcd");
+        std::istream source(&buffer);
+        REQUIRE_THROWS_AS(unpackrat::io::bounded_stream(source, -1), unpackrat::io::read_error);
+        REQUIRE_THROWS_AS(unpackrat::io::bounded_stream(source, (std::numeric_limits<std::streamoff>::min)()),
+                          unpackrat::io::read_error);
+    }
+
+    SECTION("a zero length is a valid empty window")
+    {
+        controlled_stream_buffer buffer("abcd");
+        std::istream source(&buffer);
+        unpackrat::io::bounded_stream input(source, 0);
+        REQUIRE(input.size() == 0);
+        REQUIRE(input.remaining() == 0);
+        std::array<char, 1> value{};
+        REQUIRE_THROWS_AS(input.read_exact(value.data(), value.size()), unpackrat::io::read_error);
+    }
+}
+
 TEST_CASE("bounded stream: reads trivial values")
 {
     std::istringstream source(std::string{"\x78\x56\x34\x12", 4});

@@ -1,6 +1,6 @@
 {
-  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-godot-minimal-registration:bfe3f1abd5b7670bdb3c2890bc0c2016007663a17981b74ead94cf74b9888d0b",
-  "source_artifact_url": "http://127.0.0.1:8765/sources/bfe3f1abd5b7670bdb3c2890bc0c2016007663a17981b74ead94cf74b9888d0b.tar",
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-godot-minimal-registration:473786ddb7678644a345e252388e96bf9e7e59b9fe6f3dd10d2f5d1f507c62be",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/473786ddb7678644a345e252388e96bf9e7e59b9fe6f3dd10d2f5d1f507c62be.tar",
   "license_finding_curations": [
     {
       "path": "build/tests/test_godot_minimal_registration.py",

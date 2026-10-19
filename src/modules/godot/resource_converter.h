@@ -66,6 +66,15 @@ namespace unpackrat::godot
     // ``resource_source_error``.
     [[nodiscard]] std::optional<resource_descriptor> probe_resource(std::istream &stream, byte_range source);
 
+    // As above, but ``stream_size`` is the caller's authoritative length of ``stream`` (for a
+    // listing, the session source length; for an encrypted member, its decrypted logical length).
+    // Supplying it removes the reader's end-of-stream scan, so probing N windows of one stream no
+    // longer performs N seeks to the stream end. A window that reaches past ``stream_size`` is
+    // still reported as ``resource_source_error``; acceptance, parsing and descriptors are
+    // otherwise identical to the scanning overload.
+    [[nodiscard]] std::optional<resource_descriptor> probe_resource(std::istream &stream, byte_range source,
+                                                                    std::uint64_t stream_size);
+
     // Re-reads ``source`` from a fresh stream and streams the converted view described by
     // ``descriptor`` to ``sink``. A source fault throws ``resource_source_error`` and the sink's own
     // exception propagates unchanged.

@@ -20,6 +20,18 @@ namespace unpackrat::io
         }
     }
 
+    bounded_stream::bounded_stream(std::istream &stream, const std::streamoff known_size)
+        : stream_(stream), size_(known_size)
+    {
+        // The caller's authoritative length is used verbatim, but a negative value is not a
+        // length: it would make every bounded position and read fail in wrapped, confusing ways.
+        // Reject it here, at the public boundary, instead of at some later read. Zero is a valid
+        // empty window.
+        if (known_size < 0) {
+            throw read_error();
+        }
+    }
+
     std::streamoff bounded_stream::size() const noexcept
     {
         return size_;
