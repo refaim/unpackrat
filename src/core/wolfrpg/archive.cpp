@@ -468,6 +468,36 @@ namespace unpackrat::wolfrpg
 
         // -------------------------------------------------------------------------- WolfX open
 
+        // A normal helper frame keeps recovery comparisons out of a Windows catch handler,
+        // where Clang 21's comparison instrumentation can lose the continuation.
+        [[nodiscard]] std::unique_ptr<wolfx_archive> recover_wolfx_source(
+            std::istream &stream, const std::filesystem::path &path, wolfx_candidates &candidates,
+            const game_context_resolver &resolve_context)
+        {
+            const game_context_result context = resolve_context(path);
+            if (context.status == game_context_status::io_failure) {
+                throw read_error();
+            }
+            if (context.context.data_folder.empty()) {
+                throw key_required();
+            }
+            collect_game_metadata(context.context.data_folder, {}, candidates);
+            return wolfx_archive::open(stream, path, candidates);
+        }
+
+        // Null is the typed "the initial open reported key_required" result; every other failure
+        // propagates unchanged. The catch only constructs that result and performs no comparison.
+        [[nodiscard]] std::unique_ptr<wolfx_archive> try_open_wolfx_source(std::istream &stream,
+                                                                          const std::filesystem::path &path,
+                                                                          const wolfx_candidates &candidates)
+        {
+            try {
+                return wolfx_archive::open(stream, path, candidates);
+            } catch (const key_required &) {
+                return nullptr;
+            }
+        }
+
         // Tries the implicit default and the caller's key first; only an actual key_required retries
         // with the recovered game metadata. A missing companion still carries a usable data folder,
         // so discovery never depends on a Pro companion the WolfX stream does not need.
@@ -480,22 +510,11 @@ namespace unpackrat::wolfrpg
             if (!password.empty()) {
                 candidates.add_key(std::string(password));
             }
-            try {
-                return wolfx_archive::open(stream, path, candidates);
-            } catch (const key_required &) {
-                // Only key rejection selects recovery; every other failure propagates unchanged.
+            auto initial = try_open_wolfx_source(stream, path, candidates);
+            if (initial) {
+                return initial;
             }
-            // Keep recovery out of the handler: Clang 21's comparison instrumentation loses the
-            // continuation after the resolver call inside a Windows exception handler.
-            const game_context_result context = resolve_context(path);
-            if (context.status == game_context_status::io_failure) {
-                throw read_error();
-            }
-            if (context.context.data_folder.empty()) {
-                throw key_required();
-            }
-            collect_game_metadata(context.context.data_folder, {}, candidates);
-            return wolfx_archive::open(stream, path, candidates);
+            return recover_wolfx_source(stream, path, candidates, resolve_context);
         }
     } // namespace
 
