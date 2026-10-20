@@ -108,6 +108,9 @@ Cppcheck 2.22.0 (the
 SHA-256), PSScriptAnalyzer 1.25.0 and BinSkim 4.4.9.11 round out the source and native analysis
 tools.
 
+`ci-source` requires `clang-cl` 23.1.3 from the same pinned LLVM tree as `clang-format`; set
+`UNPACKRAT_CLANG_CL` to override the compiler path.
+
 Only the tools the stage you run actually needs must be present: `ci-source` needs clang-format,
 Cppcheck and PSScriptAnalyzer; the `native-debug`, `native-release` and `msvc-analysis` stages need
 the MSVC v145 14.51 toolset (`native-release` also needs dumpbin and

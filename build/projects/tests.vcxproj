@@ -104,6 +104,7 @@
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\bounded_stream.cpp">
       <ObjectFileName>$(IntDir)bounded_stream_unit.obj</ObjectFileName>
     </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\zanzarah_pak.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\archive_lazy.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\modules\renpy\pickle.cpp">
       <ObjectFileName>$(IntDir)pickle_parser.obj</ObjectFileName>
@@ -161,6 +162,7 @@
     <ClInclude Include="$(RepositoryRoot)src\tests\support\godot_fixtures.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\support\zlib_fixture.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\zanzarah\pak.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\renpy\pickle.h" />
   </ItemGroup>
 

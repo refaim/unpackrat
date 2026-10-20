@@ -1,9 +1,7 @@
-#include "../../core/archive_limits.h"
-#include "../../core/io/bounded_stream.h"
 #include "../extractor.h"
+#include "pak.h"
 
-#include <algorithm>
-#include <fstream>
+#include <cstddef>
 
 // build/unpackrat-module-version.props injects the version macros from src/modules/zanzarah/VERSION,
 // the single source of truth. A project that does not import that file fails to compile here.
@@ -40,112 +38,12 @@ namespace extractor
         return archive_info{L"Zanzarah", L"", L""};
     }
 
-    int32_t read_positive_or_zero_int32(unpackrat::io::bounded_stream &stream)
-    {
-        const auto value = stream.read_trivial<std::int32_t>();
-
-        if (value < 0) {
-            throw read_error();
-        }
-
-        return value;
-    }
-
-    int32_t read_positive_int32(unpackrat::io::bounded_stream &stream)
-    {
-        const int32_t value = read_positive_or_zero_int32(stream);
-        if (value == 0) {
-            throw read_error();
-        }
-        return value;
-    }
-
     std::vector<std::unique_ptr<file>> extractor::list_files(
         std::istream &stream) // NOLINT(*-convert-member-functions-to-static)
     {
-        unpackrat::io::bounded_stream input(stream);
-        input.seek_absolute(static_cast<std::streamoff>(get_signature().size()));
-        const auto archive_size = input.size();
-        const auto file_count = static_cast<std::size_t>(read_positive_int32(input));
-        constexpr std::size_t minimum_entry_metadata_bytes = sizeof(std::int32_t) * 3 + 1;
-        const auto remaining_bytes = static_cast<std::uint64_t>(input.remaining());
-        if (file_count > unpackrat::archive_limits::max_entry_count ||
-            file_count > remaining_bytes / minimum_entry_metadata_bytes) {
-            throw read_error();
-        }
-
-        auto files = std::vector<std::unique_ptr<file>>();
-        files.reserve(file_count);
-
-        std::string path;
-        for (std::size_t i = 0; i < file_count; ++i) {
-            const auto path_len = static_cast<std::size_t>(read_positive_int32(input));
-            if (path_len > unpackrat::archive_limits::max_path_bytes ||
-                path_len > static_cast<std::uint64_t>(input.remaining())) {
-                throw read_error();
-            }
-            path.resize(path_len);
-            input.read_exact(path.data(), path.size());
-
-            const auto block_offset = read_positive_or_zero_int32(input);
-            const auto block_size = read_positive_int32(input);
-
-            constexpr int32_t attr_size = 4;
-            if (block_size < attr_size) {
-                throw read_error();
-            }
-
-            auto new_file = std::make_unique<file>();
-            new_file->path = path;
-            new_file->offset = static_cast<std::int64_t>(block_offset) + attr_size;
-            new_file->compressed_body_size_in_bytes = static_cast<std::int64_t>(block_size) - attr_size;
-            new_file->uncompressed_body_size_in_bytes = new_file->compressed_body_size_in_bytes;
-
-            files.push_back(std::move(new_file));
-        }
-
-        const auto body_position = input.position();
-        const auto body_bytes = static_cast<std::int64_t>(archive_size - body_position);
-        for (const auto &file : files) {
-            if (file->offset > body_bytes || file->compressed_body_size_in_bytes > body_bytes - file->offset) {
-                throw read_error();
-            }
-            file->offset += body_position;
-            if (constexpr std::string_view relative_prefix = "..\\"; file->path.starts_with(relative_prefix)) {
-                file->path.erase(0, relative_prefix.size());
-            }
-        }
-
-        constexpr std::int64_t framing_marker_size = 4;
-        constexpr std::uint32_t framing_prefix_marker = 0x101U;
-        constexpr std::uint32_t framing_suffix_marker = 0x202U;
-
-        // Framed archives bracket each block body with a literal prefix and suffix marker.
-        // When every entry carries both markers the framing is canonical and the trailing
-        // suffix is removed from the exposed extents. Archives which do not match the
-        // canonical framing fall back to their prefix-only (zanzapak) extents; the format
-        // notes describe the coincidental suffix ambiguity that this fallback accepts.
-        const auto has_canonical_framing = [&input](const std::unique_ptr<file> &entry) {
-            if (entry->compressed_body_size_in_bytes < framing_marker_size) {
-                return false;
-            }
-            input.seek_absolute(static_cast<std::streamoff>(entry->offset - framing_marker_size));
-            if (input.read_trivial<std::uint32_t>() != framing_prefix_marker) {
-                return false;
-            }
-            input.seek_absolute(static_cast<std::streamoff>(entry->offset + entry->compressed_body_size_in_bytes -
-                                                            framing_marker_size));
-            return input.read_trivial<std::uint32_t>() == framing_suffix_marker;
-        };
-
-        if (std::ranges::all_of(files, has_canonical_framing)) {
-            for (const auto &entry : files) {
-                entry->compressed_body_size_in_bytes -= framing_marker_size;
-                entry->uncompressed_body_size_in_bytes -= framing_marker_size;
-            }
-        }
-
-        return files;
+        // The index reader and the whole-archive framing policy live in the platform-neutral
+        // ``pak.h`` core so they can be unit-tested without the Observer module binary.
+        return zanzarah::parse_pak(stream);
     }
 
     uint32_t extractor::decrypt(uint32_t magic, std::vector<char> &data) const

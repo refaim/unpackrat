@@ -65,7 +65,11 @@ namespace unpackrat::godot
         class resource_reader final
         {
           public:
-            explicit resource_reader(std::istream &stream) : stream_(stream)
+            // ``known_size`` is the caller's authoritative length of ``stream``. When it is given,
+            // validating a source window performs no end-of-stream scan; the listing probe path
+            // supplies one length that covers every probed entry of the same stream.
+            explicit resource_reader(std::istream &stream, const std::optional<std::uint64_t> known_size = std::nullopt)
+                : stream_(stream), size_(known_size)
             {
             }
 
@@ -194,10 +198,16 @@ namespace unpackrat::godot
             return std::nullopt;
         }
 
-        std::optional<resource_descriptor> probe_texture_resource(resource_reader &input, const byte_range &source)
+        std::optional<resource_descriptor> probe_texture_resource(resource_reader &input, const byte_range &source,
+                                                                  const std::optional<std::uint64_t> known_size)
         {
             try {
-                const texture_payload payload = probe_texture(input.borrow_stream(), source, texture_limits{});
+                texture_payload payload;
+                if (known_size.has_value()) {
+                    payload = probe_texture(input.borrow_stream(), source, texture_limits{}, *known_size);
+                } else {
+                    payload = probe_texture(input.borrow_stream(), source, texture_limits{});
+                }
                 return resource_descriptor{resource_kind::texture, texture_extension(payload.encoding)};
             } catch (const texture_source_error &) {
                 throw_source();
@@ -345,22 +355,48 @@ namespace unpackrat::godot
                     write_image_resource_streaming(metadata, logical, sink, codecs::image_limits{});
                 });
         }
+
+        // Shared body of both probe entry points. ``known_size`` is absent for the scanning
+        // overload and authoritative for the length-supplying overload. When it is supplied, a
+        // window the length cannot contain is a source fault before the magic is inspected and the
+        // length never reaches the reader as a wider-than-representable offset; the scanning
+        // overload keeps its previous "inspect first, validate on the binary path" behaviour.
+        std::optional<resource_descriptor> probe_resource_window(std::istream &stream, const byte_range source,
+                                                                 const std::optional<std::uint64_t> known_size)
+        {
+            resource_reader input(stream, known_size);
+            if (known_size.has_value()) {
+                // The supplied length is authoritative, so a window it cannot contain is a source
+                // fault before any magic is inspected. A length no standard stream offset can
+                // represent is rejected rather than narrowed by an implementation-defined cast.
+                if (*known_size > static_cast<std::uint64_t>((std::numeric_limits<std::streamoff>::max)())) {
+                    throw resource_source_error("godot source length is not representable");
+                }
+                input.validate_source_window(source);
+            }
+            switch (sniff(input, source)) {
+            case wire_kind::texture:
+                return probe_texture_resource(input, source, known_size);
+            case wire_kind::rsrc:
+                return classify_binary(input, source, true);
+            case wire_kind::rscc:
+                return classify_binary(input, source, false);
+            case wire_kind::none:
+                break;
+            }
+            return std::nullopt;
+        }
     } // namespace
 
     std::optional<resource_descriptor> probe_resource(std::istream &stream, const byte_range source)
     {
-        resource_reader input(stream);
-        switch (sniff(input, source)) {
-        case wire_kind::texture:
-            return probe_texture_resource(input, source);
-        case wire_kind::rsrc:
-            return classify_binary(input, source, true);
-        case wire_kind::rscc:
-            return classify_binary(input, source, false);
-        case wire_kind::none:
-            break;
-        }
-        return std::nullopt;
+        return probe_resource_window(stream, source, std::nullopt);
+    }
+
+    std::optional<resource_descriptor> probe_resource(std::istream &stream, const byte_range source,
+                                                      const std::uint64_t stream_size)
+    {
+        return probe_resource_window(stream, source, stream_size);
     }
 
     void write_resource(std::istream &stream, const byte_range source, const resource_descriptor &descriptor,

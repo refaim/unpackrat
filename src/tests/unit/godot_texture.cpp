@@ -1187,6 +1187,61 @@ TEST_CASE("godot texture: scaled GST2 selects encoded format from content", "[go
     }
 }
 
+TEST_CASE("godot texture: a caller-supplied source length sizes the window without an end scan",
+          "[godot][texture][known-size]")
+{
+    gdst_fixture fixture;
+    fixture.width = 16;
+    fixture.height = 16;
+    fixture.data_format = test::support::image_format_rgba8;
+    fixture.raw_data = godot_bytes(std::size_t{16} * 16 * 4, 0x5A);
+    const godot_bytes image = build_gdst(fixture);
+    const auto length = static_cast<std::uint64_t>(image.size());
+
+    SECTION("a supplied length that contains the window accepts it without scanning")
+    {
+        std::istringstream stream(as_text(image));
+        const texture_payload payload = probe_texture(stream, whole(image), texture_limits{}, length);
+        CHECK(payload.encoding == texture_encoding::raw);
+        CHECK(payload.width == 16U);
+        CHECK(payload.body.size == std::uint64_t{16} * 16 * 4);
+        CHECK(bytes_at(image, payload.body) == *fixture.raw_data);
+    }
+    SECTION("a supplied length the window cannot fit is a source fault")
+    {
+        std::istringstream stream(as_text(image));
+        CHECK_THROWS_AS(probe_texture(stream, whole(image), texture_limits{}, length - 1), texture_source_error);
+    }
+}
+
+TEST_CASE("godot texture: an unrepresentable caller-supplied source length is rejected before conversion",
+          "[godot][texture][known-size]")
+{
+    gdst_fixture fixture;
+    fixture.width = 16;
+    fixture.height = 16;
+    fixture.data_format = test::support::image_format_rgba8;
+    fixture.raw_data = godot_bytes(std::size_t{16} * 16 * 4, 0x5A);
+    const godot_bytes image = build_gdst(fixture);
+    constexpr auto stream_off_max = static_cast<std::uint64_t>((std::numeric_limits<std::streamoff>::max)());
+
+    SECTION("a length beyond the stream position range is a source fault, never a wrapped window")
+    {
+        std::istringstream stream(as_text(image));
+        CHECK_THROWS_AS(probe_texture(stream, whole(image), texture_limits{}, stream_off_max + 1),
+                        texture_source_error);
+    }
+
+    SECTION("the largest representable length still accepts a window it contains")
+    {
+        std::istringstream stream(as_text(image));
+        const texture_payload payload = probe_texture(stream, whole(image), texture_limits{}, stream_off_max);
+        CHECK(payload.encoding == texture_encoding::raw);
+        CHECK(payload.width == 16U);
+        CHECK(payload.body.size == std::uint64_t{16} * 16 * 4);
+    }
+}
+
 TEST_CASE("godot texture: scaled GST2 supports raw data and modern RA-as-RG", "[godot][texture-media]")
 {
     for (const bool scaled : {false, true}) {

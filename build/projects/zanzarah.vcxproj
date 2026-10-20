@@ -38,6 +38,7 @@
     <ClInclude Include="$(RepositoryRoot)src\api.h" />
     <ClInclude Include="$(RepositoryRoot)src\archive.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\zanzarah\pak.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

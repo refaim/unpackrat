@@ -53,6 +53,8 @@ namespace unpackrat::godot
         archive_session &operator=(const archive_session &) = delete;
 
         [[nodiscard]] std::istream &stream() noexcept;
+        // Length of the currently leased source, measured once from its open handle at open time.
+        [[nodiscard]] std::uint64_t source_size() const noexcept;
         [[nodiscard]] bool decode_resources() const noexcept;
         [[nodiscard]] const pck_index &index() const noexcept;
         [[nodiscard]] const codecs::key256 *key() const noexcept;

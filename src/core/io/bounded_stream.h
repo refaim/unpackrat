@@ -21,6 +21,12 @@ namespace unpackrat::io
     {
       public:
         explicit bounded_stream(std::istream &stream);
+        // Authoritative length supplied by the caller (for example a file length already obtained
+        // from the open handle). No end-of-stream scan is performed, so a caller that probes many
+        // windows of one stream does not pay a seek-to-end per window. The caller owns the value.
+        // A negative length is not a length at all, so it is rejected at this public boundary with
+        // io::read_error; a zero length is a valid empty window.
+        bounded_stream(std::istream &stream, std::streamoff known_size);
 
         [[nodiscard]] std::streamoff size() const noexcept;
         [[nodiscard]] std::streamoff position();

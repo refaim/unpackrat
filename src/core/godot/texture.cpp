@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <limits>
+#include <optional>
 
 namespace unpackrat::godot
 {
@@ -197,8 +198,9 @@ namespace unpackrat::godot
         class window_reader final
         {
           public:
-            window_reader(std::istream &stream, const std::uint64_t begin, const std::uint64_t end)
-                : stream_(stream), begin_(begin), end_(end)
+            window_reader(std::istream &stream, const std::uint64_t begin, const std::uint64_t end,
+                          const std::optional<std::uint64_t> known_size)
+                : stream_(sized_stream(stream, known_size)), begin_(begin), end_(end)
             {
                 // A window that reaches past the bytes the stream actually holds is a source
                 // fault (the archive shrank between listing and this probe), not a malformed
@@ -240,6 +242,23 @@ namespace unpackrat::godot
             }
 
           private:
+            // Size the bounded window from the caller's authoritative length when it is known, so
+            // listing does not seek to the stream end once per probed texture envelope.
+            static io::bounded_stream sized_stream(std::istream &stream, const std::optional<std::uint64_t> known_size)
+            {
+                if (known_size.has_value()) {
+                    // A caller-supplied length wider than the stream position range cannot be
+                    // represented by the bounded stream's arithmetic. Convert only after proving
+                    // it fits: an unchecked cast would wrap to a negative length and silently
+                    // truncate the window, so this is reported as the source-length fault it is.
+                    if (*known_size > static_cast<std::uint64_t>((std::numeric_limits<std::streamoff>::max)())) {
+                        throw texture_source_error("texture source length exceeds the stream position range");
+                    }
+                    return io::bounded_stream(stream, static_cast<std::streamoff>(*known_size));
+                }
+                return io::bounded_stream(stream);
+            }
+
             io::bounded_stream stream_;
             std::uint64_t begin_;
             std::uint64_t end_;
@@ -494,32 +513,48 @@ namespace unpackrat::godot
         }
     } // namespace
 
+    namespace
+    {
+        texture_payload probe_texture_window(std::istream &stream, const byte_range source,
+                                             const texture_limits &limits,
+                                             const std::optional<std::uint64_t> known_size)
+        {
+            if (source.size > limits.max_source_bytes) {
+                throw texture_error("texture source exceeds the byte budget");
+            }
+            if (source.size > std::numeric_limits<std::uint64_t>::max() - source.offset) {
+                throw texture_error("texture source range overflows");
+            }
+            const std::uint64_t end = source.offset + source.size;
+
+            try {
+                window_reader reader(stream, source.offset, end, known_size);
+                std::array<char, 4> magic{};
+                reader.read(source.offset, magic.data(), magic.size());
+                if (byte_equal(magic.data(), "GDST", magic.size())) {
+                    return probe_gdst(reader, limits);
+                }
+                if (byte_equal(magic.data(), "GST2", magic.size())) {
+                    return probe_gst2(reader, limits);
+                }
+                throw texture_error("texture magic is not recognized");
+            } catch (const io::read_error &) {
+                // The bounded reader failed to seek or deliver a requested byte range. That is a
+                // source-stream fault, not a malformed envelope, so it is reported as the
+                // texture_source_error subtype (a texture_error by inheritance).
+                throw texture_source_error("texture stream is not readable");
+            }
+        }
+    } // namespace
+
     texture_payload probe_texture(std::istream &stream, const byte_range source, const texture_limits &limits)
     {
-        if (source.size > limits.max_source_bytes) {
-            throw texture_error("texture source exceeds the byte budget");
-        }
-        if (source.size > std::numeric_limits<std::uint64_t>::max() - source.offset) {
-            throw texture_error("texture source range overflows");
-        }
-        const std::uint64_t end = source.offset + source.size;
+        return probe_texture_window(stream, source, limits, std::nullopt);
+    }
 
-        try {
-            window_reader reader(stream, source.offset, end);
-            std::array<char, 4> magic{};
-            reader.read(source.offset, magic.data(), magic.size());
-            if (byte_equal(magic.data(), "GDST", magic.size())) {
-                return probe_gdst(reader, limits);
-            }
-            if (byte_equal(magic.data(), "GST2", magic.size())) {
-                return probe_gst2(reader, limits);
-            }
-            throw texture_error("texture magic is not recognized");
-        } catch (const io::read_error &) {
-            // The bounded reader failed to seek or deliver a requested byte range. That is a
-            // source-stream fault, not a malformed envelope, so it is reported as the
-            // texture_source_error subtype (a texture_error by inheritance).
-            throw texture_source_error("texture stream is not readable");
-        }
+    texture_payload probe_texture(std::istream &stream, const byte_range source, const texture_limits &limits,
+                                  const std::uint64_t known_size)
+    {
+        return probe_texture_window(stream, source, limits, known_size);
     }
 } // namespace unpackrat::godot
