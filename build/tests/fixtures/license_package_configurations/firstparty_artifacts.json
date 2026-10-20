@@ -1,7 +1,7 @@
 {
   "_comment": [
-    "Reviewed artifact and curation table for the fifteen isolated first-party build/test",
-    "Python components (2026-10-16 first-party curation). sha256 is the SHA-256 of the",
+    "Reviewed artifact and curation table for the seventeen isolated first-party build/test",
+    "Python components (2026-10-16 curation, extended 2026-10-21). sha256 is the SHA-256 of the",
     "deterministic uncompressed tar (fixed PAX format, sorted members, mtime 0, uid/gid 0,",
     "empty uname/gname) built from the exact checked-out file bytes at review time (frozen",
     "CRLF per .gitattributes), so the value matches the future CI checkout. start_lines is the",
@@ -36,9 +36,9 @@
     {
       "name": "unpackrat-build-main",
       "member": "build/main.py",
-      "version": "3e3d5c7dae19624c75727ecfae926a41545cab4b7a8ee66ddcde4bbee8f502a7",
-      "sha256": "3e3d5c7dae19624c75727ecfae926a41545cab4b7a8ee66ddcde4bbee8f502a7",
-      "artifact_filename": "3e3d5c7dae19624c75727ecfae926a41545cab4b7a8ee66ddcde4bbee8f502a7.tar",
+      "version": "5a100b8a79d1e0c493ee54617a9512365b378508676a2f4f6ece75f3362053f5",
+      "sha256": "5a100b8a79d1e0c493ee54617a9512365b378508676a2f4f6ece75f3362053f5",
+      "artifact_filename": "5a100b8a79d1e0c493ee54617a9512365b378508676a2f4f6ece75f3362053f5.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -73,28 +73,28 @@
     {
       "name": "unpackrat-build-tests-godot-minimal-registration",
       "member": "build/tests/test_godot_minimal_registration.py",
-      "version": "4bbf1aef3b69f5fa3acba1998f73ac92b5de43f844c87cf150f095c0d3a4f8a8",
-      "sha256": "4bbf1aef3b69f5fa3acba1998f73ac92b5de43f844c87cf150f095c0d3a4f8a8",
-      "artifact_filename": "4bbf1aef3b69f5fa3acba1998f73ac92b5de43f844c87cf150f095c0d3a4f8a8.tar",
+      "version": "54e7de7ee4f09688988ca3564d5576f3773d2ca0d618441a51882130e38118cf",
+      "sha256": "54e7de7ee4f09688988ca3564d5576f3773d2ca0d618441a51882130e38118cf",
+      "artifact_filename": "54e7de7ee4f09688988ca3564d5576f3773d2ca0d618441a51882130e38118cf.tar",
       "extension": ".tar",
       "curations": [
         {
           "path": "build/tests/test_godot_minimal_registration.py",
-          "start_lines": "69,86,216",
+          "start_lines": "69,87,217",
           "line_count": 1,
           "detected_license": "GPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 69,86,216 share the identifier GPL-3.0-only; line 69 is, for example, `\"GPL-3.0.txt\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 69,87,217 share the identifier GPL-3.0-only; line 69 is, for example, `\"GPL-3.0.txt\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
         }
       ]
     },
     {
       "name": "unpackrat-build-tests-wolfrpg-registration",
       "member": "build/tests/test_wolfrpg_registration.py",
-      "version": "9e0acd2f4afce8ce091d122bb8bd81a0783a77ad5e04141c1daf3f6e3bde8de4",
-      "sha256": "9e0acd2f4afce8ce091d122bb8bd81a0783a77ad5e04141c1daf3f6e3bde8de4",
-      "artifact_filename": "9e0acd2f4afce8ce091d122bb8bd81a0783a77ad5e04141c1daf3f6e3bde8de4.tar",
+      "version": "c27e19541290e4aaed10506363f62046eaf7dc92d4cdf05b08451937f2c3bcef",
+      "sha256": "c27e19541290e4aaed10506363f62046eaf7dc92d4cdf05b08451937f2c3bcef",
+      "artifact_filename": "c27e19541290e4aaed10506363f62046eaf7dc92d4cdf05b08451937f2c3bcef.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -139,9 +139,9 @@
     {
       "name": "unpackrat-build-tests-license-package-configurations",
       "member": "build/tests/test_license_package_configurations.py",
-      "version": "9d865bbf73708e2b31479dd4e27591a9317063e79e6cbeb1a2c7ae97236f1352",
-      "sha256": "9d865bbf73708e2b31479dd4e27591a9317063e79e6cbeb1a2c7ae97236f1352",
-      "artifact_filename": "9d865bbf73708e2b31479dd4e27591a9317063e79e6cbeb1a2c7ae97236f1352.tar",
+      "version": "6f70b80ceee56062ee0f2cc707efd72816baf8dc610d123e0cae8757d731c1df",
+      "sha256": "6f70b80ceee56062ee0f2cc707efd72816baf8dc610d123e0cae8757d731c1df",
+      "artifact_filename": "6f70b80ceee56062ee0f2cc707efd72816baf8dc610d123e0cae8757d731c1df.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -194,9 +194,9 @@
     {
       "name": "unpackrat-build-tests-license-pipeline",
       "member": "build/tests/test_license_pipeline.py",
-      "version": "c816c8e925043e0a7110af78a49a35695ee05a1405a165f744bf9c1160922322",
-      "sha256": "c816c8e925043e0a7110af78a49a35695ee05a1405a165f744bf9c1160922322",
-      "artifact_filename": "c816c8e925043e0a7110af78a49a35695ee05a1405a165f744bf9c1160922322.tar",
+      "version": "d420d6857eac231c62ead119b7f5cde38adc34131fecf7409a0b1e7f32b42c77",
+      "sha256": "d420d6857eac231c62ead119b7f5cde38adc34131fecf7409a0b1e7f32b42c77",
+      "artifact_filename": "d420d6857eac231c62ead119b7f5cde38adc34131fecf7409a0b1e7f32b42c77.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -249,9 +249,9 @@
     {
       "name": "unpackrat-build-tests-license-policy-data",
       "member": "build/tests/test_license_policy_data.py",
-      "version": "a0584357f25dd4b3cf196c63eff6ea64f9c4cf120af4efe10ca4b203cb8585f7",
-      "sha256": "a0584357f25dd4b3cf196c63eff6ea64f9c4cf120af4efe10ca4b203cb8585f7",
-      "artifact_filename": "a0584357f25dd4b3cf196c63eff6ea64f9c4cf120af4efe10ca4b203cb8585f7.tar",
+      "version": "463d726bbf744cd64aeb77c9dfa97058c3bf2aa7d1f7790a84b98790b924fc15",
+      "sha256": "463d726bbf744cd64aeb77c9dfa97058c3bf2aa7d1f7790a84b98790b924fc15",
+      "artifact_filename": "463d726bbf744cd64aeb77c9dfa97058c3bf2aa7d1f7790a84b98790b924fc15.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -325,6 +325,15 @@
           "reason": "INCORRECT",
           "concluded_license": "NONE",
           "comment": "Lines 50,379 share the identifier MIT OR GPL-1.0-or-later; line 50 is, for example, `\"and-mit-gpl\": (\"MIT AND GPL-3.0-only\", \"fail\"),`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+        },
+        {
+          "path": "build/tests/test_license_policy_data.py",
+          "start_lines": "115,120",
+          "line_count": 1,
+          "detected_license": "LicenseRef-scancode-unknown",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Lines 115,120 carry the reviewed base-configuration comment and the exact PATENT_GRANT_EXCEPTION assertion. This first-party MIT build/test file holds those words only as policy-data text, not a grant; ScanCode reported LicenseRef-scancode-unknown as a false positive, so the finding is removed."
         }
       ]
     },
@@ -548,6 +557,53 @@
           "reason": "REFERENCE",
           "concluded_license": "NONE",
           "comment": "Lines 508: self.assertIn(\"Permission is hereby granted, free of charge\", license_text) This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
+        }
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-webp-license-review",
+      "member": "build/tests/test_webp_license_review.py",
+      "version": "5d319c8b9fe67d91d94f74a271a29ea6bf63d1fb454fe2559e107ba4722bb828",
+      "sha256": "5d319c8b9fe67d91d94f74a271a29ea6bf63d1fb454fe2559e107ba4722bb828",
+      "artifact_filename": "5d319c8b9fe67d91d94f74a271a29ea6bf63d1fb454fe2559e107ba4722bb828.tar",
+      "extension": ".tar",
+      "curations": [
+        {
+          "path": "build/tests/test_webp_license_review.py",
+          "start_lines": "62",
+          "line_count": 1,
+          "detected_license": "LicenseRef-scancode-unknown",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Line 62 carries the exact PATENT_GRANT_EXCEPTION assertion for the reviewed base configuration. This first-party MIT test file holds those words only as policy-data text, not a grant; ScanCode reported LicenseRef-scancode-unknown as a false positive, so the finding is removed."
+        },
+        {
+          "path": "build/tests/test_webp_license_review.py",
+          "start_lines": "76",
+          "line_count": 1,
+          "detected_license": "GPL-3.0-only",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Line 76 carries the negative-match example that replaces the patent license identifier with GPL-3.0-only. It is a first-party MIT test example, not a grant, so the false-positive GPL-3.0-only finding is removed."
+        }
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-firstparty-license-curations",
+      "member": "build/tests/test_firstparty_license_curations.py",
+      "version": "61d3800a4c658d26015f58e5b3d3ecd10482b47f683ccfe0b3d701b4538387dc",
+      "sha256": "61d3800a4c658d26015f58e5b3d3ecd10482b47f683ccfe0b3d701b4538387dc",
+      "artifact_filename": "61d3800a4c658d26015f58e5b3d3ecd10482b47f683ccfe0b3d701b4538387dc.tar",
+      "extension": ".tar",
+      "curations": [
+        {
+          "path": "build/tests/test_firstparty_license_curations.py",
+          "start_lines": "297",
+          "line_count": 1,
+          "detected_license": "LicenseRef-scancode-unknown",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Line 297 carries the documentation assertion naming the owner-approved PATENT_GRANT_EXCEPTION. This first-party MIT test file holds those words only as policy-data text, not a grant; ScanCode reported LicenseRef-scancode-unknown as a false positive, so the finding is removed."
         }
       ]
     }

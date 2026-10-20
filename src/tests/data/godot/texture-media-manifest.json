@@ -9,11 +9,11 @@
   ],
   "file_base": 1024,
   "file_size": 1602,
-  "sha256": "6de45a082b49e41552cc6d475e1f3eabfc5b566f3c689e67a9affe4e18e07f3d",
+  "sha256": "7cff540696d4734fe787a6e8f206f65b612bdadf5161342bc9b198373bc7cbe3",
   "normalmap_semantics": "Godot Image::convert_ra_rgba8_to_rg preserves R, copies A into G, sets B=0 and A=255; no Z reconstruction.",
   "entries": [
     {
-      "path": "images/canonical-png.ctex",
+      "path": ".godot/imported/canonical-png.png-a09a0e7e99c698ccadd2ee13dc92aeb5.ctex",
       "scaled": false,
       "scale_tag": null,
       "data_format": 1,
@@ -27,7 +27,7 @@
       "sha256": "d136b978aada1850747a9a0038120d3191e4f605e4ae76fe35450c9677011566",
       "payload_offset": 56,
       "payload_hex": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f00050001ff56c72f0d0000000049454e44ae426082",
-      "converted_path": "images/canonical-png.png",
+      "converted_path": ".godot/imported/canonical-png.png",
       "expected_item_size": 126,
       "expected_packed_size": 126,
       "expected_encoded_sha256": "49e1dad481e94dfab7c9573a9a81d56aa2ca629fe15a3f7a910aa4f47601c00d",
@@ -41,7 +41,7 @@
       ]
     },
     {
-      "path": "images/canonical-webp.ctex",
+      "path": ".godot/imported/canonical-webp.webp-0a3b20b7961b13f207ee44b67c299e84.ctex",
       "scaled": false,
       "scale_tag": null,
       "data_format": 2,
@@ -55,7 +55,7 @@
       "sha256": "dcb9a7c180d3c0e609de576ed8a3e4c7866b510abf2948d6a7ae42fff0d4273f",
       "payload_offset": 56,
       "payload_hex": "524946461c000000574542505650384c0f0000002f000000000710fd8ffe0722a2ff0100",
-      "converted_path": "images/canonical-webp.webp",
+      "converted_path": ".godot/imported/canonical-webp.webp",
       "expected_item_size": 92,
       "expected_packed_size": 92,
       "expected_encoded_sha256": "882e5be149e09bb13b740230d48f462be51f3b4f8c4bcc051506e7bc419520ac",
@@ -69,7 +69,7 @@
       ]
     },
     {
-      "path": "images/scaled-png.scaledtex",
+      "path": ".godot/imported/scaled-png.png-21a1e7ffee82da7e6ef5d32699ae5819.scaledtex",
       "scaled": true,
       "scale_tag": 2,
       "data_format": 1,
@@ -83,7 +83,7 @@
       "sha256": "b86aed25d1e74383cbaa55b9e6459c7ce0462c47629da5f7baaed8b7d5b7bbf1",
       "payload_offset": 58,
       "payload_hex": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f00050001ff56c72f0d0000000049454e44ae426082",
-      "converted_path": "images/scaled-png.png",
+      "converted_path": ".godot/imported/scaled-png.png",
       "expected_item_size": 128,
       "expected_packed_size": 128,
       "expected_encoded_sha256": "49e1dad481e94dfab7c9573a9a81d56aa2ca629fe15a3f7a910aa4f47601c00d",
@@ -97,7 +97,7 @@
       ]
     },
     {
-      "path": "images/scaled-webp.scaledtex",
+      "path": ".godot/imported/scaled-webp.webp-21b0f460302aa149080e511101a4612f.scaledtex",
       "scaled": true,
       "scale_tag": 2,
       "data_format": 2,
@@ -111,7 +111,7 @@
       "sha256": "a2384b1d891dd182794b66b9455c1312eb4f7962151478d7b537673fcaa69846",
       "payload_offset": 58,
       "payload_hex": "524946461c000000574542505650384c0f0000002f000000000710fd8ffe0722a2ff0100",
-      "converted_path": "images/scaled-webp.webp",
+      "converted_path": ".godot/imported/scaled-webp.webp",
       "expected_item_size": 94,
       "expected_packed_size": 94,
       "expected_encoded_sha256": "882e5be149e09bb13b740230d48f462be51f3b4f8c4bcc051506e7bc419520ac",
@@ -125,7 +125,7 @@
       ]
     },
     {
-      "path": "images/scaled-raw.scaledtex",
+      "path": ".godot/imported/scaled-raw.png-f17c0330a2b81741f7fad64736d80898.scaledtex",
       "scaled": true,
       "scale_tag": 2,
       "data_format": 0,
@@ -139,7 +139,7 @@
       "sha256": "a9f243e0b7a15d936b22d36a9a9ea633c50a658e73cd961dd3d10a930239768b",
       "payload_offset": 54,
       "payload_hex": "00ff88c6fa00000000f8000000000000",
-      "converted_path": "images/scaled-raw.png",
+      "converted_path": ".godot/imported/scaled-raw.png",
       "expected_item_size": 70,
       "expected_packed_size": 70,
       "expected_encoded_sha256": null,
@@ -243,7 +243,7 @@
       ]
     },
     {
-      "path": "images/normal-ra.ctex",
+      "path": ".godot/imported/normal-ra.png-b195ca282657aa973c5572ca041a27cc.ctex",
       "scaled": false,
       "scale_tag": null,
       "data_format": 0,
@@ -257,7 +257,7 @@
       "sha256": "86310acb8bfcd483baf85028f7229a5cde8a254351ca1cc394f8d61f962593d9",
       "payload_offset": 52,
       "payload_hex": "00ff88c6fa00000000f8000000000000",
-      "converted_path": "images/normal-ra.png",
+      "converted_path": ".godot/imported/normal-ra.png",
       "expected_item_size": 68,
       "expected_packed_size": 68,
       "expected_encoded_sha256": null,

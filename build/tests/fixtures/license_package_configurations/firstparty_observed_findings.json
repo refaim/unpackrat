@@ -1,0 +1,56 @@
+{
+  "_comment": [
+    "Exact new first-party ScanCode findings observed on public unpackrat PR81 head",
+    "a98ffe49b14f26a3a362eacf16d1aa22ad13be42 (CI run 39534376653). Every curated",
+    "record is one exact line and one complete detected expression; the matching",
+    "package-configuration and firstparty_artifacts rows must bind it to the same",
+    "content-addressed file. unresolved_control records a different expression and a",
+    "different line that no curation may cover."
+  ],
+  "curated": [
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": 115,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown"
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": 120,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown"
+    },
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": 62,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown"
+    },
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": 76,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_firstparty_license_curations.py",
+      "start_lines": 297,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown"
+    }
+  ],
+  "unresolved_control": [
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": 77,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": 76,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-or-later"
+    }
+  ]
+}

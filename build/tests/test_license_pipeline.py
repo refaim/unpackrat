@@ -2675,5 +2675,82 @@ class OwnSourceCoverage(_PipelineBase):
         self.assertEqual(gathered["shareData"], {})
 
 
+class WebPFeatures(_PipelineBase):
+    def test_prepare_accepts_the_reviewed_webp_unicode_feature_only(self) -> None:
+        archive = "https://github.com/webmproject/libwebp/archive/v1.6.0.tar.gz"
+        payload = b"libwebp release archive\n"
+
+        def fetch(url: str) -> bytes:
+            return payload if url == archive else _fetch(url)
+
+        actual_inventory = json.loads(
+            (Path(__file__).resolve().parents[2] / "build" / "license-inventory.json")
+            .read_text(encoding="utf-8")
+        )
+        webp = next(
+            component
+            for component in actual_inventory["components"]
+            if isinstance(component, dict) and component.get("name") == "libwebp"
+        )
+        self.assertEqual(webp["features"], ["unicode"])
+
+        inventory = _inventory_document()
+        inventory["components"].append({
+            "name": "libwebp",
+            "kind": "vcpkg-package",
+            "scope": "runtime",
+            "vcpkgName": "libwebp",
+            "declaredExpression": "BSD-3-Clause",
+            "features": list(webp["features"]),
+            "source": {
+                "origin": "registry",
+                "identity": "github.com/webmproject/libwebp",
+            },
+            "notices": [],
+        })
+        inventory_path = Path(self._tmp.name) / "webp-inventory.json"
+        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        inputs = Path(self._tmp.name) / "inputs"
+        for architecture in licenses.ARCHITECTURES:
+            entries = _entries(licenses.target_triplet(architecture))
+            entries.insert(0, {
+                "name": "libwebp",
+                "version": "1.6.0",
+                "abi": "9" * 64,
+                "triplet": licenses.target_triplet(architecture),
+                "features": ["unicode"],
+                "sbom": _sbom(
+                    "libwebp", "1.6.0", "9" * 64, "BSD-3-Clause",
+                    resources=[{
+                        "name": "libwebp",
+                        "url": archive,
+                        "sha512": _sha512(payload),
+                    }],
+                ),
+            })
+            _materialize(licenses.vcpkg_root(self.repo, architecture), entries)
+            licenses.export_inputs(
+                self.repo, architecture, inputs / architecture,
+                collect=_collector(entries),
+            )
+
+        output = Path(self._tmp.name) / "webp-prepared"
+        licenses.prepare(
+            inputs, output, inventory_path=inventory_path,
+            repository=self.repo, fetch=fetch,
+        )
+        self.assertTrue((output / "unpackrat.spdx.json").is_file())
+
+        self._rewrite_both("libwebp", features=["unicode", "anim"])
+        with self.assertRaisesRegex(
+            licenses.LicenseError,
+            r"libwebp installed features \[.*anim.*\] need review against approved \['unicode'\]",
+        ):
+            licenses.prepare(
+                inputs, Path(self._tmp.name) / "webp-rejected",
+                inventory_path=inventory_path, repository=self.repo, fetch=fetch,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

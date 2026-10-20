@@ -1738,6 +1738,45 @@ TEST_CASE("godot image streaming: a logical raw row beyond x86 address space fai
 }
 #endif
 
+TEST_CASE("godot image resource: x86 decode rejects an unaddressable RGBA image before source reads",
+          "[godot][image-streaming][bounds]")
+{
+    if constexpr (sizeof(std::size_t) < sizeof(std::uint64_t)) {
+        constexpr std::uint32_t width = 1U << 16U;
+        constexpr std::uint32_t height = 1U << 14U;
+        constexpr std::uint64_t pixels = static_cast<std::uint64_t>(width) * height;
+        constexpr std::uint64_t rgba_bytes = pixels * 4;
+        constexpr std::uint64_t bc1_bytes = pixels >> 1U;
+        static_assert(pixels == (std::uint64_t{1} << 30U));
+        static_assert(rgba_bytes == (std::uint64_t{1} << 32U));
+        static_assert(bc1_bytes == (std::uint64_t{1} << 29U));
+        static_assert(rgba_bytes > (std::numeric_limits<std::uint32_t>::max)());
+
+        image_limits limits;
+        limits.max_pixels = std::uint64_t{1} << 30U;
+        limits.max_input_bytes = std::uint64_t{1} << 29U;
+        limits.max_output_bytes = std::uint64_t{1} << 32U;
+        std::size_t reads = 0;
+        const unpackrat::io::byte_source source{bc1_bytes,
+                                                [&](const std::uint64_t offset, const std::span<std::byte> bytes) {
+                                                    REQUIRE(offset <= bc1_bytes);
+                                                    REQUIRE(bytes.size() <= bc1_bytes - offset);
+                                                    // A zero BC1 block is a valid opaque black 4x4 block; the throw
+                                                    // must happen first.
+                                                    std::fill(bytes.begin(), bytes.end(), std::byte{0});
+                                                    ++reads;
+                                                }};
+        std::string diagnostic;
+        try {
+            static_cast<void>(unpackrat::godot::decode_raw_image(source, 4, 17, width, height, limits));
+        } catch (const image_error &error) {
+            diagnostic = error.what();
+        }
+        CHECK(diagnostic == "decoded image is not addressable");
+        CHECK(reads == 0);
+    }
+}
+
 TEST_CASE("godot image streaming: binary raw and preserved payloads use logical offsets", "[godot][image-streaming]")
 {
     for (const bool raw : {false, true}) {

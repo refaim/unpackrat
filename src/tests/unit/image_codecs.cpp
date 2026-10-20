@@ -1,6 +1,8 @@
 #include "../../core/codecs/bc_codec.h"
 #include "../../core/codecs/png_codec.h"
+#include "../../core/codecs/webp_codec.h"
 #include "../support/archive_lazy_fixtures.h"
+#include "../support/godot_texture_fixtures.h"
 
 #include <algorithm>
 #include <array>
@@ -29,6 +31,11 @@
 // not carry the dllimport decoration; the macro stays private to this translation unit.
 #define SPNG_STATIC
 #include <spng.h>
+
+#define WEBP_STATIC
+#include <webp/decode.h>
+
+#include <zlib.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -101,6 +108,35 @@ namespace
         return image;
     }
 
+    std::span<const std::byte> as_byte_view(const test::support::godot_bytes &buffer)
+    {
+        return std::span<const std::byte>(reinterpret_cast<const std::byte *>(buffer.data()), buffer.size());
+    }
+
+    std::uint32_t png_crc32(const std::span<const std::byte> bytes)
+    {
+        return static_cast<std::uint32_t>(
+            ::crc32(0, reinterpret_cast<const Bytef *>(bytes.data()), static_cast<uInt>(bytes.size())));
+    }
+
+    // The independent libspng reader must reject the mutated IHDR itself, not its CRC.
+    bool spng_rejects_ihdr(const std::span<const std::byte> stream)
+    {
+        spng_ctx *context = spng_ctx_new(0);
+        REQUIRE(context != nullptr);
+        struct context_guard final
+        {
+            spng_ctx *context;
+            ~context_guard()
+            {
+                spng_ctx_free(context);
+            }
+        } guard{context};
+        REQUIRE(spng_set_png_buffer(context, stream.data(), stream.size()) == SPNG_OK);
+        spng_ihdr header{};
+        return spng_get_ihdr(context, &header) != SPNG_OK;
+    }
+
 #ifdef _DEBUG
     // Drives the debug CRT allocation hook so the encoder's context-allocation and internal-encode
     // failure paths can be reached without a real out-of-memory condition. reject_index is the
@@ -113,6 +149,7 @@ namespace
     thread_local std::size_t error_allocation_size = 0;
     thread_local std::size_t reject_size = 0;
     thread_local bool target_rejected = false;
+    thread_local std::size_t rejected_at = 0;
 #ifdef _WIN64
     thread_local bool reject_only_in_spng = false;
     thread_local DWORD64 encoder_begin = 0;
@@ -144,9 +181,11 @@ namespace
             ) {
                 reject_size = 0;
                 target_rejected = true;
+                rejected_at = allocation_count;
                 return 0;
             }
             if (reject_index != 0 && allocation_count == reject_index) {
+                rejected_at = allocation_count;
                 return 0;
             }
         }
@@ -164,6 +203,7 @@ namespace
             error_allocation_size = 0;
             reject_size = 0;
             target_rejected = false;
+            rejected_at = 0;
 #ifdef _WIN64
             reject_only_in_spng = false;
 #endif
@@ -206,6 +246,46 @@ namespace
             outcome = png_outcome::image_error;
         } catch (...) {
             outcome = png_outcome::other;
+        }
+        return outcome;
+    }
+
+    enum class codec_outcome
+    {
+        none,
+        image_error,
+        other,
+    };
+
+    codec_outcome decode_png_with_allocation_policy(const std::span<const std::byte> encoded, const std::size_t reject)
+    {
+        codec_outcome outcome = codec_outcome::none;
+        scoped_allocation_policy policy(reject);
+        try {
+            static_cast<void>(unpackrat::codecs::decode_png(encoded));
+        } catch (const unpackrat::codecs::image_error &) {
+            outcome = codec_outcome::image_error;
+        } catch (...) {
+            outcome = codec_outcome::other;
+        }
+        return outcome;
+    }
+
+    codec_outcome encode_webp_with_allocation_policy(const unpackrat::codecs::rgba_image &image,
+                                                     const std::function<void(std::span<const std::byte>)> &sink,
+                                                     const std::size_t reject, std::size_t *refused_index = nullptr)
+    {
+        codec_outcome outcome = codec_outcome::none;
+        scoped_allocation_policy policy(reject);
+        try {
+            unpackrat::codecs::encode_webp_lossless(image, sink);
+        } catch (const unpackrat::codecs::image_error &) {
+            outcome = codec_outcome::image_error;
+        } catch (...) {
+            outcome = codec_outcome::other;
+        }
+        if (refused_index != nullptr) {
+            *refused_index = rejected_at;
         }
         return outcome;
     }
@@ -365,6 +445,390 @@ TEST_CASE("png codec: an image that is one pixel within budget still encodes")
         limits);
     const auto decoded = decode_png(stream);
     REQUIRE(decoded.pixels == bytes({1, 2, 3, 4}));
+}
+
+TEST_CASE("png codec: the decoded output budget accepts four bytes and rejects three")
+{
+    const auto encoded = test::support::red_pixel_png();
+    const auto viewed = std::span<const std::byte>(reinterpret_cast<const std::byte *>(encoded.data()), encoded.size());
+
+    unpackrat::codecs::image_limits limits;
+    limits.max_output_bytes = 4;
+    REQUIRE(unpackrat::codecs::decode_png(viewed, limits).pixels == bytes({255, 0, 0, 255}));
+
+    limits.max_output_bytes = 3;
+    REQUIRE_THROWS_AS(unpackrat::codecs::decode_png(viewed, limits), unpackrat::codecs::image_error);
+}
+
+TEST_CASE("png codec: enforces the encoded input budget at its exact boundary")
+{
+    const auto encoded = test::support::red_pixel_png();
+    const auto viewed = as_byte_view(encoded);
+    REQUIRE(encoded.size() > 1);
+
+    unpackrat::codecs::image_limits limits;
+    limits.max_input_bytes = encoded.size() - 1;
+    bool budget_reported = false;
+    try {
+        static_cast<void>(unpackrat::codecs::decode_png(viewed, limits));
+    } catch (const unpackrat::codecs::image_error &error) {
+        budget_reported = std::string(error.what()) == "PNG input exceeds the configured byte budget";
+    }
+    REQUIRE(budget_reported);
+
+    limits.max_input_bytes = encoded.size();
+    REQUIRE(unpackrat::codecs::decode_png(viewed, limits).pixels == bytes({255, 0, 0, 255}));
+}
+
+TEST_CASE("png codec: rejects malformed and truncated encoded streams without an image")
+{
+    const auto encoded = test::support::red_pixel_png();
+    const auto viewed = as_byte_view(encoded);
+
+    const auto rewrite_ihdr_crc = [](test::support::godot_bytes &png) {
+        const auto crc = png_crc32(as_byte_view(png).subspan(12, 17));
+        for (std::size_t index = 0; index < 4; ++index) {
+            png[29 + index] = static_cast<std::uint8_t>(crc >> (24U - static_cast<std::uint32_t>(index) * 8U));
+        }
+    };
+
+    // A rejected decode must surface the project error and, for streams whose header is present
+    // but whose image data is broken, the diagnostic must still identify PNG decoding.
+    const auto reports_decode_failure = [](const std::span<const std::byte> stream) {
+        try {
+            static_cast<void>(unpackrat::codecs::decode_png(stream));
+        } catch (const unpackrat::codecs::image_error &error) {
+            return std::string(error.what()).starts_with("PNG decoding failed");
+        } catch (...) {
+            return false;
+        }
+        return false;
+    };
+
+    SECTION("empty stream")
+    {
+        REQUIRE(reports_decode_failure({}));
+    }
+    SECTION("signature without an IHDR")
+    {
+        REQUIRE(viewed.size() > 8);
+        REQUIRE(reports_decode_failure(viewed.first(8)));
+    }
+    SECTION("complete IHDR without image data")
+    {
+        // The red fixture is signature(8) + IHDR length/type/body/CRC(25) + IDAT + IEND.
+        REQUIRE(viewed.size() > 33);
+        REQUIRE(reports_decode_failure(viewed.first(33)));
+    }
+    SECTION("truncated image data")
+    {
+        REQUIRE(viewed.size() > 40);
+        REQUIRE(reports_decode_failure(viewed.first(40)));
+    }
+    SECTION("IHDR declaring an unsupported colour layout")
+    {
+        auto corrupt = encoded;
+        REQUIRE(corrupt[25] == 6); // 8-bit RGBA colour type
+        corrupt[25] = 1;           // not a valid PNG colour type
+        rewrite_ihdr_crc(corrupt);
+        REQUIRE(spng_rejects_ihdr(as_byte_view(corrupt)));
+        REQUIRE_THROWS_AS(unpackrat::codecs::decode_png(as_byte_view(corrupt)), unpackrat::codecs::image_error);
+    }
+    SECTION("IHDR declaring a zero width")
+    {
+        auto corrupt = encoded;
+        std::fill(corrupt.begin() + 16, corrupt.begin() + 20, std::uint8_t{0});
+        rewrite_ihdr_crc(corrupt);
+        REQUIRE(spng_rejects_ihdr(as_byte_view(corrupt)));
+        REQUIRE_THROWS_AS(unpackrat::codecs::decode_png(as_byte_view(corrupt)), unpackrat::codecs::image_error);
+    }
+}
+
+TEST_CASE("webp codec: decodes a real lossless stream to exact RGBA pixels")
+{
+    const auto encoded = test::support::red_pixel_webp();
+    const auto viewed = std::span<const std::byte>(reinterpret_cast<const std::byte *>(encoded.data()), encoded.size());
+
+    const auto image = unpackrat::codecs::decode_webp(viewed);
+    REQUIRE(image.width == 1);
+    REQUIRE(image.height == 1);
+    REQUIRE(image.pixels == bytes({255, 0, 0, 255}));
+}
+
+TEST_CASE("webp codec: rejects a RIFF signature without a decodable bitstream")
+{
+    const auto fake = test::support::webp_riff_payload();
+    const auto viewed = std::span<const std::byte>(reinterpret_cast<const std::byte *>(fake.data()), fake.size());
+
+    REQUIRE_THROWS_AS(unpackrat::codecs::decode_webp(viewed), unpackrat::codecs::image_error);
+}
+
+TEST_CASE("webp codec: rejects an empty encoded stream")
+{
+    REQUIRE_THROWS_AS(unpackrat::codecs::decode_webp({}), unpackrat::codecs::image_error);
+}
+
+TEST_CASE("webp codec: rejects animated input without decoding a frame")
+{
+    // Structurally complete animated container: VP8X with the animation flag, ANIM, and one
+    // ANMF frame carrying the fixture's lossless 1x1 image. The still-image decoder must reject
+    // it as an unsupported layout rather than silently decoding the first frame.
+    auto animated = test::support::godot_bytes{'R', 'I', 'F', 'F'};
+    const auto append = [&animated](const std::initializer_list<std::uint8_t> values) {
+        animated.insert(animated.end(), values);
+    };
+    const auto append_u24 = [&animated](const std::uint32_t value) {
+        for (std::uint32_t shift = 0; shift < 24; shift += 8) {
+            animated.push_back(static_cast<std::uint8_t>(value >> shift));
+        }
+    };
+    const auto append_u32 = [&animated](const std::uint32_t value) {
+        for (std::uint32_t shift = 0; shift < 32; shift += 8) {
+            animated.push_back(static_cast<std::uint8_t>(value >> shift));
+        }
+    };
+
+    append_u32(0); // RIFF size, patched once the body length is known
+    append({'W', 'E', 'B', 'P'});
+    append({'V', 'P', '8', 'X'});
+    append_u32(10);
+    append({0x02, 0, 0, 0}); // animation flag, reserved bytes
+    append_u24(0);           // canvas width minus one
+    append_u24(0);           // canvas height minus one
+    append({'A', 'N', 'I', 'M'});
+    append_u32(6);
+    append_u32(0);  // background colour
+    append({0, 0}); // loop count
+    append({'A', 'N', 'M', 'F'});
+    append_u32(40); // 16-byte frame header + the 24-byte VP8L chunk and padding
+    append_u24(0);  // frame x
+    append_u24(0);  // frame y
+    append_u24(0);  // frame width minus one
+    append_u24(0);  // frame height minus one
+    append_u24(10); // duration in milliseconds
+    append({0});    // dispose/blend flags
+    const auto frame = test::support::red_pixel_webp();
+    REQUIRE(frame.size() > 12);
+    animated.insert(animated.end(), frame.begin() + 12, frame.end());
+    REQUIRE(animated.size() > 8);
+    for (std::uint32_t shift = 0; shift < 32; shift += 8) {
+        animated[4 + static_cast<std::size_t>(shift / 8)] = static_cast<std::uint8_t>((animated.size() - 8) >> shift);
+    }
+
+    int width = 0;
+    int height = 0;
+    REQUIRE(WebPGetInfo(reinterpret_cast<const std::uint8_t *>(animated.data()), animated.size(), &width, &height) !=
+            0);
+    REQUIRE(width == 1);
+    REQUIRE(height == 1);
+    REQUIRE_THROWS_AS(unpackrat::codecs::decode_webp(as_byte_view(animated)), unpackrat::codecs::image_error);
+}
+
+TEST_CASE("webp codec: a complete header without pixel data fails decoding")
+{
+    auto truncated = test::support::red_pixel_webp();
+    // Keep the 12-byte RIFF header, the 8-byte VP8L chunk header and the 5-byte VP8L image
+    // header, then shrink both declared sizes so the container itself is complete.
+    truncated.resize(25);
+    const auto set_u32 = [&truncated](const std::size_t offset, const std::uint32_t value) {
+        for (std::size_t index = 0; index < 4; ++index) {
+            truncated[offset + index] = static_cast<std::uint8_t>(value >> (index * 8));
+        }
+    };
+    set_u32(4, 17); // "WEBP" + the 8-byte chunk header + the 5-byte VP8L header
+    set_u32(16, 5); // the VP8L chunk now contains only its own 5-byte header
+
+    int width = 0;
+    int height = 0;
+    REQUIRE(WebPGetInfo(reinterpret_cast<const std::uint8_t *>(truncated.data()), truncated.size(), &width, &height) !=
+            0);
+    REQUIRE(width == 1);
+    REQUIRE(height == 1);
+
+    const auto viewed =
+        std::span<const std::byte>(reinterpret_cast<const std::byte *>(truncated.data()), truncated.size());
+    REQUIRE_THROWS_AS(unpackrat::codecs::decode_webp(viewed), unpackrat::codecs::image_error);
+}
+
+TEST_CASE("webp codec: enforces encoded, pixel and decoded byte budgets")
+{
+    const auto encoded = test::support::red_pixel_webp();
+    const auto viewed = std::span<const std::byte>(reinterpret_cast<const std::byte *>(encoded.data()), encoded.size());
+
+    SECTION("encoded input budget")
+    {
+        unpackrat::codecs::image_limits limits;
+        limits.max_input_bytes = encoded.size() - 1;
+        REQUIRE_THROWS_AS(unpackrat::codecs::decode_webp(viewed, limits), unpackrat::codecs::image_error);
+        limits.max_input_bytes = encoded.size();
+        REQUIRE(unpackrat::codecs::decode_webp(viewed, limits).pixels == bytes({255, 0, 0, 255}));
+    }
+    SECTION("pixel budget")
+    {
+        unpackrat::codecs::image_limits limits;
+        limits.max_pixels = 0;
+        REQUIRE_THROWS_AS(unpackrat::codecs::decode_webp(viewed, limits), unpackrat::codecs::image_error);
+    }
+    SECTION("decoded output budget")
+    {
+        unpackrat::codecs::image_limits limits;
+        limits.max_output_bytes = 3;
+        REQUIRE_THROWS_AS(unpackrat::codecs::decode_webp(viewed, limits), unpackrat::codecs::image_error);
+        limits.max_output_bytes = 4;
+        REQUIRE(unpackrat::codecs::decode_webp(viewed, limits).pixels == bytes({255, 0, 0, 255}));
+    }
+}
+
+TEST_CASE("webp codec: lossless encoder round-trips exact pixels through an independent decoder")
+{
+    const auto pixels = bytes({10, 20, 30, 40, 50, 60, 70, 80});
+    const auto image = make_image(2, 1, pixels);
+
+    std::vector<std::byte> stream;
+    unpackrat::codecs::encode_webp_lossless(image, [&](const std::span<const std::byte> chunk) {
+        stream.insert(stream.end(), chunk.begin(), chunk.end());
+    });
+
+    REQUIRE(stream.size() > 12);
+    REQUIRE(std::memcmp(stream.data(), "RIFF", 4) == 0);
+    REQUIRE(std::memcmp(stream.data() + 8, "WEBP", 4) == 0);
+
+    int width = 0;
+    int height = 0;
+    REQUIRE(WebPGetInfo(reinterpret_cast<const std::uint8_t *>(stream.data()), stream.size(), &width, &height) != 0);
+    REQUIRE(width == 2);
+    REQUIRE(height == 1);
+
+    std::vector<std::byte> decoded(pixels.size());
+    REQUIRE(WebPDecodeRGBAInto(reinterpret_cast<const std::uint8_t *>(stream.data()), stream.size(),
+                               reinterpret_cast<std::uint8_t *>(decoded.data()), decoded.size(), width * 4) != nullptr);
+    REQUIRE(decoded == pixels);
+}
+
+TEST_CASE("webp codec: lossless encoding preserves RGB under fully transparent pixels")
+{
+    // Two fully transparent pixels carry different nonzero RGB values, next to an opaque and a
+    // partially transparent pixel. Exact lossless encoding must reproduce all sixteen bytes.
+    const auto pixels = bytes({
+        255,
+        0,
+        0,
+        0, // transparent red
+        0,
+        255,
+        0,
+        0, // transparent green
+        0,
+        0,
+        255,
+        255, // opaque blue
+        10,
+        20,
+        30,
+        128, // partially transparent
+    });
+    const auto image = make_image(2, 2, pixels);
+
+    std::vector<std::byte> stream;
+    unpackrat::codecs::encode_webp_lossless(image, [&](const std::span<const std::byte> chunk) {
+        stream.insert(stream.end(), chunk.begin(), chunk.end());
+    });
+
+    REQUIRE(stream.size() > 12);
+    int width = 0;
+    int height = 0;
+    REQUIRE(WebPGetInfo(reinterpret_cast<const std::uint8_t *>(stream.data()), stream.size(), &width, &height) != 0);
+    REQUIRE(width == 2);
+    REQUIRE(height == 2);
+
+    std::vector<std::byte> decoded(pixels.size());
+    REQUIRE(WebPDecodeRGBAInto(reinterpret_cast<const std::uint8_t *>(stream.data()), stream.size(),
+                               reinterpret_cast<std::uint8_t *>(decoded.data()), decoded.size(), width * 4) != nullptr);
+    REQUIRE(decoded == pixels);
+}
+
+TEST_CASE("webp codec: encoder rejects malformed buffers and breached budgets before publishing")
+{
+    const auto image = make_image(1, 1, bytes({1, 2, 3, 4}));
+    std::size_t sink_calls = 0;
+    const auto sink = [&sink_calls](const std::span<const std::byte>) { ++sink_calls; };
+
+    SECTION("raw input byte budget")
+    {
+        unpackrat::codecs::image_limits limits;
+        limits.max_input_bytes = 3;
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(image, sink, limits), unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("encoded output byte budget")
+    {
+        unpackrat::codecs::image_limits limits;
+        limits.max_output_bytes = 0;
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(image, sink, limits), unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("pixel buffer does not match the declared dimensions")
+    {
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(make_image(2, 2, bytes({1, 2, 3, 4})), sink),
+                          unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("zero width")
+    {
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(make_image(0, 1, {}), sink),
+                          unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("zero height")
+    {
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(make_image(1, 0, {}), sink),
+                          unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("dimensions overflow the RGBA byte count")
+    {
+        // width * height is representable, but four bytes per pixel is not.
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(make_image(0xFFFFFFFFu, 0xFFFFFFFFu, {}), sink),
+                          unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("RGBA stride does not fit an int")
+    {
+        constexpr auto wide_width = static_cast<std::uint32_t>((std::numeric_limits<int>::max)() / 4) + 1;
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(make_image(wide_width, 1, {}), sink),
+                          unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("height does not fit an int")
+    {
+        constexpr auto tall_height = static_cast<std::uint32_t>((std::numeric_limits<int>::max)()) + 1;
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(make_image(1, tall_height, {}), sink),
+                          unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("raw byte count is not addressable")
+    {
+        constexpr auto wide_width = static_cast<std::uint32_t>((std::numeric_limits<int>::max)() / 4);
+        REQUIRE_THROWS_AS(unpackrat::codecs::encode_webp_lossless(make_image(wide_width, 5, {}), sink),
+                          unpackrat::codecs::image_error);
+        REQUIRE(sink_calls == 0);
+    }
+    SECTION("a sink failure propagates unchanged")
+    {
+        class sink_failure final : public std::runtime_error
+        {
+          public:
+            using std::runtime_error::runtime_error;
+        };
+        bool caught = false;
+        try {
+            unpackrat::codecs::encode_webp_lossless(
+                image, [](const std::span<const std::byte>) { throw sink_failure("sink rejected the stream"); });
+        } catch (const sink_failure &) {
+            caught = true;
+        }
+        REQUIRE(caught);
+    }
 }
 
 TEST_CASE("bc codec: decodes a known BC1 block with binary alpha")
@@ -583,6 +1047,42 @@ TEST_CASE("bc codec: rejects malformed payloads and unsupported families")
 }
 
 #ifndef _WIN64
+TEST_CASE("png codec: an unaddressable decoded size is rejected before allocation", "[png-x86-bounds]")
+{
+    // 65535 x 65535 RGBA is 17,179,344,900 bytes, beyond a 32-bit size_t. Only the IHDR is
+    // needed: the addressability check runs before allocation and before any IDAT is read.
+    std::vector<std::byte> stream;
+    const auto append = [&stream](const std::initializer_list<unsigned> values) {
+        for (const unsigned value : values) {
+            stream.push_back(static_cast<std::byte>(value));
+        }
+    };
+    const auto append_u32be = [&stream](const std::uint32_t value) {
+        for (std::uint32_t shift = 0; shift < 32; shift += 8) {
+            stream.push_back(static_cast<std::byte>(value >> (24U - shift)));
+        }
+    };
+    append({0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A});
+    append_u32be(13);
+    append({'I', 'H', 'D', 'R'});
+    append_u32be(0xFFFF);
+    append_u32be(0xFFFF);
+    append({8, 6, 0, 0, 0});
+
+    // Validate the CRC helper against the repository fixture's independently known IHDR CRC.
+    const auto fixture = test::support::red_pixel_png();
+    REQUIRE(png_crc32(as_byte_view(fixture).subspan(12, 17)) == 0x1F15C489u);
+    append_u32be(png_crc32(std::span<const std::byte>(stream).subspan(12)));
+
+    std::string diagnostic;
+    try {
+        static_cast<void>(unpackrat::codecs::decode_png(std::span<const std::byte>(stream)));
+    } catch (const unpackrat::codecs::image_error &error) {
+        diagnostic = error.what();
+    }
+    CHECK(diagnostic == "PNG decoded byte count is not addressable");
+}
+
 TEST_CASE("bc codec: an unaddressable x86 output is rejected before inspecting its payload", "[bc-x86-bounds]")
 {
     // A complete 512 MiB BC1 block grid would expand to 4 GiB of RGBA. Reserve the
@@ -712,6 +1212,44 @@ TEST_CASE("png codec: normalizes an internal encoder failure")
     // Let the context be created, then fail the first allocation the encode makes so libspng
     // reports an internal error rather than the sink or the byte budget doing so.
     REQUIRE(encode_with_allocation_policy(image, sink, 2) == png_outcome::image_error);
+}
+
+TEST_CASE("png codec: normalizes a decoder context allocation failure")
+{
+    const auto encoded = test::support::red_pixel_png();
+    const auto viewed = as_byte_view(encoded);
+
+    // decode_png's first allocation is the libspng context itself, so no image is produced.
+    REQUIRE(decode_png_with_allocation_policy(viewed, 1) == codec_outcome::image_error);
+}
+
+TEST_CASE("webp codec: normalizes an encoder allocation failure before publishing")
+{
+    std::size_t sink_calls = 0;
+    std::size_t refused_index = 0;
+    const auto image = make_image(1, 1, bytes({1, 2, 3, 4}));
+
+    // The first allocation after the budget and geometry checks imports the RGBA pixels.
+    // Its failure must surface as image_error with the output stream left unpublished.
+    REQUIRE(encode_webp_with_allocation_policy(
+                image, [&sink_calls](std::span<const std::byte>) { ++sink_calls; }, 1, &refused_index) ==
+            codec_outcome::image_error);
+    REQUIRE(refused_index == 1);
+    REQUIRE(sink_calls == 0);
+}
+
+TEST_CASE("webp codec: normalizes an internal encoder failure before publishing")
+{
+    std::size_t sink_calls = 0;
+    std::size_t refused_index = 0;
+    const auto image = make_image(1, 1, bytes({1, 2, 3, 4}));
+
+    // Import succeeds, then the first allocation inside WebPEncode is refused.
+    REQUIRE(encode_webp_with_allocation_policy(
+                image, [&sink_calls](std::span<const std::byte>) { ++sink_calls; }, 2, &refused_index) ==
+            codec_outcome::image_error);
+    REQUIRE(refused_index == 2);
+    REQUIRE(sink_calls == 0);
 }
 #endif
 

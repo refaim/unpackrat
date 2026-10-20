@@ -1,0 +1,24 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-webp-license-review:5d319c8b9fe67d91d94f74a271a29ea6bf63d1fb454fe2559e107ba4722bb828",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/5d319c8b9fe67d91d94f74a271a29ea6bf63d1fb454fe2559e107ba4722bb828.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": "62",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 62 carries the exact PATENT_GRANT_EXCEPTION assertion for the reviewed base configuration. This first-party MIT test file holds those words only as policy-data text, not a grant; ScanCode reported LicenseRef-scancode-unknown as a false positive, so the finding is removed."
+    },
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": "76",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 76 carries the negative-match example that replaces the patent license identifier with GPL-3.0-only. It is a first-party MIT test example, not a grant, so the false-positive GPL-3.0-only finding is removed."
+    }
+  ]
+}

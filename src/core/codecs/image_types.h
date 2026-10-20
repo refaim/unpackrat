@@ -24,11 +24,13 @@ namespace unpackrat::codecs
 
     // Optional caller bounds every codec enforces before it allocates or calls a library.
     // Defaults permit every representable stream; buffer arithmetic and format bounds still apply.
-    // max_pixels bounds width * height; max_output_bytes bounds the bytes this codec produces
-    // (the encoded stream for the PNG encoder, the decoded RGBA buffer for the BC decoder).
+    // max_pixels bounds width * height; max_input_bytes bounds an encoded container this codec
+    // consumes; max_output_bytes bounds the bytes this codec produces (the encoded stream for an
+    // encoder, the decoded RGBA buffer for a decoder).
     struct image_limits
     {
         std::uint64_t max_pixels = (std::numeric_limits<std::uint64_t>::max)();
+        std::uint64_t max_input_bytes = (std::numeric_limits<std::uint64_t>::max)();
         std::uint64_t max_output_bytes = (std::numeric_limits<std::uint64_t>::max)();
     };
 

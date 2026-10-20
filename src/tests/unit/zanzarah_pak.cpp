@@ -4,10 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <format>
 #include <ios>
 #include <istream>
 #include <memory>
+#include <span>
 #include <streambuf>
 #include <string>
 #include <string_view>
@@ -214,9 +216,14 @@ namespace
         counting_stream source(bytes);
         return zanzarah::parse_pak(source);
     }
+
+    zanzarah::pak_index read_index(std::istream &source)
+    {
+        return zanzarah::read_pak_index(source);
+    }
 } // namespace
 
-TEST_CASE("zanzarah parser: opening stays within a bounded seek and read budget", "[unit][zanzarah][budget]")
+TEST_CASE("zanzarah parser: listing reads only the table of contents", "[unit][zanzarah][budget]")
 {
     constexpr std::size_t clustered_entries = 64;
     constexpr std::size_t large_payload_bytes = std::size_t{256} * 1024U;
@@ -232,23 +239,26 @@ TEST_CASE("zanzarah parser: opening stays within a bounded seek and read budget"
 
     const auto archive = build_contiguous_pak(names, blocks);
     REQUIRE(archive.size() > large_payload_bytes);
+    std::size_t body_bytes = 0;
+    for (const auto &block : blocks) {
+        body_bytes += block.size();
+    }
 
     counting_stream source(archive);
     const auto files = zanzarah::parse_pak(source);
 
     REQUIRE(files.size() == names.size());
     for (std::size_t index = 0; index < clustered_entries; ++index) {
-        REQUIRE(files[index]->compressed_body_size_in_bytes == 8);
+        REQUIRE(files[index]->compressed_body_size_in_bytes == 12);
     }
-    REQUIRE(files.back()->compressed_body_size_in_bytes == static_cast<std::int64_t>(large_payload_bytes));
+    REQUIRE(files.back()->compressed_body_size_in_bytes == static_cast<std::int64_t>(large_payload_bytes) + 4);
 
-    // The framing policy reaches only the marker DWORDs. A per-entry absolute seek would cost
-    // two seeks and two reads for every block; the accepted budget is one boundary probe per
-    // block plus a small constant, so an implementation that scatters a seek per entry fails.
-    const auto entry_total = files.size();
-    REQUIRE(source.seeks() <= entry_total + 4);
-    REQUIRE(source.reads() <= 4 * entry_total + 16);
-    REQUIRE(source.bytes() < archive.size());
+    // Listing validates metadata bounds only. The canonical framing predicate belongs to the
+    // first extraction, so no marker window or payload byte may be read here.
+    const auto toc_bytes = archive.size() - body_bytes;
+    // The signature dword is skipped by seek_absolute(4), so the parser reads one dword less
+    // than the whole TOC region.
+    REQUIRE(source.bytes() == static_cast<std::uint64_t>(toc_bytes) - 4U);
 }
 
 TEST_CASE("zanzarah parser: a large body is not read while the index is validated", "[unit][zanzarah][budget]")
@@ -260,15 +270,15 @@ TEST_CASE("zanzarah parser: a large body is not read while the index is validate
     const auto files = zanzarah::parse_pak(source);
 
     REQUIRE(files.size() == 1);
-    REQUIRE(files.front()->compressed_body_size_in_bytes == static_cast<std::int64_t>(large_payload_bytes));
+    REQUIRE(files.front()->compressed_body_size_in_bytes == static_cast<std::int64_t>(large_payload_bytes) + 4);
     REQUIRE(source.bytes() < large_payload_bytes);
 }
 
-TEST_CASE("zanzarah parser: a sparse shuffled index stays within the marker page budget", "[unit][zanzarah][budget]")
+TEST_CASE("zanzarah parser: a sparse shuffled index exposes provisional extents without probing bodies",
+          "[unit][zanzarah][budget]")
 {
     constexpr std::size_t entries = 24;
     constexpr std::size_t payload_bytes = 8192;
-    constexpr std::uint64_t marker_page_bytes = 512;
 
     std::string body;
     std::vector<toc_row> rows;
@@ -291,20 +301,14 @@ TEST_CASE("zanzarah parser: a sparse shuffled index stays within the marker page
 
     REQUIRE(files.size() == entries);
     for (const auto &file : files) {
-        REQUIRE(file->compressed_body_size_in_bytes == static_cast<std::int64_t>(payload_bytes));
+        REQUIRE(file->compressed_body_size_in_bytes == static_cast<std::int64_t>(payload_bytes) + 4);
     }
     REQUIRE(files.front()->path == std::format("f{:02}", entries - 1));
 
-    // Only the metadata and one page per marker probe may be read: sparse blocks cannot share
-    // a window, so an implementation that pulls a read-ahead buffer per probe is far over.
-    REQUIRE(source.bytes() <=
-            static_cast<std::uint64_t>(index_bytes) +
-                2ULL * static_cast<std::uint64_t>(entries) * static_cast<std::uint64_t>(marker_page_bytes) +
-                static_cast<std::uint64_t>(marker_page_bytes));
-    REQUIRE(source.bytes() < archive.size() / 2);
+    REQUIRE(source.bytes() == static_cast<std::uint64_t>(index_bytes) - 4U);
 }
 
-TEST_CASE("zanzarah parser: a marker that straddles a page boundary is still read", "[unit][zanzarah]")
+TEST_CASE("zanzarah parser: a long path does not disturb the provisional extent", "[unit][zanzarah]")
 {
     const std::string name(491, 'n');
     const std::string block = canonical_block("x");
@@ -313,25 +317,26 @@ TEST_CASE("zanzarah parser: a marker that straddles a page boundary is still rea
 
     REQUIRE(files.size() == 1);
     REQUIRE(files.front()->path == name);
-    REQUIRE(files.front()->compressed_body_size_in_bytes == 1);
+    REQUIRE(files.front()->compressed_body_size_in_bytes == 5);
 }
 
-TEST_CASE("zanzarah parser: the whole archive falls back when a block lacks the markers", "[unit][zanzarah]")
+TEST_CASE("zanzarah parser: listing publishes the provisional prefix-stripped extent for every block",
+          "[unit][zanzarah]")
 {
-    SECTION("every block canonical trims the suffix")
+    SECTION("canonical and empty blocks keep the suffix in the listed size")
     {
         const auto archive = build_contiguous_pak(
             {"a", "b", "c"}, {canonical_block("alpha"), canonical_block("bravo!!"), canonical_block("")});
         const auto files = parse(archive);
         REQUIRE(files.size() == 3);
         REQUIRE(files[0]->path == "a");
-        REQUIRE(files[0]->compressed_body_size_in_bytes == 5);
-        REQUIRE(files[1]->compressed_body_size_in_bytes == 7);
-        REQUIRE(files[2]->compressed_body_size_in_bytes == 0);
-        REQUIRE(files[0]->uncompressed_body_size_in_bytes == 5);
+        REQUIRE(files[0]->compressed_body_size_in_bytes == 9);
+        REQUIRE(files[1]->compressed_body_size_in_bytes == 11);
+        REQUIRE(files[2]->compressed_body_size_in_bytes == 4);
+        REQUIRE(files[0]->uncompressed_body_size_in_bytes == 9);
     }
 
-    SECTION("a legacy block keeps the prefix-only extent")
+    SECTION("legacy blocks have the same provisional extent")
     {
         const auto archive = build_contiguous_pak({"a"}, {legacy_block("legacy")});
         const auto files = parse(archive);
@@ -339,16 +344,18 @@ TEST_CASE("zanzarah parser: the whole archive falls back when a block lacks the 
         REQUIRE(files[0]->compressed_body_size_in_bytes == 6);
     }
 
-    SECTION("a mixed archive falls back for every entry")
+    SECTION("a mixed archive is not classified during listing")
     {
         const auto archive = build_contiguous_pak({"a", "b"}, {canonical_block("alpha"), legacy_block("bravo")});
         const auto files = parse(archive);
         REQUIRE(files.size() == 2);
         REQUIRE(files[0]->compressed_body_size_in_bytes == 9);
+        // legacy_block("bravo") is one four-byte marker plus five payload bytes, so its
+        // provisional extent is 9 - 4 = 5.
         REQUIRE(files[1]->compressed_body_size_in_bytes == 5);
     }
 
-    SECTION("a canonical prefix with a wrong suffix falls back")
+    SECTION("a wrong suffix is still published provisionally")
     {
         std::string block;
         append_u32(block, canonical_prefix);
@@ -359,7 +366,7 @@ TEST_CASE("zanzarah parser: the whole archive falls back when a block lacks the 
         REQUIRE(files[0]->compressed_body_size_in_bytes == 9);
     }
 
-    SECTION("a block shorter than the framing floor is not canonical")
+    SECTION("a block shorter than the framing floor is published with its available body")
     {
         for (std::uint32_t short_size = 4; short_size <= 7; ++short_size) {
             CAPTURE(short_size);
@@ -395,10 +402,123 @@ TEST_CASE("zanzarah parser: the table order may differ from the physical block o
     REQUIRE(files.size() == 2);
     REQUIRE(files[0]->path == "b");
     REQUIRE(files[0]->offset == static_cast<std::int64_t>(body_position + first_size) + 4);
-    REQUIRE(files[0]->compressed_body_size_in_bytes == static_cast<std::int64_t>(second.size()));
+    REQUIRE(files[0]->compressed_body_size_in_bytes == static_cast<std::int64_t>(second.size()) + 4);
     REQUIRE(files[1]->path == "a");
     REQUIRE(files[1]->offset == static_cast<std::int64_t>(body_position) + 4);
-    REQUIRE(files[1]->compressed_body_size_in_bytes == static_cast<std::int64_t>(first.size()));
+    REQUIRE(files[1]->compressed_body_size_in_bytes == static_cast<std::int64_t>(first.size()) + 4);
+}
+
+TEST_CASE("zanzarah framing: every prefix and suffix marker classifies the archive as canonical",
+          "[unit][zanzarah][framing]")
+{
+    const auto archive = build_contiguous_pak({"a", "b"}, {canonical_block("alpha"), canonical_block("")});
+    counting_stream source(archive);
+    const auto index = read_index(source);
+
+    REQUIRE(index.blocks.size() == 2);
+    REQUIRE(index.archive_size == static_cast<std::int64_t>(archive.size()));
+    REQUIRE(zanzarah::classify_framing(source, index.blocks, index.archive_size) == zanzarah::framing::canonical);
+    REQUIRE(zanzarah::framed_body_size(index.blocks[0].provisional_size, zanzarah::framing::canonical) == 5);
+    REQUIRE(zanzarah::framed_body_size(index.blocks[1].provisional_size, zanzarah::framing::canonical) == 0);
+    REQUIRE(zanzarah::framed_body_size(index.blocks[0].provisional_size, zanzarah::framing::legacy) == 9);
+}
+
+TEST_CASE("zanzarah framing: a single mismatch makes the whole archive legacy", "[unit][zanzarah][framing]")
+{
+    SECTION("a later prefix mismatch affects an earlier canonical entry")
+    {
+        const auto archive = build_contiguous_pak({"a", "b"}, {canonical_block("alpha"), legacy_block("bravo")});
+        counting_stream source(archive);
+        const auto index = read_index(source);
+
+        REQUIRE(zanzarah::classify_framing(source, index.blocks, index.archive_size) == zanzarah::framing::legacy);
+        // The earlier entry keeps its suffix bytes because the decision belongs to the archive.
+        REQUIRE(zanzarah::framed_body_size(index.blocks[0].provisional_size, zanzarah::framing::legacy) == 9);
+    }
+
+    SECTION("a later suffix mismatch falls back as well")
+    {
+        std::string second;
+        append_u32(second, canonical_prefix);
+        second.append("bravo");
+        append_u32(second, 0xffffffffU);
+        const auto archive = build_contiguous_pak({"a", "b"}, {canonical_block("alpha"), second});
+        counting_stream source(archive);
+        const auto index = read_index(source);
+
+        REQUIRE(zanzarah::classify_framing(source, index.blocks, index.archive_size) == zanzarah::framing::legacy);
+    }
+
+    SECTION("a block below the framing floor falls back without probing")
+    {
+        std::string short_block;
+        append_u32(short_block, canonical_prefix);
+        short_block.push_back('x');
+        const auto archive = build_contiguous_pak({"a"}, {short_block});
+        counting_stream source(archive);
+        const auto index = read_index(source);
+
+        REQUIRE(zanzarah::classify_framing(source, index.blocks, index.archive_size) == zanzarah::framing::legacy);
+    }
+}
+
+TEST_CASE("zanzarah framing: marker probes share windows and cross page boundaries", "[unit][zanzarah][framing]")
+{
+    SECTION("markers within one 512-byte window reuse the cached page")
+    {
+        const auto archive = build_contiguous_pak({std::string(80, 'p')}, {canonical_block("x")});
+        counting_stream source(archive);
+        const auto index = read_index(source);
+
+        REQUIRE(index.blocks.front().offset == 104);
+        REQUIRE(zanzarah::classify_framing(source, index.blocks, index.archive_size) == zanzarah::framing::canonical);
+    }
+
+    SECTION("a dword that starts at the end of a page is read from its own short window")
+    {
+        const auto archive = build_contiguous_pak({std::string(485, 'q')}, {canonical_block("x")});
+        counting_stream source(archive);
+        const auto index = read_index(source);
+
+        REQUIRE(index.blocks.front().offset == 509);
+        REQUIRE(index.archive_size == 514);
+        REQUIRE(zanzarah::classify_framing(source, index.blocks, index.archive_size) == zanzarah::framing::canonical);
+    }
+}
+
+TEST_CASE("zanzarah framing: classification offers zero-byte cancellation before every probe",
+          "[unit][zanzarah][framing]")
+{
+    const auto archive = build_contiguous_pak({"a", "b"}, {canonical_block("alpha"), canonical_block("bravo")});
+    counting_stream source(archive);
+    const auto index = read_index(source);
+
+    SECTION("polls report no extracted bytes and preserve the decision")
+    {
+        std::vector<std::int64_t> polls;
+        REQUIRE(zanzarah::classify_framing(source, index.blocks, index.archive_size,
+                                           [&polls](const std::int64_t amount) { polls.push_back(amount); }) ==
+                zanzarah::framing::canonical);
+        REQUIRE(polls.size() == index.blocks.size() * 2);
+        REQUIRE(std::ranges::all_of(polls, [](const std::int64_t amount) { return amount == 0; }));
+    }
+
+    SECTION("a cancelled poll propagates before the next marker read")
+    {
+        struct probe_cancelled final : std::exception
+        {
+        };
+
+        int polls = 0;
+        REQUIRE_THROWS_AS(zanzarah::classify_framing(source, index.blocks, index.archive_size,
+                                                     [&polls](const std::int64_t amount) {
+                                                         REQUIRE(amount == 0);
+                                                         ++polls;
+                                                         throw probe_cancelled{};
+                                                     }),
+                          probe_cancelled);
+        REQUIRE(polls == 1);
+    }
 }
 
 TEST_CASE("zanzarah parser: leading relative paths are normalized", "[unit][zanzarah]")

@@ -165,7 +165,7 @@ namespace extractor
         class entry_source final
         {
           public:
-            entry_source(godot::archive_session &session, const std::size_t position, const bool verify,
+            entry_source(godot::archive_session &session, const std::size_t position,
                          const std::function<void(int64_t)> &progress = {})
                 : stream_(&session.stream()), range_(session.index().entries[position].body)
             {
@@ -180,15 +180,11 @@ namespace extractor
                     const auto payload = godot::read_encrypted_payload(session.stream(), entry.body);
                     encrypted_ = std::make_unique<godot::verified_payload_source>(session.stream(), payload,
                                                                                   key == nullptr ? empty_key : *key);
-                    if (verify) {
-                        encrypted_->verify([&progress](std::uint64_t) {
-                            if (progress)
-                                progress(0);
-                        });
-                        stream_ = &encrypted_->stream();
-                    } else {
-                        stream_ = &encrypted_->unverified_stream();
-                    }
+                    encrypted_->verify([&progress](std::uint64_t) {
+                        if (progress)
+                            progress(0);
+                    });
+                    stream_ = &encrypted_->stream();
                     range_ = {0, entry.logical_size};
                 } catch (const godot::encryption_error &) {
                     throw read_error();
@@ -212,7 +208,7 @@ namespace extractor
         std::vector<std::byte> read_metadata_body(godot::archive_session &session, const std::size_t position)
         {
             const auto &entry = session.index().entries[position];
-            entry_source source(session, position, true);
+            entry_source source(session, position);
             std::vector<std::byte> bytes(static_cast<std::size_t>(entry.logical_size));
             if (!bytes.empty()) {
                 read_source(source.stream(), source.range().offset, reinterpret_cast<char *>(bytes.data()),
@@ -293,6 +289,66 @@ namespace extractor
         auto &session = static_cast<godot::archive_session &>(*state_);
         const godot::pck_index &index = session.index();
 
+        // The conventional imported filename itself carries the original source suffix and a
+        // complete hash. Classify every stored name once, before any metadata body is considered,
+        // so listing never reads resource headers. The key view points into the stable session
+        // index. Distinct feature tokens are independent variant targets; a repeated token marks
+        // the whole group ambiguous rather than guessing.
+        struct compiled_candidate final
+        {
+            std::size_t index = 0;
+            std::string_view variant;
+        };
+        struct compiled_group final
+        {
+            std::vector<compiled_candidate> candidates;
+            std::vector<std::size_t> members;
+            bool ambiguous = false;
+            bool over_limit = false;
+        };
+        // Optional filename-only inference stays cheap and bounded. Beyond this many distinct
+        // tokens the group is declined as a whole; the stored entries remain raw and reachable.
+        constexpr std::size_t max_conventional_variants = 64;
+        std::vector<std::optional<godot::conversion_hint>> name_hints(index.entries.size());
+        std::unordered_map<std::string_view, compiled_group> compiled_by_key;
+        for (std::size_t position = 0; position < index.entries.size(); ++position) {
+            const auto &entry = index.entries[position];
+            if (entry.kind != godot::pck_entry_kind::file)
+                continue;
+            const auto name = godot::classify_imported_name(entry.path);
+            if (!name.has_value())
+                continue;
+            compiled_group &group = compiled_by_key[name->key];
+            group.members.push_back(position);
+            if (!group.over_limit) {
+                const auto duplicate = std::find_if(
+                    group.candidates.begin(), group.candidates.end(),
+                    [&name](const compiled_candidate &candidate) { return candidate.variant == name->variant; });
+                if (duplicate != group.candidates.end()) {
+                    group.ambiguous = true;
+                } else if (group.candidates.size() < max_conventional_variants) {
+                    group.candidates.push_back(compiled_candidate{position, name->variant});
+                } else {
+                    group.over_limit = true;
+                }
+            }
+            if (session.decode_resources() && !group.over_limit) {
+                name_hints[position] = godot::conversion_hint{
+                    position, name->output_extension, std::string(name->source_path), std::string(name->variant)};
+            }
+        }
+        if (session.decode_resources()) {
+            for (const auto &[key, group] : compiled_by_key) {
+                static_cast<void>(key);
+                if (!group.over_limit) {
+                    continue;
+                }
+                for (const std::size_t position : group.members) {
+                    name_hints[position].reset();
+                }
+            }
+        }
+
         // The bounded import/remap metadata of every stored ".import"/".remap" entry becomes an
         // alias mapping. A malformed fragment is ignored rather than failing the whole listing, so
         // every physical source stays reachable regardless. The whole pass shares one aggregate
@@ -307,6 +363,65 @@ namespace extractor
             if (entry.kind != godot::pck_entry_kind::file || !is_metadata_path(entry.path) ||
                 entry.logical_size > max_metadata_body_bytes) {
                 continue;
+            }
+
+            // A conventional Godot 4/3 import name is derived from directory names only:
+            // <imported-dir>/<original filename>-<md5(canonical res:// source path)>. Skip the
+            // metadata body when the matching compiled entries are distinct feature variants and
+            // no duplicate token makes the group ambiguous. Custom or genuinely ambiguous names
+            // still fall through to bounded body parsing.
+            if (entry.path.ends_with(".import")) {
+                const auto source_path = godot::conventional_import_source_path(entry.path);
+                if (source_path.has_value()) {
+                    const std::string base = godot::conventional_import_basename(*source_path);
+                    const std::string keys[2] = {std::string(".godot/imported/") + base,
+                                                 std::string(".import/") + base};
+                    const compiled_group *chosen = nullptr;
+                    bool ambiguous = false;
+                    for (const std::string &key : keys) {
+                        const auto found = compiled_by_key.find(key);
+                        if (found == compiled_by_key.end())
+                            continue;
+                        if (chosen != nullptr) {
+                            ambiguous = true;
+                            break;
+                        }
+                        chosen = &found->second;
+                        // A second matching group breaks above, so this is the first and only assignment.
+                        ambiguous = found->second.ambiguous;
+                    }
+                    if (chosen != nullptr && chosen->over_limit) {
+                        continue;
+                    } else if (chosen != nullptr && !ambiguous) {
+                        std::size_t conventional_bytes = 0;
+                        const std::size_t remaining = max_alias_owned_bytes - alias_owned_bytes;
+                        bool fits = true;
+                        for (const compiled_candidate &candidate : chosen->candidates) {
+                            const std::size_t bytes = source_path->size() + index.entries[candidate.index].path.size() +
+                                                      candidate.variant.size() + sizeof(godot::import_mapping);
+                            if (bytes > remaining - conventional_bytes) {
+                                fits = false;
+                                break;
+                            }
+                            conventional_bytes += bytes;
+                        }
+                        if (!fits) {
+                            break;
+                        }
+                        std::vector<godot::import_mapping> conventional(chosen->candidates.size());
+                        std::ranges::transform(chosen->candidates, conventional.begin(),
+                                               [&source_path, &index](const compiled_candidate &candidate) {
+                                                   return godot::import_mapping{*source_path,
+                                                                                index.entries[candidate.index].path,
+                                                                                std::string(candidate.variant)};
+                                               });
+                        alias_owned_bytes += conventional_bytes;
+                        mappings.insert(mappings.end(), std::make_move_iterator(conventional.begin()),
+                                        std::make_move_iterator(conventional.end()));
+                        checkpoints.push_back(mappings.size());
+                        continue;
+                    }
+                }
             }
 
             // Attempted input is charged before the body is read, so a run of large fragments,
@@ -349,36 +464,51 @@ namespace extractor
             }
         }
 
-        // Recognise resource headers without decoding media or computing encoded output sizes.
-        // A declined conversion keeps its original; disabled mode performs no resource probes.
-        std::vector<godot::conversion_hint> hints;
-        std::unordered_map<std::size_t, godot::resource_descriptor> descriptors;
+        // A mapping's virtual path carries the original suffix for custom imports whose compiled
+        // name has no embedded source extension. The first mapping replaces any compiled-name hint,
+        // while every supported mapping still marks the shared target convertible; the tree then
+        // selects each presented row's extension independently. An unsupported suffix leaves that
+        // alias raw without suppressing a later supported alias.
         if (session.decode_resources()) {
-            // The leased source length is authoritative for every plaintext entry, and a decrypted
-            // member view is exactly its logical size. Supplying it removes the reader's
-            // end-of-stream scan, so probing N entries no longer seeks to the stream end N times.
-            const std::uint64_t source_length = session.source_size();
+            std::unordered_map<std::string_view, std::size_t> first_path;
             for (std::size_t position = 0; position < index.entries.size(); ++position) {
                 const auto &entry = index.entries[position];
                 if (entry.kind != godot::pck_entry_kind::file)
                     continue;
-                try {
-                    entry_source source(session, position, false);
-                    auto &input = source.stream();
-                    const auto range = source.range();
-                    const std::uint64_t stream_length = entry.encrypted ? entry.logical_size : source_length;
-                    const auto descriptor = godot::probe_resource(input, range, stream_length);
-                    if (descriptor.has_value()) {
-                        hints.push_back(godot::conversion_hint{position, descriptor->extension});
-                        descriptors.emplace(position, *descriptor);
-                    }
-                } catch (const godot::resource_source_error &) {
-                    throw read_error();
+                if (!first_path.contains(entry.path)) {
+                    first_path.emplace(entry.path, position);
+                }
+            }
+            std::vector<bool> mapping_started(index.entries.size(), false);
+            for (const godot::import_mapping &mapping : mappings) {
+                const auto target = first_path.find(mapping.compiled_path);
+                if (target == first_path.end())
+                    continue;
+                if (!mapping_started[target->second]) {
+                    mapping_started[target->second] = true;
+                    name_hints[target->second].reset();
+                }
+                const std::size_t slash = mapping.virtual_path.find_last_of('/');
+                const std::size_t dot = mapping.virtual_path.find_last_of('.');
+                if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+                    continue;
+                const auto extension =
+                    godot::output_extension_for_source(std::string_view(mapping.virtual_path).substr(dot));
+                if (extension.has_value()) {
+                    name_hints[target->second] =
+                        godot::conversion_hint{target->second, *extension, std::string{}, std::string{}};
                 }
             }
         }
 
-        const godot::virtual_tree tree = build_bounded_tree(index, mappings, hints, checkpoints);
+        std::vector<godot::conversion_hint> hint_list;
+        for (std::size_t position = 0; position < name_hints.size(); ++position) {
+            if (!name_hints[position].has_value())
+                continue;
+            hint_list.push_back(std::move(*name_hints[position]));
+        }
+
+        const godot::virtual_tree tree = build_bounded_tree(index, mappings, hint_list, checkpoints);
 
         std::vector<std::unique_ptr<file>> files;
         files.reserve(tree.entries.size());
@@ -392,7 +522,8 @@ namespace extractor
                 item->compressed_body_size_in_bytes = static_cast<int64_t>(size);
                 item->uncompressed_body_size_in_bytes = static_cast<int64_t>(source.logical_size);
                 const std::optional<godot::resource_descriptor> descriptor =
-                    row.converted ? std::optional<godot::resource_descriptor>(descriptors.at(*row.source_index))
+                    row.converted ? std::optional<godot::resource_descriptor>(
+                                        godot::resource_descriptor{godot::resource_kind::auto_detect, row.extension})
                                   : std::nullopt;
                 // Converted views deliberately display the packed source size. Output bytes and
                 // progress are produced only by extraction, without a discarded conversion pass.
@@ -401,7 +532,7 @@ namespace extractor
                 item->extract = [session = &session, source_index = *row.source_index, descriptor = descriptor,
                                  packed_size = item->compressed_body_size_in_bytes](
                                     std::istream &, std::ostream &out, const std::function<void(int64_t)> &progress) {
-                    entry_source source(*session, source_index, true, progress);
+                    entry_source source(*session, source_index, progress);
                     if (descriptor.has_value())
                         write_converted(source.stream(), out, source.range(), *descriptor, packed_size, progress);
                     else

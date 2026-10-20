@@ -1,3 +1,8 @@
+Version 1.2.0
+-------------
+ + Opening and listing now select converted Godot resources from original filename extensions and standard imported-file names; unambiguous source paths are restored from the archive directory. Resource contents are inspected and converted only during extraction.
+ * Converted PNG/WebP files now match their output extension, each alias keeps its own format, and ambiguous import metadata is handled with a bounded fallback.
+
 Version 1.1.1
 -------------
  * Encryption-key recovery now scans executable sections through a bounded read window, reducing transient memory use on large binaries.

@@ -18,6 +18,7 @@
     "package's verified prefix."
   ],
   "prefixes": {
+    "libwebp": "libwebp-1.6.0/",
     "bcdec": "",
     "brotli": "brotli-1.2.0/",
     "catch2": "Catch2-3.16.1/",
@@ -37,6 +38,8 @@
     "uberwolf": "UberWolf-f4191375d289171b1f29dbc5ca320133b2b4b96a/"
   },
   "findings": [
+    {"package": "libwebp", "path": "libwebp-1.6.0/m4/ax_pthread.m4", "start_lines": 59, "end_lines": 83, "license": "GPL-3.0-or-later WITH Autoconf-exception-macro", "disposition": "excluded"},
+    {"package": "libwebp", "path": "libwebp-1.6.0/CONTRIBUTING.md", "start_lines": 6, "end_lines": 16, "license": "NOASSERTION", "disposition": "excluded"},
     {"package": "catch2", "path": "Catch2-3.16.1/tools/scripts/updateDocumentToC.py", "start_lines": 8, "end_lines": 8, "license": "GPL-3.0-only", "disposition": "excluded"},
     {"package": "catch2", "path": "Catch2-3.16.1/tools/scripts/updateDocumentToC.py", "start_lines": 8, "end_lines": 8, "license": "GPL-1.0-or-later AND LicenseRef-scancode-other-copyleft AND LicenseRef-scancode-free-unknown", "disposition": "excluded"},
     {"package": "catch2", "path": "Catch2-3.16.1/.conan/test_package/conanfile.py", "start_lines": 39, "end_lines": 39, "license": "LicenseRef-scancode-unknown-license-reference", "disposition": "excluded"},
@@ -78,6 +81,9 @@
     {"package": "drlibs", "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_wav.h", "start_lines": 2, "end_lines": 2, "license": "LicenseRef-scancode-unknown-license-reference", "disposition": "curated"}
   ],
   "protected": [
+    {"package": "libwebp", "path": "libwebp-1.6.0/COPYING"},
+    {"package": "libwebp", "path": "libwebp-1.6.0/PATENTS"},
+    {"package": "libwebp", "path": "libwebp-1.6.0/src/enc/vp8l_enc.c"},
     {"package": "zstd", "path": "zstd-1.5.7/lib/legacy/zstd_v01.c"},
     {"package": "zstd", "path": "zstd-1.5.7/lib/common/xxhash.h"},
     {"package": "zstd", "path": "zstd-1.5.7/lib/zstd.h"},

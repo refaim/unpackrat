@@ -9,18 +9,19 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <istream>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 // The Zanzarah PAK index reader and the whole-archive framing policy live here as a
-// platform-neutral core: a plain ``std::istream`` goes in and an ``extractor::file`` list
-// comes out, with no Observer or Win32 dependency. Keeping the parser separate lets it be
-// unit-tested without loading the module binary; ``zanzarah.cpp`` is the only production
-// caller.
+// platform-neutral core: a plain ``std::istream`` goes in and an index comes out, with no
+// Observer or Win32 dependency. Keeping the parser separate lets it be unit-tested without
+// loading the module binary; ``zanzarah.cpp`` is the only production caller.
 
 namespace zanzarah
 {
@@ -104,12 +105,32 @@ namespace zanzarah
         };
     } // namespace detail
 
-    // The canonical framing predicate probes a four-byte prefix before the block body and a
-    // four-byte suffix at its end. When every block carries both markers the framing is
-    // canonical and the trailing suffix is removed from the exposed extents; archives which
-    // do not match fall back to their prefix-only (zanzapak) extents. The format notes
-    // describe the coincidental suffix ambiguity that this fallback accepts.
-    [[nodiscard]] inline std::vector<std::unique_ptr<extractor::file>> parse_pak(std::istream &stream)
+    struct block_extent final
+    {
+        // Absolute stream position of the first body byte, immediately after the four-byte
+        // prefix the table offset points at.
+        std::int64_t offset = 0;
+        // ``block_size - 4``: the upper bound published while the archive is still unclassified.
+        std::int64_t provisional_size = 0;
+    };
+
+    enum class framing : std::uint8_t
+    {
+        unknown,
+        canonical,
+        legacy,
+    };
+
+    struct pak_index final
+    {
+        std::vector<std::unique_ptr<extractor::file>> files;
+        std::vector<block_extent> blocks;
+        std::int64_t archive_size = 0;
+    };
+
+    // Reads only the table of contents. No marker or payload byte is touched here, so opening
+    // and listing remain independent of the archive body's size or availability.
+    [[nodiscard]] inline pak_index read_pak_index(std::istream &stream)
     {
         constexpr std::int64_t signature_size = 4;
         unpackrat::io::bounded_stream input(stream);
@@ -155,6 +176,8 @@ namespace zanzarah
 
         const auto body_position = input.position();
         const auto body_bytes = static_cast<std::int64_t>(archive_size - body_position);
+        pak_index index;
+        index.blocks.reserve(files.size());
         for (const auto &file : files) {
             if (file->offset > body_bytes || file->compressed_body_size_in_bytes > body_bytes - file->offset) {
                 throw extractor::read_error();
@@ -163,47 +186,62 @@ namespace zanzarah
             if (constexpr std::string_view relative_prefix = "..\\"; file->path.starts_with(relative_prefix)) {
                 file->path.erase(0, relative_prefix.size());
             }
+            index.blocks.push_back(block_extent{file->offset, file->compressed_body_size_in_bytes});
         }
 
+        index.files = std::move(files);
+        index.archive_size = archive_size;
+        return index;
+    }
+
+    [[nodiscard]] inline std::vector<std::unique_ptr<extractor::file>> parse_pak(std::istream &stream)
+    {
+        return read_pak_index(stream).files;
+    }
+
+    // The canonical framing predicate probes a four-byte prefix before every block body and a
+    // four-byte suffix at its end. It is a whole-archive decision: all blocks must be at least
+    // eight bytes and every marker must match. The first mismatch makes the entire archive
+    // legacy, which preserves a coincidental 0x202 trailer as payload bytes. A source failure
+    // escapes as a read error so the caller can retry without caching a partial decision.
+    [[nodiscard]] inline framing classify_framing(std::istream &stream, const std::span<const block_extent> blocks,
+                                                  const std::int64_t archive_size,
+                                                  const std::function<void(std::int64_t)> &report_progress = {})
+    {
         constexpr std::int64_t framing_marker_size = 4;
         constexpr std::uint32_t framing_prefix_marker = 0x101U;
         constexpr std::uint32_t framing_suffix_marker = 0x202U;
 
-        // Canonical framing requires every block to carry both markers. Each probe is recorded
-        // and then checked in ascending physical order so the page-sized reads stay sequential,
-        // while the whole-archive predicate still inspects every entry's prefix and suffix.
         std::vector<std::pair<std::int64_t, std::uint32_t>> probes;
-        probes.reserve(files.size() * 2);
-        bool canonical_framing = true;
-        for (const auto &entry : files) {
-            if (entry->compressed_body_size_in_bytes < framing_marker_size) {
-                canonical_framing = false;
-                break;
+        probes.reserve(blocks.size() * 2);
+        for (const auto &block : blocks) {
+            if (block.provisional_size < framing_marker_size) {
+                return framing::legacy;
             }
-            probes.emplace_back(entry->offset - framing_marker_size, framing_prefix_marker);
-            probes.emplace_back(entry->offset + entry->compressed_body_size_in_bytes - framing_marker_size,
-                                framing_suffix_marker);
+            probes.emplace_back(block.offset - framing_marker_size, framing_prefix_marker);
+            probes.emplace_back(block.offset + block.provisional_size - framing_marker_size, framing_suffix_marker);
         }
 
-        if (canonical_framing) {
-            std::ranges::sort(probes);
-            detail::marker_reader markers(input);
-            for (const auto &[position, expected] : probes) {
-                if (markers.read_dword(position) != expected) {
-                    canonical_framing = false;
-                    break;
-                }
+        std::ranges::sort(probes);
+        unpackrat::io::bounded_stream input(stream, archive_size);
+        detail::marker_reader markers(input);
+        for (const auto &[position, expected] : probes) {
+            // A classification sweep can span the whole archive, so offer cancellation before
+            // every probe. The poll carries no extracted bytes; the caller's counter is unchanged.
+            if (report_progress) {
+                report_progress(0);
+            }
+            if (markers.read_dword(position) != expected) {
+                return framing::legacy;
             }
         }
+        return framing::canonical;
+    }
 
-        if (canonical_framing) {
-            for (const auto &entry : files) {
-                entry->compressed_body_size_in_bytes -= framing_marker_size;
-                entry->uncompressed_body_size_in_bytes -= framing_marker_size;
-            }
-        }
-
-        return files;
+    [[nodiscard]] inline std::int64_t framed_body_size(const std::int64_t provisional_size,
+                                                       const framing classification) noexcept
+    {
+        return classification == framing::canonical ? provisional_size - 4 : provisional_size;
     }
 } // namespace zanzarah
 #endif

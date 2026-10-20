@@ -67,7 +67,7 @@ REQUIRED_WOLFRPG_NOTICES = ("Observer.txt", "GPL-3.0.txt", "uberwolf.txt")
 # Every license file a fixture for the whole default selection may reference.
 FIXTURE_LICENSE_NAMES = (
     "Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt",
-    "rgssad.txt", "godot.txt", "libspng.txt", "libogg.txt", "brotli.txt", "zstd.txt",
+    "rgssad.txt", "godot.txt", "libspng.txt", "libwebp.txt", "libogg.txt", "brotli.txt", "zstd.txt",
     "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt", "qoa.txt", "zydis.txt",
     "zycore.txt", "mbedcrypto.txt", "uberwolf.txt", "json.txt", "YY-Thunks.txt",
 )

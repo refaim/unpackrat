@@ -100,7 +100,7 @@ assert hashlib.sha256(data).hexdigest() == m["sha256"]
 
 ## Minimal Sample and FontFile media
 
-`audio-font-minimal.pck` is a 783-byte synthetic PCK with two resources. The
+`audio-font-minimal.pck` is a 1,039-byte synthetic PCK with two resources. The
 Godot 3.0 binary-format-2 `Sample` uses four zero IMA seed bytes before two
 packed data bytes and declares four mono frames. Extraction must produce a
 52-byte PCM16 WAVE. The Godot 4 `FontFile` embeds a 16-byte `OTTO` signature
@@ -190,7 +190,7 @@ assert hashlib.sha256(data).hexdigest() == m["sha256"]
 
 ## Omitted audio defaults
 
-`audio-defaults.pck` is a 1,196-byte synthetic PCK v2 containing three Godot 4
+`audio-defaults.pck` is a 1,388-byte synthetic PCK v2 containing three Godot 4
 `AudioStreamWAV` resources with locally constructed, one-frame QOA payloads:
 mono at 44100 Hz omits `mix_rate` and `stereo`, mono at 22050 Hz omits `stereo`,
 and stereo at 44100 Hz omits `mix_rate`. These descriptor shapes reproduce the

@@ -283,9 +283,18 @@ namespace unpackrat::godot
 
         bool is_supported_extension(const std::string_view extension)
         {
-            return extension == ".png" || extension == ".webp" || extension == ".wav" || extension == ".mp3" ||
-                   extension == ".ogg" || extension == ".ttf" || extension == ".otf" || extension == ".ttc" ||
-                   extension == ".woff" || extension == ".woff2";
+            const auto fold = [](char value) {
+                return value >= 'A' && value <= 'Z' ? static_cast<char>(value - 'A' + 'a') : value;
+            };
+            if (extension.size() < 2 || extension.front() != '.') {
+                return false;
+            }
+            std::string lowered;
+            lowered.reserve(extension.size());
+            std::ranges::transform(extension, std::back_inserter(lowered), fold);
+            return lowered == ".png" || lowered == ".webp" || lowered == ".wav" || lowered == ".mp3" ||
+                   lowered == ".ogg" || lowered == ".ttf" || lowered == ".otf" || lowered == ".ttc" ||
+                   lowered == ".woff" || lowered == ".woff2";
         }
 
         std::optional<std::string> presentation_normalize(const std::string_view raw)
@@ -527,6 +536,7 @@ namespace unpackrat::godot
         {
             std::string effective;
             std::string fallback;
+            std::string extension;
             std::size_t index = 0;
         };
     } // namespace
@@ -548,7 +558,7 @@ namespace unpackrat::godot
             throw tree_budget_error("godot virtual tree exceeds the metadata budget");
         }
 
-        std::unordered_map<std::size_t, std::string> hint_by_index;
+        std::unordered_map<std::size_t, conversion_hint> hint_by_index;
         for (const conversion_hint &hint : hints) {
             if (hint.source_index >= raw_count || index.entries[hint.source_index].kind != pck_entry_kind::file) {
                 throw tree_error("conversion hint source index is out of range");
@@ -558,9 +568,10 @@ namespace unpackrat::godot
             }
             const auto existing = hint_by_index.find(hint.source_index);
             if (existing == hint_by_index.end()) {
-                pool.charge(hint.extension.size() + map_node_overhead);
-                hint_by_index.emplace(hint.source_index, hint.extension);
-            } else if (existing->second != hint.extension) {
+                pool.charge(hint.extension.size() + hint.source_path.size() + hint.variant.size() + map_node_overhead);
+                hint_by_index.emplace(hint.source_index, hint);
+            } else if (existing->second.extension != hint.extension ||
+                       existing->second.source_path != hint.source_path || existing->second.variant != hint.variant) {
                 throw tree_error("conversion hint contradicts an earlier hint");
             }
         }
@@ -597,16 +608,23 @@ namespace unpackrat::godot
             }
         }
 
-        // The first mapping selects a raw fallback's folder and basename. Supported sources use
-        // converted aliases instead; multiple metadata mappings may restore several logical names.
-        std::unordered_map<std::size_t, std::size_t> first_mapping;
+        // A supported mapping presents a converted row. Every other mapping keeps a raw alias,
+        // so an unsupported first alias cannot suppress itself or a later supported alias.
+        std::vector<bool> mapped(raw_count, false);
+        std::vector<bool> raw_mapping(maps.size(), false);
+        std::vector<std::size_t> mapping_target(maps.size(), raw_count);
         for (std::size_t position = 0; position < maps.size(); ++position) {
             const auto target = first_with_path.find(maps[position].compiled_path);
-            if (target != first_with_path.end() && !first_mapping.contains(target->second)) {
-                pool.charge(map_node_overhead + sizeof(std::size_t) * 2);
-                first_mapping.emplace(target->second, position);
+            if (target == first_with_path.end()) {
+                continue;
             }
+            mapping_target[position] = target->second;
+            mapped[target->second] = true;
+            const auto extension = output_extension_for_source(extension_of(maps[position].virtual_path));
+            raw_mapping[position] = !extension.has_value() || !hint_by_index.contains(target->second);
         }
+        const std::size_t raw_mapping_count =
+            static_cast<std::size_t>(std::count(raw_mapping.begin(), raw_mapping.end(), true));
 
         // A missing extension means preserve the complete physical name. A present extension,
         // including an empty one, replaces the virtual source extension with the actual encoding.
@@ -629,22 +647,31 @@ namespace unpackrat::godot
 
         std::vector<view_row> raw_rows;
         pool.reserve_slots(raw_count, sizeof(view_row));
-        raw_rows.reserve(raw_count);
+        pool.reserve_slots(raw_mapping_count, sizeof(view_row));
+        raw_rows.reserve(raw_count + raw_mapping_count);
         for (std::size_t position = 0; position < raw_count; ++position) {
-            if (index.entries[position].kind != pck_entry_kind::file || hint_by_index.contains(position)) {
+            if (index.entries[position].kind != pck_entry_kind::file || hint_by_index.contains(position) ||
+                mapped[position]) {
                 continue;
             }
             view_row row;
             row.index = position;
             row.fallback = std::to_string(position);
-            const auto mapped = first_mapping.find(position);
-            if (mapped == first_mapping.end()) {
-                row.effective = presented_path(index.entries[position].path, {}, std::nullopt, row.fallback);
-            } else {
-                const auto &mapping = maps[mapped->second];
-                const std::string extension = extension_of(mapping.compiled_path);
-                row.effective = presented_path(mapping.virtual_path, mapping.variant, extension, row.fallback);
+            row.effective = presented_path(index.entries[position].path, {}, std::nullopt, row.fallback);
+            pool.charge(row.effective.size() + row.fallback.size() + row_node_overhead);
+            raw_rows.push_back(std::move(row));
+        }
+        for (std::size_t position = 0; position < maps.size(); ++position) {
+            if (!raw_mapping[position]) {
+                continue;
             }
+            const std::size_t target = mapping_target[position];
+            view_row row;
+            row.index = target;
+            row.fallback = std::to_string(target);
+            const std::string extension = extension_of(maps[position].compiled_path);
+            row.effective =
+                presented_path(maps[position].virtual_path, maps[position].variant, extension, row.fallback);
             pool.charge(row.effective.size() + row.fallback.size() + row_node_overhead);
             raw_rows.push_back(std::move(row));
         }
@@ -656,13 +683,18 @@ namespace unpackrat::godot
             row.index = position;
             row.fallback = std::to_string(raw_count + converted_rows.size());
             row.effective = presented_path(path, variant, extension, row.fallback);
-            pool.charge(row.effective.size() + row.fallback.size() + sizeof(view_row) + row_node_overhead);
+            row.extension = extension;
+            pool.charge(row.effective.size() + row.fallback.size() + row.extension.size() + sizeof(view_row) +
+                        row_node_overhead);
             converted_rows.push_back(std::move(row));
         };
         for (std::size_t position = 0; position < raw_count; ++position) {
             const auto hint = hint_by_index.find(position);
-            if (hint != hint_by_index.end() && !first_mapping.contains(position)) {
-                add_converted(position, index.entries[position].path, {}, hint->second);
+            if (hint != hint_by_index.end() && !mapped[position]) {
+                const std::string_view path = hint->second.source_path.empty()
+                                                  ? std::string_view(index.entries[position].path)
+                                                  : std::string_view(hint->second.source_path);
+                add_converted(position, path, hint->second.variant, hint->second.extension);
             }
         }
         for (const auto &mapping : maps) {
@@ -672,7 +704,10 @@ namespace unpackrat::godot
             }
             const auto hint = hint_by_index.find(target->second);
             if (hint != hint_by_index.end()) {
-                add_converted(target->second, mapping.virtual_path, mapping.variant, hint->second);
+                const auto extension = output_extension_for_source(extension_of(mapping.virtual_path));
+                if (extension.has_value()) {
+                    add_converted(target->second, mapping.virtual_path, mapping.variant, *extension);
+                }
             }
         }
 
@@ -685,14 +720,15 @@ namespace unpackrat::godot
         }
 
         std::vector<virtual_entry> entries;
-        const auto add_entry = [&entries, &pool, &limits](std::string path,
-                                                          const std::optional<std::size_t> source_index,
-                                                          const bool converted, std::string generated_text) {
+        const auto add_entry = [&entries, &pool,
+                                &limits](std::string path, const std::optional<std::size_t> source_index,
+                                         const bool converted, std::string generated_text, std::string extension) {
             if (entries.size() >= limits.max_entries) {
                 throw tree_error("godot virtual tree exceeds the entry budget");
             }
-            pool.charge(path.size() + generated_text.size() + entry_slot_overhead);
-            entries.push_back(virtual_entry{std::move(path), source_index, converted, std::move(generated_text)});
+            pool.charge(path.size() + generated_text.size() + extension.size() + entry_slot_overhead);
+            entries.push_back(virtual_entry{std::move(path), source_index, converted, std::move(generated_text),
+                                            std::move(extension)});
         };
 
         std::string manifest_text;
@@ -712,7 +748,7 @@ namespace unpackrat::godot
                 manifest_text += escape_field(final_path);
                 manifest_text.push_back('\n');
             }
-            add_entry(final_path, row.index, converted, {});
+            add_entry(final_path, row.index, converted, {}, row.extension);
         };
         for (const auto &row : raw_rows) {
             append_row(row, false);
@@ -735,12 +771,12 @@ namespace unpackrat::godot
             removal_text.push_back('\n');
         }
         if (!removal_text.empty()) {
-            add_entry(tree.place("patch-removals.tsv", "r"), std::nullopt, false, std::move(removal_text));
+            add_entry(tree.place("patch-removals.tsv", "r"), std::nullopt, false, std::move(removal_text), {});
         }
         if (!manifest_text.empty()) {
             // Place after physical files so generating a manifest never renames an unchanged
             // source. The same collision rules protect directory ancestors and case variants.
-            add_entry(tree.place(std::string(manifest_name), "n"), std::nullopt, false, std::move(manifest_text));
+            add_entry(tree.place(std::string(manifest_name), "n"), std::nullopt, false, std::move(manifest_text), {});
         }
         return virtual_tree{std::move(entries)};
     }
