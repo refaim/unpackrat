@@ -73,9 +73,9 @@
     {
       "name": "unpackrat-build-tests-godot-minimal-registration",
       "member": "build/tests/test_godot_minimal_registration.py",
-      "version": "b1ab2b6bc4c9ee32baa227d14ab0f369da5d4e80c915bcf29b0122dd5f6c521b",
-      "sha256": "b1ab2b6bc4c9ee32baa227d14ab0f369da5d4e80c915bcf29b0122dd5f6c521b",
-      "artifact_filename": "b1ab2b6bc4c9ee32baa227d14ab0f369da5d4e80c915bcf29b0122dd5f6c521b.tar",
+      "version": "4bbf1aef3b69f5fa3acba1998f73ac92b5de43f844c87cf150f095c0d3a4f8a8",
+      "sha256": "4bbf1aef3b69f5fa3acba1998f73ac92b5de43f844c87cf150f095c0d3a4f8a8",
+      "artifact_filename": "4bbf1aef3b69f5fa3acba1998f73ac92b5de43f844c87cf150f095c0d3a4f8a8.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -92,9 +92,9 @@
     {
       "name": "unpackrat-build-tests-wolfrpg-registration",
       "member": "build/tests/test_wolfrpg_registration.py",
-      "version": "313bc5dd31cb5b4962cf02ae73305df343c220f2c0312abea6fb53d9db63c9f2",
-      "sha256": "313bc5dd31cb5b4962cf02ae73305df343c220f2c0312abea6fb53d9db63c9f2",
-      "artifact_filename": "313bc5dd31cb5b4962cf02ae73305df343c220f2c0312abea6fb53d9db63c9f2.tar",
+      "version": "9e0acd2f4afce8ce091d122bb8bd81a0783a77ad5e04141c1daf3f6e3bde8de4",
+      "sha256": "9e0acd2f4afce8ce091d122bb8bd81a0783a77ad5e04141c1daf3f6e3bde8de4",
+      "artifact_filename": "9e0acd2f4afce8ce091d122bb8bd81a0783a77ad5e04141c1daf3f6e3bde8de4.tar",
       "extension": ".tar",
       "curations": [
         {
