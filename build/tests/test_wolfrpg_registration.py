@@ -512,15 +512,14 @@ class WolfRpgFuzzContract(GuardedCase):
 
 
 class WolfRpgDocsContract(GuardedCase):
-    """The docs must publish the WolfRPG row, notes and dependency attribution."""
+    """The docs publish WolfRPG downloads and notes; packaged notices carry attribution."""
 
-    def test_readme_publishes_wolfrpg_rows_and_attribution(self) -> None:
+    def test_readme_publishes_wolfrpg_rows_and_notes(self) -> None:
         readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("WolfRPG", readme)
+        self.assertIn("| WolfRPG | `.wolf`, `.wolfx` | [wolfrpg](", readme)
         self.assertIn("src/modules/wolfrpg/ChangeLog.en.txt", readme)
         self.assertIn("src/modules/wolfrpg/ChangeLog.ru.txt", readme)
         self.assertIn("https://github.com/refaim/unpackrat/releases?q=wolfrpg", readme)
-        self.assertIn("licenses/uberwolf.txt", readme)
         version = (REPOSITORY_ROOT / "src/modules/wolfrpg/VERSION").read_text(encoding="utf-8").strip()
         self.assertEqual(version, WOLFRPG_VERSION)
         self.assertNotIn("<<<<<<<", readme)
@@ -530,15 +529,10 @@ class WolfRpgDocsContract(GuardedCase):
     def test_wolfrpg_initial_release_keeps_version_1_0_0(self) -> None:
         self.assertEqual(main.read_version(REPOSITORY_ROOT, WOLFRPG), WOLFRPG_VERSION)
 
-    def test_readme_links_the_uberwolf_upstream_and_the_bundled_notice(self) -> None:
+    def test_readme_defers_uberwolf_attribution_to_packaged_notices(self) -> None:
         readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
-        row = next(
-            (line for line in readme.splitlines() if line.startswith("| [Sinflower/UberWolf]")),
-            None,
-        )
-        self.assertIsNotNone(row, "the dependency matrix must carry the UberWolf row")
-        self.assertIn("https://github.com/Sinflower/UberWolf", row)
-        self.assertIn("(licenses/uberwolf.txt)", row)
+        self.assertNotIn("UberWolf", readme)
+        self.assertIn("generated `LICENSES.txt` at the archive root.", readme)
 
     def test_uberwolf_notice_captures_the_bundled_components(self) -> None:
         notice = (REPOSITORY_ROOT / "licenses" / "uberwolf.txt").read_text(encoding="utf-8")

@@ -18,11 +18,11 @@ from the module's release listing below.
 
 | Module | Formats | Release | ChangeLog |
 |--------|---------|---------|-----------|
-| Ren'Py | `.rpa` (RPA-2.0, RPA-3.0) | [renpy releases](https://github.com/refaim/unpackrat/releases?q=renpy) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
-| RPG Maker | `.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a` (VX Ace, RGSS3) | [rpgmaker releases](https://github.com/refaim/unpackrat/releases?q=rpgmaker) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
-| Zanzarah | `.pak` (original, Steam) | [zanzarah releases](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
-| Godot | `.pck`, embedded PCK and same-stem EXE sidecars | [godot releases](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
-| WolfRPG | `.wolf`, `.wolfx` | [wolfrpg releases](https://github.com/refaim/unpackrat/releases?q=wolfrpg) | [RU](src/modules/wolfrpg/ChangeLog.ru.txt) [EN](src/modules/wolfrpg/ChangeLog.en.txt) |
+| Ren'Py | `.rpa` (RPA-2.0, RPA-3.0) | [renpy](https://github.com/refaim/unpackrat/releases?q=renpy) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
+| RPG Maker | `.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a` (VX Ace, RGSS3) | [rpgmaker](https://github.com/refaim/unpackrat/releases?q=rpgmaker) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
+| Zanzarah | `.pak` | [zanzarah](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
+| Godot | `.pck` | [godot](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
+| WolfRPG | `.wolf`, `.wolfx` | [wolfrpg](https://github.com/refaim/unpackrat/releases?q=wolfrpg) | [RU](src/modules/wolfrpg/ChangeLog.ru.txt) [EN](src/modules/wolfrpg/ChangeLog.en.txt) |
 
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
@@ -40,13 +40,6 @@ extract from with the usual FAR commands.
 
 unpackrat's own source is released under the [MIT License](LICENSE.txt).
 
-Each packaged module also carries the third-party notices it needs. The WolfRPG module browses
-and extracts Wolf RPG archives through the pinned UberWolf library:
-
-| Dependency | Notice | Modules |
-|------------|--------|---------|
-| [Sinflower/UberWolf](https://github.com/Sinflower/UberWolf) | [bundled notice](licenses/uberwolf.txt) | WolfRPG |
-
 ## Building
 
 The build produces self-contained `/MT` MSVC modules for x86 and x64 with no external runtime
@@ -60,8 +53,6 @@ DLLs to ship. The full command contract, prerequisites and quality gates live in
 .\build.ps1 ci-arch -Arch x64
 .\build.ps1 package
 ```
-
-Each module also publishes an optional `-pdb.zip` symbol bundle beside its module archives.
 
 ## Links
 

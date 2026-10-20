@@ -526,7 +526,7 @@ class GodotDocsContract(GuardedCase):
         self.assertEqual(version, GODOT_VERSION)
         self.assertNotIn("licenses/VC-LTL5.txt", readme)
         self.assertIn("| Module | Formats | Release | ChangeLog |", readme)
-        self.assertIn("| Godot | `.pck`, embedded PCK and same-stem EXE sidecars |", readme)
+        self.assertIn("| Godot | `.pck` | [godot](", readme)
         self.assertIn("https://github.com/refaim/unpackrat/releases?q=godot", readme)
         self.assertNotIn("<<<<<<<", readme)
         self.assertNotIn("planned first release", readme)
