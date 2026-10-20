@@ -470,9 +470,10 @@ namespace unpackrat::wolfrpg
 
         // A normal helper frame keeps recovery comparisons out of a Windows catch handler,
         // where Clang 21's comparison instrumentation can lose the continuation.
-        [[nodiscard]] std::unique_ptr<wolfx_archive> recover_wolfx_source(
-            std::istream &stream, const std::filesystem::path &path, wolfx_candidates &candidates,
-            const game_context_resolver &resolve_context)
+        [[nodiscard]] std::unique_ptr<wolfx_archive> recover_wolfx_source(std::istream &stream,
+                                                                          const std::filesystem::path &path,
+                                                                          wolfx_candidates &candidates,
+                                                                          const game_context_resolver &resolve_context)
         {
             const game_context_result context = resolve_context(path);
             if (context.status == game_context_status::io_failure) {
@@ -488,8 +489,8 @@ namespace unpackrat::wolfrpg
         // Null is the typed "the initial open reported key_required" result; every other failure
         // propagates unchanged. The catch only constructs that result and performs no comparison.
         [[nodiscard]] std::unique_ptr<wolfx_archive> try_open_wolfx_source(std::istream &stream,
-                                                                          const std::filesystem::path &path,
-                                                                          const wolfx_candidates &candidates)
+                                                                           const std::filesystem::path &path,
+                                                                           const wolfx_candidates &candidates)
         {
             try {
                 return wolfx_archive::open(stream, path, candidates);
