@@ -85,7 +85,8 @@
       <AdditionalIncludeDirectories>$(RepositoryRoot)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NOMINMAX;WINVER=0x0600;_WIN32_WINNT=0x0600;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalOptions Condition="'$(Configuration)' == 'Coverage'">/clang:-fprofile-instr-generate /clang:-fcoverage-mapping %(AdditionalOptions)</AdditionalOptions>
+      <!-- Concurrent tests must not lose coverage increments under counter contention. -->
+      <AdditionalOptions Condition="'$(Configuration)' == 'Coverage'">/clang:-fprofile-instr-generate /clang:-fcoverage-mapping /clang:-fprofile-update=atomic %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'ASan'">/fsanitize=address %(AdditionalOptions)</AdditionalOptions>
       <!-- One SDK-only alignment exception; rationale and removal rule: docs/ubsan-sdk-wmemcmp.md. -->
       <AdditionalOptions Condition="'$(Configuration)' == 'UBSan'">/clang:-fsanitize=undefined /clang:-fno-sanitize-recover=all /clang:-fsanitize-ignorelist="$(RepositoryRoot)build\ubsan-ignorelist.txt" %(AdditionalOptions)</AdditionalOptions>

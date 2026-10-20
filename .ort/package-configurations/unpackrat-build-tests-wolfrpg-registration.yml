@@ -1,0 +1,24 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-wolfrpg-registration:313bc5dd31cb5b4962cf02ae73305df343c220f2c0312abea6fb53d9db63c9f2",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/313bc5dd31cb5b4962cf02ae73305df343c220f2c0312abea6fb53d9db63c9f2.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_wolfrpg_registration.py",
+      "start_lines": "63,65,69,188,192",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 63,65,69,188,192 share the identifier GPL-3.0-only; line 65 is, for example, `REQUIRED_WOLFRPG_NOTICES = (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\")`. These are notice-filename literals and assertions in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_wolfrpg_registration.py",
+      "start_lines": "63",
+      "line_count": 1,
+      "detected_license": "LGPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 63 carries `# API LGPLv3 notice with the GPLv3 text it incorporates, and the pinned UberWolf`. This first-party MIT build/test file holds the identifier only as prose describing the retained notice, not a grant; ScanCode reported LGPL-3.0-only as a false positive, so the finding is removed."
+    }
+  ]
+}

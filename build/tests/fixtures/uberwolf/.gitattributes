@@ -1,0 +1,9 @@
+# Pinned UberWolf member bytes are stored with a ``.fixture`` suffix so the checkout's
+# root ``* text eol=crlf`` conversion cannot rewrite them; their raw SHA-256 digests in
+# fixture-manifest.json must keep matching the working-tree bytes.
+UberWolfLib/UberWolfLib.cpp.fixture -text
+UberWolfLib/WolfRPG/FileAccess.hpp.fixture -text
+UberWolfLib/WolfX/Types.hpp.fixture -text
+3rdParty/DXLib/DXArchive.cpp.fixture -text
+3rdParty/lz4/lz4.h.fixture -text
+fixture-manifest.json -text

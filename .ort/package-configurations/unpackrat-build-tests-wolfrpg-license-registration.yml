@@ -1,0 +1,15 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-wolfrpg-license-registration:ec9e2b3ce452b9950dfb1f6fe07145fca586847e9d0fcbd705e20b3aa7a8dbf7",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/ec9e2b3ce452b9950dfb1f6fe07145fca586847e9d0fcbd705e20b3aa7a8dbf7.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_wolfrpg_license_registration.py",
+      "start_lines": "47",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 47 carries `\"GPL-3.0.txt\",`. This first-party MIT build/test file holds the identifier only as a notice-filename literal in the reviewed packaging assertion, not a grant; ScanCode reported GPL-3.0-only as a false positive, so the finding is removed."
+    }
+  ]
+}

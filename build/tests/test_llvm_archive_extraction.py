@@ -4,6 +4,7 @@ import io
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import textwrap
@@ -65,6 +66,11 @@ class LLVMArchiveExtractionTests(unittest.TestCase):
     def test_cold_cache_step_uses_existing_build_python(self) -> None:
         selected = TOOLS + HEADERS
         archive = self.archive(tuple(PREFIX + name for name in selected))
+        workspace = Path(sys.executable).resolve().parents[3]
+        self.assertEqual(
+            Path(sys.executable).resolve(),
+            (workspace / "build/.venv/Scripts/python.exe").resolve(),
+        )
         fakes = textwrap.dedent("""\
             $ErrorActionPreference = 'Stop'
             function gh {
@@ -84,7 +90,7 @@ class LLVMArchiveExtractionTests(unittest.TestCase):
             }
             """)
         with patch.dict(os.environ, {"RUNNER_TEMP": str(self.root),
-                                     "GITHUB_WORKSPACE": str(WORKFLOW.parents[2]),
+                                     "GITHUB_WORKSPACE": str(workspace),
                                      "FIXTURE_ARCHIVE": str(archive)}):
             completed = subprocess.run(
                 ["pwsh", "-NoProfile", "-NonInteractive", "-Command", fakes + self.step],

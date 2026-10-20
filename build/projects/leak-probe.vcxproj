@@ -30,6 +30,7 @@
     <ClCompile Include="$(RepositoryRoot)src\core\compression\zlib_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\support\archive_fixtures.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\support\zlib_fixture.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\wolfrpg_fixtures.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />

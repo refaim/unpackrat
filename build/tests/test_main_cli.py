@@ -92,7 +92,7 @@ class FakeRun:
         self._fail_when = fail_when
         self._profraw = profraw
 
-    def __call__(self, argv, cwd=None, env=None, capture=False):
+    def __call__(self, argv, cwd=None, env=None, capture=False, *, merge_stderr=True):
         argv = tuple(str(item) for item in argv)
         self.calls.append(Recorded(argv, cwd, env, capture))
         name = os.path.basename(argv[0]).lower()

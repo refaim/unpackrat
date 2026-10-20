@@ -22,6 +22,7 @@ from the module's release listing below.
 | RPG Maker | `.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a` (VX Ace, RGSS3) | [rpgmaker releases](https://github.com/refaim/unpackrat/releases?q=rpgmaker) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
 | Zanzarah | `.pak` (original, Steam) | [zanzarah releases](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
 | Godot | `.pck`, embedded PCK and same-stem EXE sidecars | [godot releases](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
+| WolfRPG | `.wolf`, `.wolfx` | [wolfrpg releases](https://github.com/refaim/unpackrat/releases?q=wolfrpg) | [RU](src/modules/wolfrpg/ChangeLog.ru.txt) [EN](src/modules/wolfrpg/ChangeLog.en.txt) |
 
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
@@ -38,6 +39,13 @@ extract from with the usual FAR commands.
 ## License
 
 unpackrat's own source is released under the [MIT License](LICENSE.txt).
+
+Each packaged module also carries the third-party notices it needs. The WolfRPG module browses
+and extracts Wolf RPG archives through the pinned UberWolf library:
+
+| Dependency | Notice | Modules |
+|------------|--------|---------|
+| [Sinflower/UberWolf](https://github.com/Sinflower/UberWolf) | [bundled notice](licenses/uberwolf.txt) | WolfRPG |
 
 ## Building
 

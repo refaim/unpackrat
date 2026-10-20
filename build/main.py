@@ -32,12 +32,13 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 ARCHITECTURES = ("x86", "x64")
 PLATFORMS = {"x86": "Win32", "x64": "x64"}
 CONFIGURATIONS = ("Debug", "Release")
-MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
+MODULES = ("renpy", "rpgmaker", "zanzarah", "godot", "wolfrpg")
 MODULE_BINARIES = {
     "renpy": "renpy.so",
     "rpgmaker": "rpgmaker.so",
     "zanzarah": "zanzarah.so",
     "godot": "godot.so",
+    "wolfrpg": "wolfrpg.so",
 }
 OUT_NATIVE = "out/native"
 OUT_PACKAGES = "out/packages"
@@ -59,14 +60,17 @@ LICENSES = {
         "brotli.txt", "zstd.txt", "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt",
         "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt", "YY-Thunks.txt",
     ),
+    "wolfrpg": ("Observer.txt", "GPL-3.0.txt", "uberwolf.txt", "json.txt", "YY-Thunks.txt"),
 }
-FUZZ_TARGETS = ("pickle", "renpy", "rpgmaker", "zanzarah")
-FUZZ_MAX_LENGTH = {"pickle": 262144, "renpy": 1048576, "rpgmaker": 1048576, "zanzarah": 1048576}
+FUZZ_TARGETS = ("pickle", "renpy", "rpgmaker", "zanzarah", "wolfrpg")
+FUZZ_MAX_LENGTH = {"pickle": 262144, "renpy": 1048576, "rpgmaker": 1048576, "zanzarah": 1048576,
+                   "wolfrpg": 1048576}
 FUZZ_SECONDS = 60
 LEAK_MODES = ("operations", "lifecycle")
 LEAK_SCENARIOS = (
     "small-success", "malformed", "cancellation", "read-failure", "write-failure",
     "large-metadata", "sparse-metadata",
+    "wolf-small-success", "wolf-malformed", "wolf-cancellation",
 )
 LEAK_PROBE = "leak-probe.exe"
 # The fatal directory-cleanup probe owns the process boundary for one hidden Catch2 case (see
@@ -219,11 +223,14 @@ def run(
     cwd: Path | str | None = None,
     env: dict[str, str] | None = None,
     capture: bool = False,
+    merge_stderr: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     """Run one checked child and return its ``CompletedProcess``.
 
     The single checked subprocess entry point: a nonzero exit raises
-    ``CalledProcessError``.  ``capture`` merges the child's output into ``stdout``.
+    ``CalledProcessError``.  ``capture`` captures ``stdout``; when it is set,
+    ``stderr`` is merged into it by default, while ``merge_stderr=False`` inherits
+    ``stderr`` separately.
     """
 
     try:
@@ -233,7 +240,7 @@ def run(
             env=None if env is None else {**os.environ, **env},
             text=True,
             stdout=subprocess.PIPE if capture else None,
-            stderr=subprocess.STDOUT if capture else None,
+            stderr=subprocess.STDOUT if capture and merge_stderr else None,
             check=True,
         )
     except subprocess.CalledProcessError as error:
@@ -976,8 +983,18 @@ def _coverage(
         raw.extend(produced)
     profile = profiles / "coverage.profdata"
     run([str(llvm.profdata), "merge", "-sparse", *(str(path) for path in raw), "-o", str(profile)])
-    document = json.loads(run(_coverage_export(repository, architecture, profile, llvm), capture=True).stdout)
-    lcov = run(_coverage_lcov_export(repository, architecture, profile, llvm), capture=True).stdout
+    document = json.loads(
+        run(
+            _coverage_export(repository, architecture, profile, llvm),
+            capture=True,
+            merge_stderr=False,
+        ).stdout
+    )
+    lcov = run(
+        _coverage_lcov_export(repository, architecture, profile, llvm),
+        capture=True,
+        merge_stderr=False,
+    ).stdout
     # Write both reports before the gate so incomplete coverage stays reviewable when the run fails.
     summary = profiles / "coverage.json"
     summary.write_text(json.dumps(document), encoding="utf-8")

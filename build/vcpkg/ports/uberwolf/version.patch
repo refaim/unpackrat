@@ -1,0 +1,25 @@
+diff --git a/UberWolfLib/UberWolfLib.cpp b/UberWolfLib/UberWolfLib.cpp
+--- a/UberWolfLib/UberWolfLib.cpp
++++ b/UberWolfLib/UberWolfLib.cpp
+@@ -39,8 +39,6 @@
+ #include <fstream>
+ #include <nlohmann/json.hpp>
+ 
+-#include <SelfUpdater/Version.hpp>
+-
+ namespace fs = std::filesystem;
+ 
+ static const tStrings GAME_EXE_NAMES = {
+@@ -313,11 +311,7 @@
+ 
+ tString UberWolfLib::GetVersion()
+ {
+-#ifdef _UNICODE
+-	return selfUpdater::version::GetVersionInfo().ToWString();
+-#else
+-	return selfUpdater::version::GetVersionInfo().ToString();
+-#endif
++	return TEXT("0.6.4");
+ }
+ 
+ UWLExitCode UberWolfLib::packData(const tString& dataPath)

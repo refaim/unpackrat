@@ -1,5 +1,6 @@
 #include "../../api.h"
 #include "../support/archive_fixtures.h"
+#include "../support/wolfrpg_fixtures.h"
 
 #include <algorithm>
 #include <array>
@@ -12,6 +13,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -204,6 +206,12 @@ namespace
         return TRUE;
     }
 
+    [[nodiscard]] BOOL CALLBACK counted_cancel_progress(const HANDLE context, __int64) noexcept
+    {
+        ++*static_cast<std::size_t *>(context);
+        return FALSE;
+    }
+
     class loaded_module final
     {
       public:
@@ -259,50 +267,40 @@ namespace
                               const std::string_view expected_payload, const std::filesystem::path &output_path) const
         {
             auto storage = open_archive(archive_path);
+            exercise_storage_success(storage.get(), expected_path, expected_payload, output_path);
+        }
 
+        void expect_open_failure(const std::filesystem::path &archive_path) const
+        {
+            (void)open_archive(archive_path, SOR_INVALID_FILE);
+        }
+
+        void exercise_cancellation_and_retry(const std::filesystem::path &archive_path,
+                                             const std::wstring_view expected_path,
+                                             const std::string_view expected_payload,
+                                             const std::filesystem::path &output_path) const
+        {
+            auto storage = open_archive(archive_path);
             if (api_.PrepareFiles(storage.get()) == FALSE) {
-                throw std::runtime_error("PrepareFiles failed for a hermetic fixture");
+                throw std::runtime_error("PrepareFiles rejected the Wolf cancellation fixture");
             }
-
-            StorageItemInfo item{};
-            if (api_.GetItem(storage.get(), 0, &item) != GET_ITEM_OK) {
-                throw std::runtime_error("GetItem failed for the only expected fixture entry");
-            }
-            if (std::wstring_view(item.Path) != expected_path || item.Size < 0) {
-                throw std::runtime_error("The fixture entry metadata is incorrect");
-            }
-            StorageItemInfo unexpected_item{};
-            if (api_.GetItem(storage.get(), 1, &unexpected_item) != GET_ITEM_NOMOREITEMS) {
-                throw std::runtime_error("The fixture unexpectedly contains more than one entry");
-            }
-
-            temporary_output output(output_path);
-            __int64 progress = 0;
-            const ExtractOperationParams extract_parameters{
+            const temporary_output output(output_path);
+            std::size_t calls = 0;
+            const ExtractOperationParams operation{
                 .ItemIndex = 0,
                 .Flags = 0,
                 .DestPath = output.path().c_str(),
                 .Password = nullptr,
-                .Callbacks = {.signalContext = &progress, .FileProgress = report_progress},
+                .Callbacks = {.signalContext = &calls, .FileProgress = counted_cancel_progress},
             };
-            if (api_.ExtractItem(storage.get(), extract_parameters) != SER_SUCCESS) {
-                throw std::runtime_error("ExtractItem failed for a hermetic fixture");
+            const auto status = api_.ExtractItem(storage.get(), operation);
+            // cppcheck-suppress knownConditionTrueFalse
+            // The loaded module increments the provided `calls` context through the ABI callback
+            // (counted_cancel_progress), so `calls` is not a constant here.
+            if (status != SER_USERABORT || calls == 0 || std::filesystem::exists(output.path())) {
+                throw std::runtime_error("Wolf cancellation did not abort and clean its output");
             }
-
-            std::ifstream extracted(output.path(), std::ios::binary);
-            if (!extracted.is_open()) {
-                throw std::runtime_error("ExtractItem did not create its output file");
-            }
-            const std::string actual_payload{std::istreambuf_iterator<char>(extracted),
-                                             std::istreambuf_iterator<char>()};
-            if (actual_payload != expected_payload || static_cast<std::uintmax_t>(item.Size) != actual_payload.size() ||
-                // The loaded module writes ``progress`` through the escaped Callbacks.signalContext
-                // pointer, an indirect write cppcheck's valueflow cannot model, so this real
-                // post-condition looks constant to the analyzer.
-                // cppcheck-suppress knownConditionTrueFalse
-                progress <= 0) {
-                throw std::runtime_error("Extracted fixture data is incorrect");
-            }
+            exercise_storage_success(storage.get(), expected_path, expected_payload, output.path());
         }
 
         void expect_prepare_failure(const std::filesystem::path &archive_path) const
@@ -361,6 +359,55 @@ namespace
         }
 
       private:
+        void exercise_storage_success(const HANDLE storage, const std::wstring_view expected_path,
+                                      const std::string_view expected_payload,
+                                      const std::filesystem::path &output_path) const
+        {
+            if (api_.PrepareFiles(storage) == FALSE) {
+                throw std::runtime_error("PrepareFiles failed for a hermetic fixture");
+            }
+
+            StorageItemInfo item{};
+            if (api_.GetItem(storage, 0, &item) != GET_ITEM_OK) {
+                throw std::runtime_error("GetItem failed for the only expected fixture entry");
+            }
+            if (std::wstring_view(item.Path) != expected_path || item.Size < 0) {
+                throw std::runtime_error("The fixture entry metadata is incorrect");
+            }
+            StorageItemInfo unexpected_item{};
+            if (api_.GetItem(storage, 1, &unexpected_item) != GET_ITEM_NOMOREITEMS) {
+                throw std::runtime_error("The fixture unexpectedly contains more than one entry");
+            }
+
+            temporary_output output(output_path);
+            __int64 progress = 0;
+            const ExtractOperationParams extract_parameters{
+                .ItemIndex = 0,
+                .Flags = 0,
+                .DestPath = output.path().c_str(),
+                .Password = nullptr,
+                .Callbacks = {.signalContext = &progress, .FileProgress = report_progress},
+            };
+            if (api_.ExtractItem(storage, extract_parameters) != SER_SUCCESS) {
+                throw std::runtime_error("ExtractItem failed for a hermetic fixture");
+            }
+
+            std::ifstream extracted(output.path(), std::ios::binary);
+            if (!extracted.is_open()) {
+                throw std::runtime_error("ExtractItem did not create its output file");
+            }
+            const std::string actual_payload{std::istreambuf_iterator<char>(extracted),
+                                             std::istreambuf_iterator<char>()};
+            if (actual_payload != expected_payload || static_cast<std::uintmax_t>(item.Size) != actual_payload.size() ||
+                // The loaded module writes ``progress`` through the escaped Callbacks.signalContext
+                // pointer, an indirect write cppcheck's valueflow cannot model, so this real
+                // post-condition looks constant to the analyzer.
+                // cppcheck-suppress knownConditionTrueFalse
+                progress <= 0) {
+                throw std::runtime_error("Extracted fixture data is incorrect");
+            }
+        }
+
         [[nodiscard]] static std::filesystem::path module_path(const HMODULE module)
         {
             std::wstring path(32'768, L'\0');
@@ -372,16 +419,19 @@ namespace
             return path;
         }
 
-        [[nodiscard]] storage_handle open_archive(const std::filesystem::path &archive_path) const
+        [[nodiscard]] storage_handle open_archive(const std::filesystem::path &archive_path,
+                                                  const int expected_status = SOR_SUCCESS) const
         {
-            std::ifstream archive(archive_path, std::ios::binary);
-            if (!archive.is_open()) {
+            std::FILE *raw_archive = nullptr;
+            (void)_wfopen_s(&raw_archive, archive_path.c_str(), L"rb");
+            const std::unique_ptr<std::FILE, decltype(&std::fclose)> archive(raw_archive, std::fclose);
+            if (!archive) {
                 throw std::runtime_error("Failed to open a hermetic archive fixture");
             }
 
             std::vector<char> signature(std::size_t{128} * 1024);
-            archive.read(signature.data(), static_cast<std::streamsize>(signature.size()));
-            if (archive.bad()) {
+            const auto bytes_read = std::fread(signature.data(), 1, signature.size(), archive.get());
+            if (std::ferror(archive.get()) != 0) {
                 throw std::runtime_error("Failed to read a hermetic archive fixture");
             }
 
@@ -390,28 +440,29 @@ namespace
                 .FilePath = archive_path.c_str(),
                 .Password = nullptr,
                 .Data = signature.data(),
-                .DataSize = static_cast<std::size_t>(archive.gcount()),
+                .DataSize = bytes_read,
             };
             StorageGeneralInfo general_info{};
             HANDLE raw_storage = nullptr;
-            if (api_.OpenStorage(open_parameters, &raw_storage, &general_info) != SOR_SUCCESS ||
-                raw_storage == nullptr) {
-                throw std::runtime_error("OpenStorage rejected its hermetic fixture");
+            const auto status = api_.OpenStorage(open_parameters, &raw_storage, &general_info);
+            storage_handle storage(api_, raw_storage);
+            if (status != expected_status || ((expected_status == SOR_SUCCESS) != (raw_storage != nullptr))) {
+                throw std::runtime_error("OpenStorage returned an unexpected status or storage handle");
             }
-            return storage_handle(api_, raw_storage);
+            return storage;
         }
 
         void release() noexcept
         {
-            if (loaded_ && unload_ != nullptr) {
+            // loaded_ is set only after both exports resolve successfully.
+            if (loaded_) {
                 unload_();
                 loaded_ = false;
             }
             unload_ = nullptr;
-            if (library_ != nullptr) {
-                FreeLibrary(library_);
-                library_ = nullptr;
-            }
+            // release() is reached only after successful construction of library_.
+            FreeLibrary(library_);
+            library_ = nullptr;
         }
 
         HMODULE library_ = nullptr;
@@ -452,6 +503,8 @@ namespace
                                   std::format("unpackrat-leak-probe-cancellation-{}.tmp", GetCurrentProcessId())),
               read_failure_output(temporary_directory /
                                   std::format("unpackrat-leak-probe-read-failure-{}.tmp", GetCurrentProcessId())),
+              wolf_output(temporary_directory / std::format("unpackrat-leak-probe-wolf-{}.tmp", GetCurrentProcessId())),
+              wolf_payload(std::size_t{96} * 1024U, 'w'), wolf_image(make_wolf_image(wolf_payload)),
               renpy_archive("renpy", test::support::make_renpy_archive("dir/hello.txt", "renpy payload")),
               rpgmaker_archive("rpgmaker", test::support::make_rpgmaker_archive("Data\\hello.txt", "rpgmaker payload")),
               zanzarah_archive("zanzarah",
@@ -467,7 +520,9 @@ namespace
               large_metadata_archive("large-metadata",
                                      test::support::make_zanzarah_archive_with_entries(large_entry_count)),
               expanded_metadata_archive("expanded-metadata",
-                                        test::support::make_renpy_archive_with_expanded_index(expanded_index_size))
+                                        test::support::make_renpy_archive_with_expanded_index(expanded_index_size)),
+              wolf_archive("wolf-success", wolf_image),
+              malformed_wolf_archive("wolf-malformed", std::array<std::uint8_t, 2>{0, 0})
         {
         }
 
@@ -477,6 +532,9 @@ namespace
         std::filesystem::path zanzarah_output;
         std::filesystem::path cancellation_output;
         std::filesystem::path read_failure_output;
+        std::filesystem::path wolf_output;
+        std::string wolf_payload;
+        test::support::byte_buffer wolf_image;
         test::support::temporary_archive renpy_archive;
         test::support::temporary_archive rpgmaker_archive;
         test::support::temporary_archive zanzarah_archive;
@@ -487,20 +545,34 @@ namespace
         test::support::temporary_archive read_failure_archive;
         test::support::temporary_archive large_metadata_archive;
         test::support::temporary_archive expanded_metadata_archive;
+        test::support::temporary_archive wolf_archive;
+        test::support::temporary_archive malformed_wolf_archive;
         test::support::temporary_sparse_renpy_archive sparse_metadata_archive;
+
+        [[nodiscard]] static test::support::byte_buffer make_wolf_image(const std::string_view payload)
+        {
+            const std::array entries{test::support::synthetic_entry{"payload.bin", std::string(payload), false}};
+            const auto built = test::support::build_plain_archive(entries);
+            test::support::byte_buffer result;
+            result.reserve(built.bytes.size());
+            std::ranges::transform(built.bytes, std::back_inserter(result),
+                                   [](const std::byte byte) { return std::to_integer<std::uint8_t>(byte); });
+            return result;
+        }
     };
 
     struct module_set final
     {
         explicit module_set(const std::filesystem::path &binary_directory)
             : renpy(binary_directory / "renpy.so"), rpgmaker(binary_directory / "rpgmaker.so"),
-              zanzarah(binary_directory / "zanzarah.so")
+              zanzarah(binary_directory / "zanzarah.so"), wolf(binary_directory / "wolfrpg.so")
         {
         }
 
         loaded_module renpy;
         loaded_module rpgmaker;
         loaded_module zanzarah;
+        loaded_module wolf;
     };
 
     struct scenario_context final
@@ -559,6 +631,25 @@ namespace
         context.modules.renpy.expect_prepare_failure(context.fixtures.expanded_metadata_archive.path());
     }
 
+    void exercise_wolf_success(const scenario_context &context)
+    {
+        context.modules.wolf.exercise_success(context.fixtures.wolf_archive.path(), L"payload.bin",
+                                              context.fixtures.wolf_payload, context.fixtures.wolf_output);
+    }
+
+    void exercise_wolf_malformed(const scenario_context &context)
+    {
+        context.modules.wolf.expect_open_failure(context.fixtures.malformed_wolf_archive.path());
+        exercise_wolf_success(context);
+    }
+
+    void exercise_wolf_cancellation(const scenario_context &context)
+    {
+        context.modules.wolf.exercise_cancellation_and_retry(context.fixtures.wolf_archive.path(), L"payload.bin",
+                                                             context.fixtures.wolf_payload,
+                                                             context.fixtures.wolf_output);
+    }
+
     struct scenario_definition final
     {
         std::string_view name;
@@ -573,6 +664,9 @@ namespace
         scenario_definition{"write-failure", exercise_write_failure},
         scenario_definition{"large-metadata", exercise_large_metadata},
         scenario_definition{"sparse-metadata", exercise_sparse_metadata},
+        scenario_definition{"wolf-small-success", exercise_wolf_success},
+        scenario_definition{"wolf-malformed", exercise_wolf_malformed},
+        scenario_definition{"wolf-cancellation", exercise_wolf_cancellation},
     };
 
     [[nodiscard]] const scenario_definition *select_scenario(const std::string_view name)

@@ -213,7 +213,7 @@ class ToolRun:
         self.calls: list[tuple[tuple[str, ...], object, object, bool]] = []
         self._llvm_export = json.dumps(_FULL_COVERAGE if llvm_export is None else llvm_export)
 
-    def __call__(self, argv, cwd=None, env=None, capture=False):
+    def __call__(self, argv, cwd=None, env=None, capture=False, *, merge_stderr=True):
         argv = tuple(str(item) for item in argv)
         self.calls.append((argv, cwd, env, capture))
         name = os.path.basename(argv[0]).lower()

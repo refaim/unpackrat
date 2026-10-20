@@ -19,7 +19,7 @@ Release contract, non-negotiable: Windows-only native C++23 through MSVC `cl.exe
 runtime and all third-party libraries linked statically (`/MT`, static vcpkg triplets); a release
 archive carries no redistributable runtime DLL; CMake is not part of this tree
 (vcpkg ports may use it internally); no `/clr`. Each shipped module (`renpy`, `rpgmaker`, `zanzarah`,
-`godot`) owns an independent semantic version in `src/modules/<module>/VERSION` and its own
+`godot`, `wolfrpg`) owns an independent semantic version in `src/modules/<module>/VERSION` and its own
 `<module>/vX.Y.Z` release lineage (for example, `godot/vX.Y.Z`); there is no repository release
 version.
 
@@ -107,6 +107,9 @@ Cppcheck 2.22.0 (the
 [official MSI](https://github.com/cppcheck-opensource/cppcheck/releases/tag/2.22.0), verified by
 SHA-256), PSScriptAnalyzer 1.25.0 and BinSkim 4.4.9.11 round out the source and native analysis
 tools.
+
+`ci-source` requires `clang-cl` 23.1.3 from the same pinned LLVM tree as `clang-format`; set
+`UNPACKRAT_CLANG_CL` to override the compiler path.
 
 Only the tools the stage you run actually needs must be present: `ci-source` needs clang-format,
 Cppcheck and PSScriptAnalyzer; the `native-debug`, `native-release` and `msvc-analysis` stages need
@@ -450,13 +453,13 @@ a source payload: allowed MIT, a dependency whose metadata is unchanged but whos
 GPL file, one that gained an unknown file, an OR Apache/GPL choice that passes, and an AND MIT/GPL
 case that fails.
 
-First-party build and test tooling. The thirteen reference-heavy first-party Python build and test files
+First-party build and test tooling. The fifteen reference-heavy first-party Python build and test files
 that embed license-identifier reference tables, example literals and retained-notice names are still
 read as real bytes and scanned in full; each is a content-addressed component whose version is the
 exact tar digest of the file it was reviewed at, so nothing is path-excluded and the diff still sees
 it. A native curation applies only to the reviewed path, the exact reviewed line set and the full
 detected expression, and only for that exact artifact id, version and source artifact URL. Editing any
-one of the thirteen changes the deterministic archive id, so every approval keyed to the old bytes stops
+one of the fifteen changes the deterministic archive id, so every approval keyed to the old bytes stops
 matching: re-review the real native ScanCode findings and update the package-configuration id, the
 artifact URL and the line and full-expression data to the new content. A blanket exclusion is never
 the fix: an ordinary source change that carries no such finding needs no exemption, and a genuinely

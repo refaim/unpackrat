@@ -49,6 +49,13 @@
       "zycore.txt",
       "mbedcrypto.txt",
       "YY-Thunks.txt"
+    ],
+    "wolfrpg": [
+      "Observer.txt",
+      "GPL-3.0.txt",
+      "uberwolf.txt",
+      "json.txt",
+      "YY-Thunks.txt"
     ]
   },
   "components": [
@@ -96,16 +103,78 @@
       "features": []
     },
     {
+      "name": "uberwolf",
+      "kind": "vcpkg-package",
+      "buildConfiguration": {
+        "build/vcpkg/ports/uberwolf/CMakeLists.txt": "59513260ba03b3e353ec84c003d1aed9e92655b96339bcd42dae3d1f4873d927",
+        "build/vcpkg/ports/uberwolf/archive-callbacks.patch": "8c21558fe8c9a0231b9f966749293d60d6fd2ec4c79c736e9ec016affbad553e",
+        "build/vcpkg/ports/uberwolf/archive-entry-plan.patch": "28ff4bd63ab28a1fc18e901d821bd496735ef09fc290fabf6546cde0dcf036ef",
+        "build/vcpkg/ports/uberwolf/bounded-huffman.patch": "d9ee5722e550da98b449cad48b67414ea4dbc27d854fabd1a2048ee1d6938e7e",
+        "build/vcpkg/ports/uberwolf/default-crypt-modes.patch": "e910148483ffa52eec70b0d119086c6c6bb7754b025202f6884914d41686b185",
+        "build/vcpkg/ports/uberwolf/encoding-aware-legacy.patch": "f8eb10d561d47bde96c108902fbe1b25f0d30f58eee26680ac72a805cd290737",
+        "build/vcpkg/ports/uberwolf/keycreate-scratch.patch": "f42c803589179f2bb1a5d6a65cdf2508ba93b03f95e1bb4a66eea7200cf80a43",
+        "build/vcpkg/ports/uberwolf/mode-selection.patch": "0339d430cb952a869541f6eeb7f3efdbbe78159e87e9063b76df74a312532ea5",
+        "build/vcpkg/ports/uberwolf/portfile.cmake": "055789a5a1f1ac00b43a9e7737a623eb787268047eba20a1fbe7e73759915e0b",
+        "build/vcpkg/ports/uberwolf/recovery-e1-contract.patch": "ab39cd7266793d0d28df9e7c68836aae9fa9e62f5183944d466ef4f2fbc02511",
+        "build/vcpkg/ports/uberwolf/version.patch": "abbca5dacfdc9958e412a9cb8f10f68e6c25c59d0d1d1ae2c38d8b687ccc6fb0",
+        "build/vcpkg/ports/uberwolf/vcpkg.json": "0ec31ae686c0663128c15452029a53b8d9da4e4e0fd06c3e8c07107aab760c6d",
+        "build/vcpkg/ports/uberwolf/wolfx-file-size.patch": "7b2e16e8349de77f3d4a3e0f5d66e7b99c883c0a4f64855217288d29c7df264c",
+        "build/vcpkg/ports/uberwolf/x86-size-overloads.patch": "aacb54eac5ac955931c7dd5882513561212b0df201e977ebd408737ddf525fa1",
+        "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
+      },
+      "scope": "runtime",
+      "appliesTo": [
+        "wolfrpg"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "BSD-2-Clause AND MIT AND Unlicense",
+      "version": "0.6.4",
+      "vcpkgName": "uberwolf",
+      "source": {
+        "origin": "overlay",
+        "recipe": "build/vcpkg/ports/uberwolf/portfile.cmake",
+        "patches": [
+          "build/vcpkg/ports/uberwolf/version.patch",
+          "build/vcpkg/ports/uberwolf/x86-size-overloads.patch",
+          "build/vcpkg/ports/uberwolf/wolfx-file-size.patch",
+          "build/vcpkg/ports/uberwolf/default-crypt-modes.patch",
+          "build/vcpkg/ports/uberwolf/mode-selection.patch",
+          "build/vcpkg/ports/uberwolf/archive-callbacks.patch",
+          "build/vcpkg/ports/uberwolf/archive-entry-plan.patch",
+          "build/vcpkg/ports/uberwolf/bounded-huffman.patch",
+          "build/vcpkg/ports/uberwolf/keycreate-scratch.patch",
+          "build/vcpkg/ports/uberwolf/recovery-e1-contract.patch",
+          "build/vcpkg/ports/uberwolf/encoding-aware-legacy.patch"
+        ],
+        "url": "https://github.com/Sinflower/UberWolf/archive/f4191375d289171b1f29dbc5ca320133b2b4b96a.tar.gz",
+        "sha512": [
+          "28105836e9fb6af1b380d72066b57007316aa28c20480e0e1583a2252bdb27e3420d6d8b13433283868dd60236d629818453208836b1e7824eeffa143240a725"
+        ],
+        "sha256": [
+          "db7bcad1c6d9f550a31cd2d0c90c52f5c43a8d4576370565b658e78dabbcaf57"
+        ],
+        "identity": "github.com/sinflower/uberwolf"
+      },
+      "notices": [
+        "licenses/uberwolf.txt"
+      ],
+      "notes": "Overlay cross-builds the pinned Sinflower/UberWolf 0.6.4 UberWolfLib static reader that the wolfrpg module links, from revision f4191375d289171b1f29dbc5ca320133b2b4b96a (archive SHA512 is the exact vcpkg_from_github pin in the recipe; SHA256 is the content address of the same downloaded archive). Eleven reviewed patches are applied in the recipe's stated order. Only UberWolfLib/**, 3rdParty/DXLib/** and 3rdParty/lz4/** are compiled; the UberWolf GUI, UberWolfCli, the optional self-updater submodule and the bundled 3rdParty/CLI11 and 3rdParty/nlohmann trees are not, and the wolfrpg ORT configuration scopes them out. UberWolfLib/GameContext.cpp links the reviewed vcpkg nlohmann-json package, not the bundled copy. declaredExpression is the exact expression the overlay manifest emits. The 3rdParty/DXLib translation units ship a Japanese creator comment but no license file. The owner resolved their licensing on 2026-10-19 against the official DX Library terms at https://dxlib.xsrv.jp/dxlicense.html (page SHA256 03c3a813b1ea992c81932a3e701946048489d67b355cbe9455a7cb688eaa7d6c): the general terms permit commercial, free and corporate use without a fee and disclaim warranty and correction duties, while redistribution requires the exact credit \"DX Library Copyright (C) 2001-2026 Takumi Yamada.\" and notices for used components; disabled codec/audio features do not require unused notices. This is an authoritative custom license rather than an SPDX license identifier. The compiled 3rdParty/DXLib trees remain in scanned ORT scope; actual ScanCode findings and validation against those resolved terms are deferred to the required CI run, with no anticipatory curation, exclusion or waiver.",
+      "features": []
+    },
+    {
       "name": "nlohmann-json",
       "kind": "vcpkg-package",
-      "scope": "test",
+      "scope": "runtime",
       "appliesTo": [
         "renpy",
         "rpgmaker",
         "zanzarah",
-        "godot"
+        "godot",
+        "wolfrpg"
       ],
-      "packaged": false,
+      "packaged": true,
       "incorporated": true,
       "declaredExpression": "MIT",
       "version": "3.12.0#2",
@@ -126,7 +195,7 @@
       "notices": [
         "licenses/json.txt"
       ],
-      "notes": "Test-only JSON library.",
+      "notes": "Used by the repository's tests in every module, and now also a genuine runtime dependency of the wolfrpg module: UberWolfLib/GameContext.cpp links the reviewed vcpkg nlohmann-json package instead of the bundled 3rdParty/nlohmann copy, so its MIT notice ships in the wolfrpg package. The scope is runtime because a shipped module incorporates it; the test-module appliesTo entries are retained because the test binaries still link it too.",
       "features": []
     },
     {
@@ -587,7 +656,8 @@
         "renpy",
         "rpgmaker",
         "zanzarah",
-        "godot"
+        "godot",
+        "wolfrpg"
       ],
       "packaged": true,
       "incorporated": true,
@@ -728,7 +798,8 @@
         "renpy",
         "rpgmaker",
         "zanzarah",
-        "godot"
+        "godot",
+        "wolfrpg"
       ],
       "packaged": true,
       "incorporated": true,
@@ -896,6 +967,48 @@
       "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are expected notice-filename literals, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
       "members": [
         "build/tests/test_godot_minimal_registration.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-wolfrpg-registration",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component with the exact single member build/tests/test_wolfrpg_registration.py. The detected identifiers are notice-filename literals and assertions in prose, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_wolfrpg_registration.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-wolfrpg-license-registration",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component with the exact single member build/tests/test_wolfrpg_license_registration.py. The detected identifier is a notice-filename literal in the reviewed packaging assertion, not a grant; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_wolfrpg_license_registration.py"
       ]
     },
     {
@@ -1137,7 +1250,8 @@
         "renpy",
         "rpgmaker",
         "zanzarah",
-        "godot"
+        "godot",
+        "wolfrpg"
       ],
       "packaged": true,
       "incorporated": true,

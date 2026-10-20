@@ -1,0 +1,29 @@
+diff --git a/UberWolfLib/WolfDec.cpp b/UberWolfLib/WolfDec.cpp
+index 796b77c..093fd68 100644
+--- a/UberWolfLib/WolfDec.cpp
++++ b/UberWolfLib/WolfDec.cpp
+@@ -68,6 +68,11 @@ const CryptModes DEFAULT_CRYPT_MODES = {
+ 	{ "One Way Heroics Plus", 0x0, &DXArchive::DecodeArchive, &DXArchive::EncodeArchiveOneDirectoryWolf, "Ph=X3^]o2A(,1=@3#a" }
+ };
+ 
++const CryptModes& WolfDec::DefaultCryptModes() noexcept
++{
++	return DEFAULT_CRYPT_MODES;
++}
++
+ WolfDec::WolfDec(const std::wstring& progName, const uint32_t& mode, const bool& isSubProcess) :
+ 	m_progName(progName),
+ 	m_mode(mode),
+diff --git a/UberWolfLib/WolfDec.h b/UberWolfLib/WolfDec.h
+index 8c4ce3c..8238795 100644
+--- a/UberWolfLib/WolfDec.h
++++ b/UberWolfLib/WolfDec.h
+@@ -126,6 +126,8 @@ public:
+ 	static tStrings GetEncryptionsW();
+ 	static Strings GetEncryptions();
+ 
++	static const CryptModes& DefaultCryptModes() noexcept;
++
+ private:
+ 	void removeOldConfig() const;
+ 	void loadConfig();

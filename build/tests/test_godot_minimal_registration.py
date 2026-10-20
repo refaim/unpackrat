@@ -4,7 +4,7 @@ This module is written before Godot is wired into ``build/main.py`` and the MSBu
 projects, so every test below is expected to fail (RED) against the current tree.
 The behaviour it pins is the *observable* integration contract:
 
-* Godot is the fourth module of the default selection that drives the native audit
+* Godot is a default module of the selection that drives the native audit
   and packaging routes (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
 * the default packaging route ships ``godot-1.1.1-bin-x64.zip``,
   ``godot-1.1.1-bin-x86.zip`` and ``godot-1.1.1-pdb.zip`` with the shipped
@@ -47,6 +47,8 @@ GODOT = "godot"
 GODOT_VERSION = "1.1.1"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
 BASELINE = "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
+WOLFRPG = "wolfrpg"
+WOLFRPG_VERSION = "1.0.0"
 
 # Independent fixture bytes: the shipped payloads are compared against these
 # literals, never against a value rederived from the same source they came from.
@@ -84,6 +86,7 @@ FIXTURE_LICENSE_NAMES = (
     "Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt",
     "rgssad.txt", "godot.txt", "libspng.txt", "libogg.txt", "brotli.txt", "zstd.txt",
     "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt", "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt",
+    "uberwolf.txt", "json.txt",
 )
 
 
@@ -161,6 +164,7 @@ class GodotRegistration(GuardedCase):
             "rpgmaker": "1.1.0",
             "zanzarah": "2.1.0",
             GODOT: GODOT_VERSION,
+            WOLFRPG: WOLFRPG_VERSION,
         }
         (self.repo / "LICENSE.txt").write_bytes(b"Fixture MIT license text.\n")
         licenses = self.repo / "licenses"
@@ -198,11 +202,11 @@ class GodotRegistration(GuardedCase):
 
     def test_godot_is_the_fourth_default_module(self) -> None:
         self.assertIn(GODOT, main.MODULES, "the default module selection must include godot")
-        self.assertEqual(main.MODULES[-1], GODOT, "godot must be the last default module")
+        self.assertEqual(main.MODULES.index(GODOT), 3, "godot must be the fourth default module")
         self.assertEqual(
             set(main.MODULES),
-            {"renpy", "rpgmaker", "zanzarah", GODOT},
-            "godot must join the three existing modules exactly once",
+            {"renpy", "rpgmaker", "zanzarah", GODOT, WOLFRPG},
+            "godot must join the four other modules exactly once",
         )
         self.assertEqual(main.MODULE_BINARIES.get(GODOT), "godot.so")
 
@@ -287,8 +291,9 @@ class GodotProjectContract(GuardedCase):
         includes = sorted(Path(ref.get("Include", "")).name for ref in references)
         self.assertEqual(
             includes,
-            ["godot.vcxproj", "renpy.vcxproj", "rpgmaker.vcxproj", "zanzarah.vcxproj"],
-            "the suite must build the four module projects",
+            ["godot.vcxproj", "mode-selection-trial-helper.vcxproj", "renpy.vcxproj",
+             "rpgmaker.vcxproj", "wolfrpg.vcxproj", "zanzarah.vcxproj"],
+            "the suite must build the five module projects and its process-trial helper",
         )
         godot = next(
             ref for ref in references if Path(ref.get("Include", "")).name == "godot.vcxproj"

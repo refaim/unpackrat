@@ -1,0 +1,142 @@
+diff --git a/UberWolfLib/WolfRPG/FileAccess.hpp b/UberWolfLib/WolfRPG/FileAccess.hpp
+index cec341f..89827b6 100644
+--- a/UberWolfLib/WolfRPG/FileAccess.hpp
++++ b/UberWolfLib/WolfRPG/FileAccess.hpp
+@@ -36,7 +36,10 @@
+ #include <exception>
+ #include <filesystem>
+ #include <fstream>
++#include <limits>
+ #include <string>
++#include <type_traits>
++#include <utility>
+ #include <vector>
+ 
+ namespace fileAccessUtils
+@@ -183,20 +186,21 @@ public:
+ 	}
+ 
+ 	void ReadBytes(void* pBuffer, const std::size_t& size)
+-	{
+-		ReadBytes(pBuffer, static_cast<uint32_t>(size));
+-	}
+-
+-	void ReadBytes(void* pBuffer, const uint32_t& size)
+ 	{
+ 		if (!m_init)
+ 			throw(FileWalkerException("FileWalker not initialized"));
+ 
+-		if (m_offset + size > m_size)
++		if (m_offset > m_size || size > m_size - m_offset)
+ 			throw(FileWalkerException("ReadBytes: Attempted to read past end of file"));
+ 
++		if (size == 0)
++			return;
++
++		if (pBuffer == nullptr)
++			throw(FileWalkerException("ReadBytes: null buffer"));
++
+ 		std::memcpy(pBuffer, m_pData + m_offset, size);
+-		m_offset += size;
++		m_offset += static_cast<uint32_t>(size);
+ 	}
+ 
+ 	template<typename T>
+@@ -531,25 +535,38 @@ public:
+ 			throw(FileWriterException("WriteBytesVec: size is larger than buffer size"));
+ 	}
+ 
+-	void WriteBytes(const void* pBuffer, const int& size)
+-	{
+-		WriteBytes(pBuffer, static_cast<uint32_t>(size));
+-	}
+-
+ 	void WriteBytes(const void* pBuffer, const std::size_t& size)
+ 	{
+-		WriteBytes(pBuffer, static_cast<uint32_t>(size));
++		writeBytesChecked(pBuffer, size);
+ 	}
+ 
+-	void WriteBytes(const void* pBuffer, const uint32_t& size)
++	template<typename TSize>
++		requires (std::is_integral_v<TSize> && !std::is_same_v<std::remove_cv_t<TSize>, std::size_t>)
++	void WriteBytes(const void* pBuffer, const TSize& size)
+ 	{
+-		m_size += size;
+-		if (m_bufferMode)
+-			m_buffer.insert(m_buffer.end(), static_cast<const uint8_t*>(pBuffer), static_cast<const uint8_t*>(pBuffer) + size);
+-		else if (m_file.is_open())
+-			m_file.write(static_cast<const char*>(pBuffer), size);
+-		else
+-			throw(FileWriterException("FileWriter not initialized"));
++		using TValue = std::remove_cv_t<TSize>;
++
++		if constexpr (std::is_signed_v<TValue>)
++		{
++			if (size < 0)
++				throw(FileWriterException("WriteBytes: negative size"));
++		}
++
++		// std::in_range is only specified for the standard integer types, so boolean and the
++		// character types cannot be passed to it. Every value those types can hold is narrower
++		// than std::size_t on the supported Windows targets, so no representability check is
++		// needed for them.
++		constexpr bool isStandardInteger = !std::is_same_v<TValue, bool> && !std::is_same_v<TValue, char> &&
++		                                   !std::is_same_v<TValue, wchar_t> && !std::is_same_v<TValue, char8_t> &&
++		                                   !std::is_same_v<TValue, char16_t> && !std::is_same_v<TValue, char32_t>;
++
++		if constexpr (isStandardInteger)
++		{
++			if (!std::in_range<std::size_t>(size))
++				throw(FileWriterException("WriteBytes: size is not representable as std::size_t"));
++		}
++
++		writeBytesChecked(pBuffer, size);
+ 	}
+ 
+ private:
+@@ -565,10 +582,42 @@ private:
+ 			throw(FileWriterException("FileWriter not initialized"));
+ 	}
+ 
++	void writeBytesChecked(const void* pBuffer, const std::size_t size)
++	{
++		if (size != 0 && pBuffer == nullptr)
++			throw(FileWriterException("WriteBytes: null buffer"));
++
++		if (static_cast<uint64_t>(size) > std::numeric_limits<uint64_t>::max() - m_size)
++			throw(FileWriterException("WriteBytes: size overflows the write counter"));
++
++		if (static_cast<uint64_t>(size) > static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max()))
++			throw(FileWriterException("WriteBytes: size is not representable as std::streamsize"));
++
++		if (m_bufferMode)
++		{
++			if (size > m_buffer.max_size() - m_buffer.size())
++				throw(FileWriterException("WriteBytes: size exceeds the buffer capacity"));
++		}
++		else if (!m_file.is_open())
++		{
++			throw(FileWriterException("FileWriter not initialized"));
++		}
++
++		if (size == 0)
++			return;
++
++		m_size += size;
++
++		if (m_bufferMode)
++			m_buffer.insert(m_buffer.end(), static_cast<const uint8_t*>(pBuffer), static_cast<const uint8_t*>(pBuffer) + size);
++		else
++			m_file.write(static_cast<const char*>(pBuffer), static_cast<std::streamsize>(size));
++	}
++
+ private:
+ 	bool m_bufferMode   = true;
+ 	uint64_t m_size     = 0;
+ 	std::fstream m_file = {};
+ 
+ 	std::vector<uint8_t> m_buffer = {};
+-};
+\ No newline at end of file
++};

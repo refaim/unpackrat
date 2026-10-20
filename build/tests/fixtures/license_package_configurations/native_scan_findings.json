@@ -33,7 +33,8 @@
     "zstd": "zstd-1.5.7/",
     "zycore": "zycore-c-1.5.2/",
     "zydis": "zydis-4.1.1/",
-    "yy-thunks": "YY-Thunks-b41fb80b8d316581eec0959600aeb0e7339d0e5e/"
+    "yy-thunks": "YY-Thunks-b41fb80b8d316581eec0959600aeb0e7339d0e5e/",
+    "uberwolf": "UberWolf-f4191375d289171b1f29dbc5ca320133b2b4b96a/"
   },
   "findings": [
     {"package": "catch2", "path": "Catch2-3.16.1/tools/scripts/updateDocumentToC.py", "start_lines": 8, "end_lines": 8, "license": "GPL-3.0-only", "disposition": "excluded"},

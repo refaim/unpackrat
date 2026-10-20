@@ -1,0 +1,20 @@
+diff --git a/3rdParty/DXLib/DXArchive.h b/3rdParty/DXLib/DXArchive.h
+index 82c2c45..7db55b5 100644
+--- a/3rdParty/DXLib/DXArchive.h
++++ b/3rdParty/DXLib/DXArchive.h
+@@ -319,6 +319,15 @@ public :
+ 	DARC_DIRECTORY *GetCurrentDirectoryInfo( void ) ;															// アーカイブ内のカレントディレクトリの情報を取得する
+ 	DARC_FILEHEAD *GetFileInfo( const TCHAR *FilePath, DARC_DIRECTORY **DirectoryP = NULL ) ;					// ファイルの情報を得る
+ 	inline DARC_HEAD *GetHeader( void ){ return &Head ; }
++
++	// Publishes only the validated record's shared body geometry. ExtractStored / ExtractEntry go
++	// through the same ResolveEntry; the scratch body address stays internal.
++	int GetEntryPlan( const EntryRecord &Record, const Source &Src, BodyPlan &Plan ) const
++	{
++		u64 ScratchBodyAddress = 0;
++		Plan = BodyPlan();
++		return this->ResolveEntry( Record, Src, ScratchBodyAddress, Plan );
++	}
+ 	inline u8 *GetKey( void ){ return Key ; }
+ 	inline bool GetNoKey( void ){ return NoKey ; }
+ 	inline char *GetKeyString( void ){ return KeyString ; }
