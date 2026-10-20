@@ -483,21 +483,19 @@ namespace unpackrat::wolfrpg
             try {
                 return wolfx_archive::open(stream, path, candidates);
             } catch (const key_required &) {
-                // The implicit empty key and the supplied key both failed; the container needs the
-                // game's own key material. Recover it from the game folder the archive belongs to
-                // and retry once, so the fallback work runs inside the catch that selected it. Only
-                // key_required triggers this path: an I/O or other metadata failure still propagates
-                // unchanged instead of being folded into a retry.
-                const game_context_result context = resolve_context(path);
-                if (context.status == game_context_status::io_failure) {
-                    throw read_error();
-                }
-                if (context.context.data_folder.empty()) {
-                    throw key_required();
-                }
-                collect_game_metadata(context.context.data_folder, {}, candidates);
-                return wolfx_archive::open(stream, path, candidates);
+                // Only key rejection selects recovery; every other failure propagates unchanged.
             }
+            // Keep recovery out of the handler: Clang 21's comparison instrumentation loses the
+            // continuation after the resolver call inside a Windows exception handler.
+            const game_context_result context = resolve_context(path);
+            if (context.status == game_context_status::io_failure) {
+                throw read_error();
+            }
+            if (context.context.data_folder.empty()) {
+                throw key_required();
+            }
+            collect_game_metadata(context.context.data_folder, {}, candidates);
+            return wolfx_archive::open(stream, path, candidates);
         }
     } // namespace
 
