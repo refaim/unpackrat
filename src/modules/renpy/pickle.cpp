@@ -64,49 +64,78 @@ namespace pickle
 
     namespace
     {
-        list clone_list(const list &source)
+        void consume_node(limits &remaining)
+        {
+            if (remaining.max_nodes == 0) {
+                throw std::runtime_error("Pickle node budget exceeded");
+            }
+            --remaining.max_nodes;
+        }
+
+        void consume_bytes(limits &remaining, const std::size_t size)
+        {
+            if (size > remaining.max_owned_bytes) {
+                throw std::runtime_error("Pickle owned byte budget exceeded");
+            }
+            remaining.max_owned_bytes -= size;
+        }
+
+        value_ptr clone_value(const value &source, limits &remaining);
+
+        list clone_list(const list &source, limits &remaining)
         {
             list result;
-            result.reserve(source.size());
-            std::ranges::transform(source, std::back_inserter(result), [](const auto &item) { return clone(*item); });
+            result.reserve(std::min(source.size(), remaining.max_nodes));
+            std::ranges::transform(source, std::back_inserter(result),
+                                   [&remaining](const auto &item) { return clone_value(*item, remaining); });
             return result;
         }
 
-        dict clone_dict(const dict &source)
+        dict clone_dict(const dict &source, limits &remaining)
         {
             dict result;
-            result.reserve(source.size());
+            result.reserve(std::min(source.size(), remaining.max_nodes));
             for (const auto &[key, item] : source) {
-                result.emplace(key, clone(*item));
+                consume_bytes(remaining, key.size());
+                result.emplace(key, clone_value(*item, remaining));
             }
             return result;
         }
+
+        value_ptr clone_value(const value &source, limits &remaining)
+        {
+            consume_node(remaining);
+            switch (source.get_type()) {
+            case value::type::none:
+                return value::none();
+            case value::type::bool_:
+                return value::boolean(source.as_bool());
+            case value::type::int64:
+                return value::int64(source.as_int64());
+            case value::type::float64:
+                return value::float64(source.as_float64());
+            case value::type::bytes:
+                consume_bytes(remaining, source.as_string().size());
+                return value::bytes(source.as_string());
+            case value::type::string:
+                consume_bytes(remaining, source.as_string().size());
+                return value::string(source.as_string());
+            case value::type::list:
+                return value::list(clone_list(source.as_list(), remaining));
+            case value::type::dict:
+                return value::dict(clone_dict(source.as_dict(), remaining));
+            case value::type::tuple:
+                return value::tuple(clone_list(source.as_tuple(), remaining));
+            default:
+                throw std::runtime_error("Unsupported pickle value type");
+            }
+        }
     } // namespace
 
-    value_ptr clone(const value &source)
+    value_ptr clone(const value &source, const limits &bounds)
     {
-        switch (source.get_type()) {
-        case value::type::none:
-            return value::none();
-        case value::type::bool_:
-            return value::boolean(source.as_bool());
-        case value::type::int64:
-            return value::int64(source.as_int64());
-        case value::type::float64:
-            return value::float64(source.as_float64());
-        case value::type::bytes:
-            return value::bytes(source.as_string());
-        case value::type::string:
-            return value::string(source.as_string());
-        case value::type::list:
-            return value::list(clone_list(source.as_list()));
-        case value::type::dict:
-            return value::dict(clone_dict(source.as_dict()));
-        case value::type::tuple:
-            return value::tuple(clone_list(source.as_tuple()));
-        default:
-            throw std::runtime_error("Unsupported pickle value type");
-        }
+        auto remaining = bounds;
+        return clone_value(source, remaining);
     }
 
     // Pickle opcodes (subset needed for basic functionality)
@@ -206,6 +235,7 @@ namespace pickle
         if (pos_ + length > data_.size()) {
             throw std::runtime_error("Unexpected end of pickle data");
         }
+        consume_bytes(remaining_, length);
         std::string result(reinterpret_cast<const char *>(data_.data() + pos_), length);
         pos_ += length;
         return result;
@@ -220,6 +250,7 @@ namespace pickle
         if (pos_ >= data_.size()) {
             throw std::runtime_error("Unexpected end of pickle data");
         }
+        consume_bytes(remaining_, pos_ - start);
         std::string result(reinterpret_cast<const char *>(data_.data() + start), pos_ - start);
         pos_++; // skip newline
         return result;
@@ -264,26 +295,32 @@ namespace pickle
             return std::move(stack_[0]);
 
         case opcodes::NONE:
+            consume_node(remaining_);
             stack_.push_back(value::none());
             break;
 
         case opcodes::NEWTRUE:
+            consume_node(remaining_);
             stack_.push_back(value::boolean(true));
             break;
 
         case opcodes::NEWFALSE:
+            consume_node(remaining_);
             stack_.push_back(value::boolean(false));
             break;
 
         case opcodes::BININT:
+            consume_node(remaining_);
             stack_.push_back(value::int64(static_cast<int32_t>(read_uint32_le())));
             break;
 
         case opcodes::BININT1:
+            consume_node(remaining_);
             stack_.push_back(value::int64(read_byte()));
             break;
 
         case opcodes::BININT2:
+            consume_node(remaining_);
             stack_.push_back(value::int64(read_uint16_le()));
             break;
 
@@ -296,6 +333,7 @@ namespace pickle
                 int_str.pop_back(); // Remove trailing L
             }
             int64_t val = std::stoll(int_str);
+            consume_node(remaining_);
             stack_.push_back(value::int64(val));
             break;
         }
@@ -304,47 +342,55 @@ namespace pickle
             const uint64_t bits = std::byteswap(read_uint64_le());
             double val;
             std::memcpy(&val, &bits, sizeof(double));
+            consume_node(remaining_);
             stack_.push_back(value::float64(val));
             break;
         }
 
         case opcodes::SHORT_BINSTRING: {
             uint8_t length = read_byte();
+            consume_node(remaining_);
             stack_.push_back(value::string(read_string(length)));
             break;
         }
 
         case opcodes::BINSTRING: {
             uint32_t length = read_uint32_le();
+            consume_node(remaining_);
             stack_.push_back(value::string(read_string(length)));
             break;
         }
 
         case opcodes::SHORT_BINUNICODE: {
             uint8_t length = read_byte();
+            consume_node(remaining_);
             stack_.push_back(value::string(read_string(length)));
             break;
         }
 
         case opcodes::BINUNICODE: {
             uint32_t length = read_uint32_le();
+            consume_node(remaining_);
             stack_.push_back(value::string(read_string(length)));
             break;
         }
 
         case opcodes::SHORT_BINBYTES: {
             uint8_t length = read_byte();
+            consume_node(remaining_);
             stack_.push_back(value::bytes(read_string(length)));
             break;
         }
 
         case opcodes::BINBYTES: {
             uint32_t length = read_uint32_le();
+            consume_node(remaining_);
             stack_.push_back(value::bytes(read_string(length)));
             break;
         }
 
         case opcodes::EMPTY_LIST:
+            consume_node(remaining_);
             stack_.push_back(value::list({}));
             break;
 
@@ -377,16 +423,19 @@ namespace pickle
 
         case opcodes::LIST: {
             auto items = pop_to_mark();
+            consume_node(remaining_);
             stack_.push_back(value::list(std::move(items)));
             break;
         }
 
         case opcodes::EMPTY_TUPLE:
+            consume_node(remaining_);
             stack_.push_back(value::tuple({}));
             break;
 
         case opcodes::TUPLE: {
             auto items = pop_to_mark();
+            consume_node(remaining_);
             stack_.push_back(value::tuple(std::move(items)));
             break;
         }
@@ -399,6 +448,7 @@ namespace pickle
             stack_.pop_back();
             list tuple_items;
             tuple_items.push_back(std::move(item));
+            consume_node(remaining_);
             stack_.push_back(value::tuple(std::move(tuple_items)));
             break;
         }
@@ -414,6 +464,7 @@ namespace pickle
             list tuple_items;
             tuple_items.push_back(std::move(item1));
             tuple_items.push_back(std::move(item2));
+            consume_node(remaining_);
             stack_.push_back(value::tuple(std::move(tuple_items)));
             break;
         }
@@ -432,11 +483,13 @@ namespace pickle
             tuple_items.push_back(std::move(item1));
             tuple_items.push_back(std::move(item2));
             tuple_items.push_back(std::move(item3));
+            consume_node(remaining_);
             stack_.push_back(value::tuple(std::move(tuple_items)));
             break;
         }
 
         case opcodes::EMPTY_DICT:
+            consume_node(remaining_);
             stack_.push_back(value::dict({}));
             break;
 
@@ -450,9 +503,11 @@ namespace pickle
                 if (items[i]->get_type() != value::type::string) {
                     throw std::runtime_error("Dict key must be string");
                 }
+                consume_bytes(remaining_, items[i]->as_string().size());
                 std::string key = items[i]->as_string();
                 dict_data[std::move(key)] = std::move(items[i + 1]);
             }
+            consume_node(remaining_);
             stack_.push_back(value::dict(std::move(dict_data)));
             break;
         }
@@ -474,6 +529,7 @@ namespace pickle
                 throw std::runtime_error("Dict key must be string");
             }
 
+            consume_bytes(remaining_, key->as_string().size());
             dict_val->set(key->as_string(), std::move(val));
             break;
         }
@@ -498,6 +554,7 @@ namespace pickle
                 value::checked_child_depth(items[i + 1]);
             }
             for (size_t i = 0; i < items.size(); i += 2) {
+                consume_bytes(remaining_, items[i]->as_string().size());
                 std::string key = items[i]->as_string();
                 dict_val->set(std::move(key), std::move(items[i + 1]));
             }
@@ -509,7 +566,7 @@ namespace pickle
             if (stack_.empty()) {
                 throw std::runtime_error("No item on stack for BINPUT");
             }
-            memo_[memo_id] = clone(*stack_.back());
+            memo_[memo_id] = clone_value(*stack_.back(), remaining_);
             break;
         }
 
@@ -518,7 +575,7 @@ namespace pickle
             if (stack_.empty()) {
                 throw std::runtime_error("No item on stack for LONG_BINPUT");
             }
-            memo_[memo_id] = clone(*stack_.back());
+            memo_[memo_id] = clone_value(*stack_.back(), remaining_);
             break;
         }
 
@@ -528,7 +585,7 @@ namespace pickle
             if (it == memo_.end()) {
                 throw std::runtime_error("Memo key not found");
             }
-            stack_.push_back(clone(*it->second));
+            stack_.push_back(clone_value(*it->second, remaining_));
             break;
         }
 
@@ -538,7 +595,7 @@ namespace pickle
             if (it == memo_.end()) {
                 throw std::runtime_error("Memo key not found");
             }
-            stack_.push_back(clone(*it->second));
+            stack_.push_back(clone_value(*it->second, remaining_));
             break;
         }
 
@@ -557,6 +614,7 @@ namespace pickle
         case opcodes::LONG1: {
             uint8_t length = read_byte();
             if (length == 0) {
+                consume_node(remaining_);
                 stack_.push_back(value::int64(0));
             } else {
                 if (length > sizeof(std::int64_t)) {
@@ -574,6 +632,7 @@ namespace pickle
                     bits |= ~std::uint64_t{0} << length * 8U;
                 }
 
+                consume_node(remaining_);
                 stack_.push_back(value::int64(std::bit_cast<std::int64_t>(bits)));
             }
             break;
@@ -584,7 +643,7 @@ namespace pickle
                 throw std::runtime_error("No item on stack for MEMOIZE");
             }
             const auto memo_id = static_cast<unsigned int>(memo_.size());
-            memo_[memo_id] = clone(*stack_.back());
+            memo_[memo_id] = clone_value(*stack_.back(), remaining_);
             break;
         }
 
@@ -605,15 +664,15 @@ namespace pickle
         throw std::runtime_error("Unexpected end of pickle data");
     }
 
-    value_ptr loads(const std::span<const std::byte> data)
+    value_ptr loads(const std::span<const std::byte> data, const limits &bounds)
     {
-        parser p(data);
+        parser p(data, bounds);
         return p.parse();
     }
 
-    value_ptr loads(const std::string &data)
+    value_ptr loads(const std::string &data, const limits &bounds)
     {
         const auto byte_span = std::span(reinterpret_cast<const std::byte *>(data.data()), data.size());
-        return loads(byte_span);
+        return loads(byte_span, bounds);
     }
 } // namespace pickle

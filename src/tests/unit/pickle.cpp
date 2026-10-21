@@ -108,7 +108,145 @@ namespace
 
     constexpr std::array<pickle::value_ptr (*)(pickle::value_ptr), 3> container_factories{
         list_container, tuple_container, dict_container};
+
+    std::string doubling_memo(const std::size_t depth)
+    {
+        std::string result("Nq\0", 3);
+        for (std::size_t level = 0; level < depth; ++level) {
+            result.append("h\0", 2);
+            result.push_back('\x86');
+            result.append("q\0", 2);
+        }
+        result.push_back('.');
+        return result;
+    }
 } // namespace
+
+TEST_CASE("pickle: memo amplification is rejected before ownership grows without bound", "[pickle-budget]")
+{
+    // Each five-byte round doubles the owned subtree without approaching the depth limit.
+    // The complete legacy parse is finite (about one million live nodes) so this regression
+    // can demonstrate the missing check without deliberately exhausting the process.
+    REQUIRE_THROWS_WITH(pickle::loads(doubling_memo(18)), "Pickle node budget exceeded");
+}
+
+TEST_CASE("pickle: every parsed value is charged to the exact node boundary", "[pickle-budget]")
+{
+    struct node_case final
+    {
+        std::string bytes;
+        std::size_t nodes;
+        pickle::value::type type;
+    };
+    const std::vector<node_case> cases{
+        {"N.", 1, pickle::value::type::none},
+        {std::string("\x88.", 2), 1, pickle::value::type::bool_},
+        {std::string("\x89.", 2), 1, pickle::value::type::bool_},
+        {std::string("J\x01\0\0\0.", 6), 1, pickle::value::type::int64},
+        {std::string("K\x01.", 3), 1, pickle::value::type::int64},
+        {std::string("M\x01\0.", 4), 1, pickle::value::type::int64},
+        {"I42\n.", 1, pickle::value::type::int64},
+        {std::string("G\x3f\xf0\0\0\0\0\0\0.", 10), 1, pickle::value::type::float64},
+        {std::string("U\x01s.", 4), 1, pickle::value::type::string},
+        {std::string("T\x01\0\0\0s.", 7), 1, pickle::value::type::string},
+        {std::string("\x8c\x01s.", 4), 1, pickle::value::type::string},
+        {std::string("X\x01\0\0\0s.", 7), 1, pickle::value::type::string},
+        {std::string("C\x01s.", 4), 1, pickle::value::type::bytes},
+        {std::string("B\x01\0\0\0s.", 7), 1, pickle::value::type::bytes},
+        {"].", 1, pickle::value::type::list},
+        {"(Nl.", 2, pickle::value::type::list},
+        {").", 1, pickle::value::type::tuple},
+        {"(Nt.", 2, pickle::value::type::tuple},
+        {std::string("N\x85.", 3), 2, pickle::value::type::tuple},
+        {std::string("NN\x86.", 4), 3, pickle::value::type::tuple},
+        {std::string("NNN\x87.", 5), 4, pickle::value::type::tuple},
+        {"}.", 1, pickle::value::type::dict},
+        {std::string("(U\x01kNd.", 7), 3, pickle::value::type::dict},
+        {std::string("\x8a\0.", 3), 1, pickle::value::type::int64},
+        {std::string("\x8a\x01\x07.", 4), 1, pickle::value::type::int64},
+    };
+    for (const auto &item : cases) {
+        CAPTURE(item.bytes, item.nodes);
+        pickle::limits limits;
+        limits.max_nodes = item.nodes;
+        REQUIRE(pickle::loads(item.bytes, limits)->get_type() == item.type);
+        --limits.max_nodes;
+        REQUIRE_THROWS_WITH(pickle::loads(item.bytes, limits), "Pickle node budget exceeded");
+    }
+}
+
+TEST_CASE("pickle: all memo opcodes share the parsing node budget", "[pickle-budget]")
+{
+    const std::array<std::string, 3> stores{
+        {std::string("q\0", 2), std::string("r\0\0\0\0", 5), std::string(1, '\x94')}};
+    const std::array<std::string, 2> gets{{std::string("h\0", 2), std::string("j\0\0\0\0", 5)}};
+    for (const auto &store : stores) {
+        for (const auto &get : gets) {
+            std::string bytes = "N";
+            bytes.append(store);
+            bytes.append(get);
+            bytes.append("\x86.", 2);
+            pickle::limits limits;
+            limits.max_nodes = 4;
+            REQUIRE(pickle::loads(bytes, limits)->as_tuple().size() == 2);
+            for (const auto budget : {std::size_t{1}, std::size_t{2}, std::size_t{3}}) {
+                CAPTURE(budget);
+                limits.max_nodes = budget;
+                REQUIRE_THROWS_WITH(pickle::loads(bytes, limits), "Pickle node budget exceeded");
+            }
+        }
+    }
+    pickle::limits limits;
+    limits.max_nodes = 10;
+    REQUIRE_THROWS_WITH(pickle::loads(doubling_memo(3), limits), "Pickle node budget exceeded");
+}
+
+TEST_CASE("pickle: owned string and dictionary key copies have an aggregate byte budget", "[pickle-budget]")
+{
+    const std::array<std::string, 7> cases{std::string("U\x03"
+                                                       "foo.",
+                                                       6),
+                                           std::string("C\x03"
+                                                       "foo.",
+                                                       6),
+                                           std::string("I123\n.", 6),
+                                           std::string("(U\x01kNd.", 7),
+                                           std::string("}U\x01kNs.", 7),
+                                           std::string("}(U\x01kNu.", 8),
+                                           std::string("U\x01sq\0h\0\x86.", 9)};
+    constexpr std::array<std::size_t, 7> required_bytes{3, 3, 3, 2, 2, 2, 3};
+    for (std::size_t index = 0; index < cases.size(); ++index) {
+        CAPTURE(index);
+        pickle::limits limits;
+        limits.max_owned_bytes = required_bytes[index];
+        REQUIRE(pickle::loads(cases[index], limits) != nullptr);
+        --limits.max_owned_bytes;
+        REQUIRE_THROWS_WITH(pickle::loads(cases[index], limits), "Pickle owned byte budget exceeded");
+    }
+    const std::string no_bytes = "N.";
+    pickle::limits zero_bytes;
+    zero_bytes.max_owned_bytes = 0;
+    REQUIRE(pickle::loads(no_bytes, zero_bytes)->get_type() == pickle::value::type::none);
+    const auto span = std::as_bytes(std::span(cases[0]));
+    REQUIRE_THROWS_WITH(pickle::loads(span, zero_bytes), "Pickle owned byte budget exceeded");
+}
+
+TEST_CASE("pickle: recursive public clones share exact node and owned byte budgets", "[pickle-budget]")
+{
+    const auto tree = pickle::loads(std::string("}U\x01k]U\x02hi"
+                                                "as."));
+    pickle::limits limits;
+    limits.max_nodes = 3;
+    limits.max_owned_bytes = 3;
+    const auto copy = pickle::clone(*tree, limits);
+    REQUIRE(copy->as_dict().at("k")->as_list()[0]->as_string() == "hi");
+    REQUIRE(copy->as_dict().at("k").get() != tree->as_dict().at("k").get());
+    limits.max_nodes = 2;
+    REQUIRE_THROWS_WITH(pickle::clone(*tree, limits), "Pickle node budget exceeded");
+    limits.max_nodes = 3;
+    limits.max_owned_bytes = 2;
+    REQUIRE_THROWS_WITH(pickle::clone(*tree, limits), "Pickle owned byte budget exceeded");
+}
 
 TEST_CASE("pickle: container nesting is bounded before ownership grows")
 {

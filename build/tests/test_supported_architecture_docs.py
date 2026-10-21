@@ -26,6 +26,12 @@ METHODOLOGY = REPOSITORY / "docs" / "critical-software-methodology.md"
 DOCUMENTS = (README, AGENTS, BUILD_SYSTEM, METHODOLOGY)
 
 MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
+CONSOLIDATED_RELEASES = {
+    "renpy": "3.2.0",
+    "rpgmaker": "1.3.0",
+    "zanzarah": "2.3.0",
+    "godot": "1.2.0",
+}
 LANGUAGES = ("en", "ru")
 
 
@@ -177,6 +183,52 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
         self.assertIn("forbidden imports", docs)
         self.assertIn("BinSkim", docs)
 
+    def test_future_changelog_release_keeps_the_historical_windows_announcement(self) -> None:
+        for language, header, announcement in (
+            ("en", "Version", "+ Added support for Windows XP–11."),
+            ("ru", "Версия", "+ Добавлена поддержка Windows XP–11."),
+        ):
+            with self.subTest(language=language):
+                changelog = (
+                    f"{header} 99.0.0\n-------------\n + Added a future feature.\n\n"
+                    f"{header} 3.2.0\n-------------\n {announcement}\n\n"
+                    f"{header} 1.0.0\n-------------\n + Original release.\n"
+                )
+                case = SupportedArchitectureDocumentTests(
+                    "test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history"
+                )
+                with (
+                    mock.patch(__name__ + ".MODULES", ("renpy",)),
+                    mock.patch(__name__ + ".LANGUAGES", (language,)),
+                    mock.patch(__name__ + ".read", return_value=changelog),
+                    mock.patch.object(Path, "read_text", return_value="99.0.0"),
+                ):
+                    case.test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history()
+
+    def test_latest_or_other_release_cannot_replace_the_consolidated_windows_announcement(self) -> None:
+        for language, header, announcement in (
+            ("en", "Version", "+ Added support for Windows XP–11."),
+            ("ru", "Версия", "+ Добавлена поддержка Windows XP–11."),
+        ):
+            with self.subTest(language=language):
+                changelog = (
+                    f"{header} 99.0.0\n-------------\n {announcement}\n\n"
+                    f"{header} 3.2.0\n-------------\n + A different historical feature.\n\n"
+                    f"{header} 3.1.0\n-------------\n {announcement}\n\n"
+                    f"{header} 1.0.0\n-------------\n + Original release.\n"
+                )
+                case = SupportedArchitectureDocumentTests(
+                    "test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history"
+                )
+                with (
+                    mock.patch(__name__ + ".MODULES", ("renpy",)),
+                    mock.patch(__name__ + ".LANGUAGES", (language,)),
+                    mock.patch(__name__ + ".read", return_value=changelog),
+                    mock.patch.object(Path, "read_text", return_value="99.0.0"),
+                    self.assertRaisesRegex(AssertionError, "XP"),
+                ):
+                    case.test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history()
+
     def test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history(self) -> None:
         headers = {"en": "Version", "ru": "\u0412\u0435\u0440\u0441\u0438\u044f"}
         for module in MODULES:
@@ -203,8 +255,19 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
                         line for line in body[:end] if line.lstrip().startswith(("*", "+"))
                     ]
                     self.assertGreaterEqual(len(entries), 1)
-                    # Every consolidated current release announces Windows XP..11 support;
-                    # a historical announcement alone does not satisfy the release contract.
+                    # The Windows support announcement belongs to its original consolidated
+                    # release. New releases keep that exact historical section without
+                    # repeating the announcement as if Windows support were newly added.
+                    consolidated = f"{headers[language]} {CONSOLIDATED_RELEASES[module]}"
+                    self.assertIn(consolidated, lines)
+                    body = lines[lines.index(consolidated) + 2:]
+                    end = next(
+                        (index for index, line in enumerate(body) if line.startswith(headings)),
+                        len(body),
+                    )
+                    entries = [
+                        line for line in body[:end] if line.lstrip().startswith(("*", "+"))
+                    ]
                     announcement = {
                         "en": "+ Added support for Windows XP–11.",
                         "ru": "+ Добавлена поддержка Windows XP–11.",

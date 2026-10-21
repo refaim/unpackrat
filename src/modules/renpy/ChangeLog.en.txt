@@ -1,3 +1,9 @@
+Version 3.3.0
+-------------
+ + Added support for RPA 1.0 archives with adjacent .rpi indexes, including files stored in multiple fragments.
+ * Validate legacy index paths, fragment bounds and metadata limits before opening an archive.
+ * Limit object and string copying while parsing Pickle indexes to reject memo amplification safely.
+
 Version 3.2.0
 -------------
  + Added support for Windows XP–11.

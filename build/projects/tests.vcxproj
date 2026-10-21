@@ -102,6 +102,8 @@
       <ObjectFileName>$(IntDir)pickle_unit.obj</ObjectFileName>
     </ClCompile>
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\zlib.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\renpy_rpa1_index.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\renpy\rpa1_index.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\bounded_stream.cpp">
       <ObjectFileName>$(IntDir)bounded_stream_unit.obj</ObjectFileName>
     </ClCompile>
