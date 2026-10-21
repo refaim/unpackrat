@@ -559,12 +559,18 @@ class GodotDocsContract(GuardedCase):
     def test_godot_xp_runtime_recipe_has_a_minor_version(self) -> None:
         self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), GODOT_VERSION)
 
-    def test_godot_runtime_recipe_preserves_all_previous_changelog_sections(self) -> None:
+    def test_godot_runtime_recipe_reports_the_approved_release_history(self) -> None:
         for language in ("en", "ru"):
             with self.subTest(language=language):
                 notes = (REPOSITORY_ROOT / f"src/modules/godot/ChangeLog.{language}.txt").read_text(encoding="utf-8")
-                versions = re.findall(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE)
-                self.assertEqual(versions, ["1.2.0", "1.1.1", "1.1.0", "1.0.1", "1.0.0"])
+                headers = list(re.finditer(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE))
+                self.assertEqual([header.group(1) for header in headers], ["1.2.0", "1.0.0"])
+                top_block = notes[headers[0].end():headers[1].start()]
+                published_history = notes[headers[1].start():]
+                # The single approved 1.2.0 block replaces the unpublished intermediate
+                # releases; the published 1.0.0 history keeps all of its entries.
+                self.assertEqual(len(re.findall(r"^ [+*] ", top_block, re.MULTILINE)), 4)
+                self.assertEqual(len(re.findall(r"^ [+*] ", published_history, re.MULTILINE)), 8)
 
 
 if __name__ == "__main__":  # pragma: no cover

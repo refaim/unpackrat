@@ -28,10 +28,6 @@ DOCUMENTS = (README, AGENTS, BUILD_SYSTEM, METHODOLOGY)
 MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
 LANGUAGES = ("en", "ru")
 
-# The v145 master announced Windows XP..11 support.  Godot, Ren'Py and Zanzarah carry that
-# announcement in a historical section because a later patch re-released them; the other modules
-# still publish it as their current section.
-PLATFORM_VERSION = {"godot": "1.1.0", "renpy": "3.2.0", "zanzarah": "2.2.0"}
 
 # A word-start match for "arm" catches "ARM", "ARM64" and "arm64" without tripping on
 # unrelated words such as the "farmanager" host domain.
@@ -207,17 +203,13 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
                         line for line in body[:end] if line.lstrip().startswith(("*", "+"))
                     ]
                     self.assertGreaterEqual(len(entries), 1)
-                    # The v145 Windows XP..11 announcement is preserved: in the current section
-                    # of an untouched module, or in the historical section of a re-released one.
+                    # Every consolidated current release announces Windows XP..11 support;
+                    # a historical announcement alone does not satisfy the release contract.
                     announcement = {
-                        "en": "* Added support for all Windows versions from XP through Windows 11.",
-                        "ru": "* Поддерживаются все версии Windows от XP до Windows 11.",
+                        "en": "+ Added support for Windows XP–11.",
+                        "ru": "+ Добавлена поддержка Windows XP–11.",
                     }[language]
-                    platform_section = f"{headers[language]} {PLATFORM_VERSION.get(module, version)}"
-                    text = "\n".join(lines)
-                    self.assertIn(platform_section, text)
-                    section = text.split(platform_section, 1)[1].split("\n\n", 1)[0]
-                    self.assertIn(announcement, [line.strip() for line in section.splitlines()])
+                    self.assertIn(announcement, [line.strip() for line in entries])
                     # The historical 1.0.0 lineage survives.
                     self.assertIn(f"{headers[language]} 1.0.0", "\n".join(lines))
 
