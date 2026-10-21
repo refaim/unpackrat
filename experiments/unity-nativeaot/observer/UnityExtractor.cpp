@@ -912,8 +912,8 @@ namespace extractor
     {
         return {
             {0x4e91f7c6, 0x2a5d, 0x4973, {0x9b, 0x2c, 0x8f, 0x53, 0x71, 0xd6, 0x0a, 0x2e}},
-            0,
-            3,
+            UNPACKRAT_MODULE_VERSION_MAJOR,
+            UNPACKRAT_MODULE_VERSION_MINOR,
         };
     }
 

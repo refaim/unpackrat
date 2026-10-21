@@ -1773,3 +1773,15 @@ diff --git a/Source/AssetRipper.Import/Structure/Assembly/Managers/IL2CppManager
  	}
  
  	public static List<Cpp2IlProcessingLayer> DefaultProcessingLayers { get; } =
+
+diff --git a/Source/AssetRipper.IO.Files/BundleFiles/ZstdCompression.cs b/Source/AssetRipper.IO.Files/BundleFiles/ZstdCompression.cs
+--- a/Source/AssetRipper.IO.Files/BundleFiles/ZstdCompression.cs
++++ b/Source/AssetRipper.IO.Files/BundleFiles/ZstdCompression.cs
+@@ -1,5 +1,5 @@
+ ﻿using AssetRipper.IO.Files.Streams;
+-using ZstdSharp;
++using SharpCompress.Compressors.ZStandard;
+ 
+ namespace AssetRipper.IO.Files.BundleFiles;
+ 
+

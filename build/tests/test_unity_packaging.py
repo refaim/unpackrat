@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import configparser
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -24,7 +25,7 @@ import main  # noqa: E402
 
 
 UNITY = "unity"
-UNITY_VERSION = "0.3.6"
+UNITY_VERSION = "1.0.0"
 MODULES_UNDER_TEST = ("renpy", "rpgmaker", "zanzarah", "godot")
 
 UNITY_SO_X86 = b"\x7fELF unity shared object x86 fixture\n"
@@ -38,8 +39,8 @@ UNITY_OBSERVER_INI = (
     b"[Filters]\n"
     b"Unity=*.assets;*.unity3d;*.bundle\n"
 )
-UNITY_CHANGELOG_EN = b"Version 0.1.0\n-------------\n * First packaged Unity module.\n"
-UNITY_CHANGELOG_RU = "\u0412\u0435\u0440\u0441\u0438\u044f 0.1.0\n-------------\n * \u041f\u0435\u0440\u0432\u044b\u0439 \u043f\u0430\u043a\u0435\u0442 \u043c\u043e\u0434\u0443\u043b\u044f Unity.\n".encode("utf-8")
+UNITY_CHANGELOG_EN = b"Version 1.0.0\n-------------\n * First packaged Unity module.\n"
+UNITY_CHANGELOG_RU = "\u0412\u0435\u0440\u0441\u0438\u044f 1.0.0\n-------------\n * \u041f\u0435\u0440\u0432\u044b\u0439 \u043f\u0430\u043a\u0435\u0442 \u043c\u043e\u0434\u0443\u043b\u044f Unity.\n".encode("utf-8")
 
 FIXTURE_REPO_LICENSE = b"Fixture unpackrat MIT grant\n"
 FIXTURE_LICENSES = {
@@ -213,7 +214,7 @@ class UnityCliTests(UnityFixtureCase):
 class UnityShippedTreeTests(unittest.TestCase):
     """The real ``src/modules/unity`` registration must match the shipped layout."""
 
-    def test_version_is_the_experimental_patch_release(self) -> None:
+    def test_version_is_release_1_0_0(self) -> None:
         self.assertEqual(main.read_version(REPOSITORY_ROOT, UNITY), UNITY_VERSION)
 
     def test_observer_registration_uses_the_module_binary_and_a_narrow_filter(self) -> None:
@@ -230,8 +231,10 @@ class UnityShippedTreeTests(unittest.TestCase):
     def test_bilingual_changelogs_document_the_version(self) -> None:
         english = (REPOSITORY_ROOT / "src" / "modules" / UNITY / "ChangeLog.en.txt").read_text("utf-8")
         russian = (REPOSITORY_ROOT / "src" / "modules" / UNITY / "ChangeLog.ru.txt").read_text("utf-8")
-        self.assertIn(UNITY_VERSION, english)
-        self.assertIn(UNITY_VERSION, russian)
+        english_headers = re.findall(r"^Version \d+\.\d+\.\d+$", english, re.MULTILINE)
+        russian_headers = re.findall(r"^Версия \d+\.\d+\.\d+$", russian, re.MULTILINE)
+        self.assertEqual(english_headers, ["Version 1.0.0"])
+        self.assertEqual(russian_headers, ["Версия 1.0.0"])
 
     def test_shipped_unity_notice_bundle_labels_gpl_and_the_third_parties(self) -> None:
         notice = (REPOSITORY_ROOT / "licenses" / "Unity.txt").read_bytes()

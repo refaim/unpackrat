@@ -1036,7 +1036,7 @@ extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_close(std::uint64_t ses
 TEST_CASE("unity adapter: module identity, signature and identity decrypt", "[unity][unit]")
 {
     const loaded_module mod;
-    REQUIRE(mod.version == MAKEMODULEVERSION(0, 3));
+    REQUIRE(mod.version == MAKEMODULEVERSION(1, 0));
     REQUIRE(mod.api_version == ACTUAL_API_VERSION);
     const GUID expected{0x4e91f7c6, 0x2a5d, 0x4973, {0x9b, 0x2c, 0x8f, 0x53, 0x71, 0xd6, 0x0a, 0x2e}};
     REQUIRE(std::memcmp(&mod.id, &expected, sizeof(GUID)) == 0);
@@ -1047,8 +1047,8 @@ TEST_CASE("unity adapter: module identity, signature and identity decrypt", "[un
     extractor::configure(L"ignored");
     extractor::reset_settings();
     const extractor::version_info version = extractor::get_version_info();
-    REQUIRE(version.major_version == 0);
-    REQUIRE(version.minor_version == 3);
+    REQUIRE(version.major_version == 1);
+    REQUIRE(version.minor_version == 0);
 
     extractor::extractor adapter;
     std::vector<char> bytes{1, 2, 3};
