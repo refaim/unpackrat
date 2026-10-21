@@ -1280,3 +1280,318 @@ diff --git a/Source/AssetRipper.Assets/Collections/AssetCollection.cs b/Source/A
  		{
  			if (typeof(T).IsAssignableTo(typeof(NullObject)))
  			{
+diff --git a/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs b/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs
+--- a/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs
++++ b/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs
+@@ -47,8 +47,15 @@
+ 
+ 	private IAssemblyManager AssemblyManager { get; }
+ 
+-	public override IUnityObjectBase? ReadAsset(AssetInfo assetInfo, ReadOnlyArraySegment<byte> assetData, SerializedType? assetType, IReadOnlyList<SerializedTypeReference> referenceTypes)
+-	{
++	/// <summary>
++	/// Reads a resource-class asset through the mature normal-object path without requiring an
++	/// assembly manager or entering dynamic MonoBehaviour script analysis. The construction
++	/// callback supplies the asset instance for the shared normal-object reader.
++	/// </summary>
++	public static IUnityObjectBase ReadResourceAsset(AssetInfo assetInfo, ReadOnlyArraySegment<byte> assetData, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
++	{
++		ArgumentNullException.ThrowIfNull(constructionCallback);
++
+ 		if (assetInfo.Collection.Version.LessThan(3, 5))
+ 		{
+ 			//Assets with a stripped version can't be read.
+@@ -56,14 +63,32 @@
+ 			//Most asset types changed in 3.5, so this has minimal impact.
+ 			return new UnreadableObject(assetInfo, assetData.ToArray());
+ 		}
++
++		return ReadNormalObject(assetInfo, assetData, constructionCallback);
++	}
++
++	public override IUnityObjectBase? ReadAsset(AssetInfo assetInfo, ReadOnlyArraySegment<byte> assetData, SerializedType? assetType, IReadOnlyList<SerializedTypeReference> referenceTypes)
++	{
++		if (assetInfo.Collection.Version.LessThan(3, 5))
++		{
++			//Assets with a stripped version can't be read.
++			//Similarly, Unity versions before 3.5 are not supported.
++			//Most asset types changed in 3.5, so this has minimal impact.
++			return new UnreadableObject(assetInfo, assetData.ToArray());
++		}
+ 		else if (assetInfo.ClassID == (int)ClassIDType.MonoBehaviour)
+ 		{
+ 			return ReadMonoBehaviour(MonoBehaviour.Create(assetInfo), assetData, AssemblyManager, assetType, referenceTypes);
+ 		}
+ 		else
+ 		{
+-			return ReadNormalObject(assetInfo, assetData);
+-		}
++			return ReadNormalObject(assetInfo, assetData, CreateSerializedAsset);
++		}
++	}
++
++	private static IUnityObjectBase? CreateSerializedAsset(AssetInfo assetInfo, UnityVersion version)
++	{
++		return AssetFactory.CreateSerialized(assetInfo, version);
+ 	}
+ 
+ 	private static IMonoBehaviour ReadMonoBehaviour(IMonoBehaviour monoBehaviour, ReadOnlyArraySegment<byte> assetData, IAssemblyManager assemblyManager, SerializedType? type, IReadOnlyList<SerializedTypeReference> referenceTypes)
+@@ -97,9 +122,9 @@
+ 		return monoBehaviour;
+ 	}
+ 
+-	private static IUnityObjectBase ReadNormalObject(AssetInfo assetInfo, ReadOnlyArraySegment<byte> assetData)
+-	{
+-		IUnityObjectBase asset = TryReadNormalObject(assetInfo, assetData, assetInfo.Collection.Version, out string? error);
++	private static IUnityObjectBase ReadNormalObject(AssetInfo assetInfo, ReadOnlyArraySegment<byte> assetData, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
++	{
++		IUnityObjectBase asset = TryReadNormalObject(assetInfo, assetData, assetInfo.Collection.Version, constructionCallback, out string? error);
+ 		if (error is null)
+ 		{
+ 			return asset;
+@@ -120,7 +145,7 @@
+ 		{
+ 			UnityVersion oldVersion = assetInfo.Collection.Version;
+ 			UnityVersion newVersion = new UnityVersion(oldVersion.Major, oldVersion.Minor, unchecked((ushort)(oldVersion.Build + 1u)));
+-			IUnityObjectBase newAsset = TryReadNormalObject(assetInfo, assetData, newVersion, out string? newError);
++			IUnityObjectBase newAsset = TryReadNormalObject(assetInfo, assetData, newVersion, constructionCallback, out string? newError);
+ 			if (newError is null)
+ 			{
+ 				return newAsset;
+@@ -133,9 +158,9 @@
+ 		return unreadable;
+ 	}
+ 
+-	private static IUnityObjectBase TryReadNormalObject(AssetInfo assetInfo, ReadOnlySpan<byte> assetData, UnityVersion version, out string? error)
+-	{
+-		IUnityObjectBase? asset = CreateAsset(assetInfo, version);
++	private static IUnityObjectBase TryReadNormalObject(AssetInfo assetInfo, ReadOnlySpan<byte> assetData, UnityVersion version, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback, out string? error)
++	{
++		IUnityObjectBase? asset = CreateAsset(assetInfo, version, constructionCallback);
+ 		if (asset is null)
+ 		{
+ 			error = null;
+@@ -187,9 +212,9 @@
+ 		}
+ 	}
+ 
+-	private static IUnityObjectBase? CreateAsset(AssetInfo assetInfo, UnityVersion version)
+-	{
+-		IUnityObjectBase? asset = AssetFactory.CreateSerialized(assetInfo, version);
++	private static IUnityObjectBase? CreateAsset(AssetInfo assetInfo, UnityVersion version, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
++	{
++		IUnityObjectBase? asset = constructionCallback(assetInfo, version);
+ 		if (asset is null && TypeTreeNodeStruct.TryMakeFromTpk((ClassIDType)assetInfo.ClassID, version, out TypeTreeNodeStruct releaseRoot, out TypeTreeNodeStruct editorRoot))
+ 		{
+ 			//Engine assets cannot have [SerializeReference] fields, so they never need a type resolver.
+diff --git a/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs b/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs
+--- a/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs
++++ b/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs
+@@ -30,8 +30,13 @@
+ 
+ 	public void Process(GameData gameData)
+ 	{
++		Process(gameData.GameBundle);
++	}
++
++	public void Process(GameBundle gameBundle)
++	{
+ 		Dictionary<AssetCollection, (string BundleName, IAssetBundle BundleAsset)> dictionary = [];
+-		foreach (IUnityObjectBase asset in gameData.GameBundle.FetchAssets())
++		foreach (IUnityObjectBase asset in gameBundle.FetchAssets())
+ 		{
+ 			switch (asset)
+ 			{
+diff --git a/Source/AssetRipper.IO.Files/SchemeReader.cs b/Source/AssetRipper.IO.Files/SchemeReader.cs
+--- a/Source/AssetRipper.IO.Files/SchemeReader.cs
++++ b/Source/AssetRipper.IO.Files/SchemeReader.cs
+@@ -29,5 +29,5 @@
+ 	public static FileBase LoadFile(string filePath, FileSystem fileSystem)
+ 	{
+-		SmartStream stream = SmartStream.OpenReadMulti(filePath, fileSystem);
++		using SmartStream stream = SmartStream.OpenReadMulti(filePath, fileSystem);
+ 		return ReadFile(stream, MultiFileStream.GetFilePath(filePath), MultiFileStream.GetFileName(filePath));
+ 	}
+diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.cs b/Source/AssetRipper.Import/Structure/GameInitializer.cs
+--- a/Source/AssetRipper.Import/Structure/GameInitializer.cs
++++ b/Source/AssetRipper.Import/Structure/GameInitializer.cs
+@@ -1,7 +1,10 @@
+-﻿using AssetRipper.Assets.Bundles;
++﻿using AssetRipper.Assets;
++using AssetRipper.Assets.Bundles;
+ using AssetRipper.Assets.IO;
++using AssetRipper.Assets.Metadata;
+ using AssetRipper.Import.Structure.Platforms;
+ using AssetRipper.IO.Files;
++using AssetRipper.SourceGenerated;
+ 
+ namespace AssetRipper.Import.Structure;
+ 
+@@ -9,22 +12,31 @@
+ {
+ 	public UnityVersion TargetVersion { get; }
+ 
++	private readonly Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback;
++
+ 	public GameInitializer(PlatformGameStructure? platformStructure, PlatformGameStructure? mixedStructure, FileSystem fileSystem, UnityVersion defaultVersion, UnityVersion targetVersion)
++		: this(platformStructure, mixedStructure, fileSystem, defaultVersion, targetVersion, AssetFactory.Create)
++	{
++	}
++
++	public GameInitializer(PlatformGameStructure? platformStructure, PlatformGameStructure? mixedStructure, FileSystem fileSystem, UnityVersion defaultVersion, UnityVersion targetVersion, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
+ 		: base(new StructureDependencyProvider(platformStructure, mixedStructure, fileSystem), new CustomResourceProvider(platformStructure, mixedStructure, fileSystem), defaultVersion)
+ 	{
++		ArgumentNullException.ThrowIfNull(constructionCallback);
++		this.constructionCallback = constructionCallback;
+ 		TargetVersion = targetVersion;
+ 	}
+ 
+ 	public override void OnPathsLoaded(GameBundle gameBundle, AssetFactoryBase assetFactory)
+ 	{
+-		EngineResourceInjector.InjectEngineFilesIfNecessary(gameBundle, TargetVersion);
++		EngineResourceInjector.InjectEngineFilesIfNecessary(gameBundle, TargetVersion, constructionCallback);
+ 	}
+ 
+ 	public override void OnDependenciesInitialized(GameBundle gameBundle, AssetFactoryBase assetFactory)
+ 	{
+ 		if (TargetVersion != default)
+ 		{
+-			VersionChanger.ChangeVersions(gameBundle.FetchAssetCollections(), TargetVersion);
++			VersionChanger.ChangeVersions(gameBundle.FetchAssetCollections(), TargetVersion, constructionCallback);
+ 		}
+ 	}
+ }
+diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceInjector.cs b/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceInjector.cs
+--- a/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceInjector.cs
++++ b/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceInjector.cs
+@@ -2,6 +2,7 @@
+ using AssetRipper.Assets.Bundles;
+ using AssetRipper.Assets.Collections;
+ using AssetRipper.Assets.Metadata;
++using AssetRipper.Import.AssetCreation;
+ using AssetRipper.IO.Files;
+ using AssetRipper.IO.Files.SerializedFiles;
+ using AssetRipper.Mining.PredefinedAssets;
+@@ -27,11 +28,12 @@
+ 				Flags = TransferInstructionFlags.SerializeGameRelease | TransferInstructionFlags.IsBuiltinResourcesFile;
+ 			}
+ 
+-			public void AddAssets(Dictionary<long, Object> assets)
++			public void AddAssets(Dictionary<long, Object> assets, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
+ 			{
+ 				foreach ((long pathID, Object @object) in assets)
+ 				{
+-					IUnityObjectBase asset = AssetFactory.Create(new AssetInfo(this, pathID, @object.TypeID));
++					AssetInfo assetInfo = new(this, pathID, @object.TypeID);
++					IUnityObjectBase asset = constructionCallback(assetInfo, Version) ?? new UnknownObject(assetInfo, []);
+ 					if (asset is INamed named && @object is NamedObject namedObject)
+ 					{
+ 						named.Name = namedObject.Name;
+@@ -46,7 +48,7 @@
+ 			public override string Name => "Generated Engine Collections";
+ 		}
+ 
+-		public static void InjectEngineFilesIfNecessary(GameBundle gameBundle, UnityVersion targetVersion)
++		public static void InjectEngineFilesIfNecessary(GameBundle gameBundle, UnityVersion targetVersion, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
+ 		{
+ 			if (!gameBundle.HasAnyAssetCollections())
+ 			{
+@@ -72,12 +74,12 @@
+ 			if (injectDefaultResources)
+ 			{
+ 				InjectedEngineCollection collection = new(SpecialFileNames.DefaultResourceName1, targetVersion, bundle);
+-				collection.AddAssets(data.DefaultResources);
++				collection.AddAssets(data.DefaultResources, constructionCallback);
+ 			}
+ 			if (injectExtraResources)
+ 			{
+ 				InjectedEngineCollection collection = new(SpecialFileNames.BuiltinExtraName2, targetVersion, bundle);
+-				collection.AddAssets(data.ExtraResources);
++				collection.AddAssets(data.ExtraResources, constructionCallback);
+ 			}
+ 		}
+ 
+diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs b/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
+--- a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
++++ b/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
+@@ -2,6 +2,7 @@
+ using AssetRipper.Assets.Cloning;
+ using AssetRipper.Assets.Collections;
+ using AssetRipper.Assets.Generics;
++using AssetRipper.Assets.Metadata;
+ using AssetRipper.Import.Structure.Assembly.Serializable;
+ using AssetRipper.SourceGenerated;
+ using AssetRipper.SourceGenerated.Classes.ClassID_0;
+@@ -19,7 +20,7 @@
+ {
+ 	private static class VersionChanger
+ 	{
+-		public static void ChangeVersions(IEnumerable<AssetCollection> collections, UnityVersion targetVersion)
++		public static void ChangeVersions(IEnumerable<AssetCollection> collections, UnityVersion targetVersion, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
+ 		{
+ 			List<IUnityObjectBase> list = new();
+ 
+@@ -40,7 +41,12 @@
+ 						continue;
+ 					}
+ 
+-					IUnityObjectBase replacement = AssetFactory.Create(original.AssetInfo, targetVersion);
++					IUnityObjectBase? replacement = constructionCallback(original.AssetInfo, targetVersion);
++					if (replacement is null)
++					{
++						continue;
++					}
++
+ 					if (original.GetType() == replacement.GetType())
+ 					{
+ 						continue;
+diff --git a/Source/AssetRipper.Import/Structure/GameStructure.cs b/Source/AssetRipper.Import/Structure/GameStructure.cs
+--- a/Source/AssetRipper.Import/Structure/GameStructure.cs
++++ b/Source/AssetRipper.Import/Structure/GameStructure.cs
+@@ -1,4 +1,7 @@
+-﻿using AssetRipper.Assets.Bundles;
++﻿using AssetRipper.Assets;
++using AssetRipper.Assets.Bundles;
++using AssetRipper.Assets.IO;
++using AssetRipper.Assets.Metadata;
+ using AssetRipper.Import.AssetCreation;
+ using AssetRipper.Import.Configuration;
+ using AssetRipper.Import.Logging;
+@@ -60,6 +63,37 @@
+ 		return new GameStructure(toProcess, fileSystem, configuration);
+ 	}
+ 
++	public static GameBundle LoadResourceBundle(IEnumerable<string> paths, FileSystem fileSystem, CoreConfiguration configuration, AssetFactoryBase assetFactory, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
++	{
++		ArgumentNullException.ThrowIfNull(assetFactory);
++		ArgumentNullException.ThrowIfNull(constructionCallback);
++
++		List<string> toProcess = ZipExtractor.Process(paths, fileSystem);
++		if (toProcess.Count == 0)
++		{
++			throw new ArgumentException("Game files not found", nameof(paths));
++		}
++
++		PlatformChecker.CheckPlatform(toProcess, fileSystem, out PlatformGameStructure? platformStructure, out MixedGameStructure? mixedStructure);
++		platformStructure?.CollectFiles(configuration.ImportSettings.IgnoreStreamingAssets);
++
++		IEnumerable<string> filePaths;
++		if (platformStructure is null || mixedStructure is null)
++		{
++			filePaths = (platformStructure ?? mixedStructure)?.Files.Values() ?? [];
++		}
++		else
++		{
++			filePaths = platformStructure.Files.Union(mixedStructure.Files).Select(pair => pair.Value);
++		}
++
++		return GameBundle.FromPaths(
++			filePaths,
++			assetFactory,
++			fileSystem,
++			new GameInitializer(platformStructure, mixedStructure, fileSystem, configuration.ImportSettings.DefaultVersion, configuration.ImportSettings.TargetVersion, constructionCallback));
++	}
++
+ 	[MemberNotNull(nameof(FileCollection))]
+ 	private void InitializeGameCollection(UnityVersion defaultVersion, UnityVersion targetVersion)
+ 	{

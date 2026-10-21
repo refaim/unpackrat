@@ -157,7 +157,7 @@ internal static partial class UnitySource
 			bool release = info.Collection.Flags.IsRelease();
 			var key = (info.ClassID, version, release);
 			if (shapes.TryGetValue(key, out Shape? shape)) return shape;
-			IUnityObjectBase? definition = version.LessThan(3, 5) ? null : AssetFactory.CreateSerialized(info, version);
+			IUnityObjectBase? definition = version.LessThan(3, 5) ? null : UnityResourceDefinitionFactory.Create(info, version);
 			shape = BuildShape(info, definition, version);
 			shapes.Add(key, shape);
 			return shape;

@@ -77,18 +77,22 @@ internal static class UnityFixtureBuilder
 	};
 
 	/// <summary>A serialized asset file holding one named TextAsset and optional declared dependencies.</summary>
-	public static byte[] SerializedDefaultNamedClass(int classId, string name)
+    public static byte[] SerializedDefaultNamedClass(int classId, string name, UnityVersion? version = null, string? text = null)
 	{
-		UnityVersion version = UnityVersion.V_2022;
-		ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
-		var asset = AssetRipper.SourceGenerated.AssetFactory.CreateSerialized(new AssetRipper.Assets.Metadata.AssetInfo(collection, 1, classId), version)!;
+        UnityVersion assetVersion = version ?? UnityVersion.V_2022;
+        ProcessedAssetCollection collection = AssetCreator.CreateCollection(assetVersion);
+        var asset = AssetRipper.SourceGenerated.AssetFactory.CreateSerialized(new AssetRipper.Assets.Metadata.AssetInfo(collection, 1, classId), assetVersion)!;
 		((AssetRipper.Assets.INamed)asset).Name = new Utf8String(name);
+        if (text is not null)
+        {
+            ((ITextAsset)asset).Script_C49 = new Utf8String(text);
+        }
 		if (asset is ITexture2D texture)
 		{
 			texture.Width_C28 = 1; texture.Height_C28 = 1; texture.ImageCount_C28 = 1;
 			texture.Format_C28E = TextureFormat.RGBA32; texture.ImageData_C28 = [10, 20, 30, 255];
 		}
-		SerializedFileBuilder builder = NewBuilder(version, classId);
+        SerializedFileBuilder builder = NewBuilder(assetVersion, classId);
 		builder.Objects.Add(new ObjectInfo { FileID = 1, TypeID = classId, ClassID = unchecked((short)classId),
 			SerializedTypeIndex = 0, Type = builder.Types[0], ObjectData = WriteAssetBytes(collection, asset) });
 		return Serialize(builder.Build());

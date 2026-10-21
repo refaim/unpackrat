@@ -1,3 +1,11 @@
+Version 0.3.5
+-------------
+ * Creates Unity objects through resource-specific callbacks; the universal
+   full-importer factory is absent from the actual NativeAOT machine code.
+ * Keeps the same version-aware reader, dependency and legacy-probe
+   behavior, and export families.
+ * Closes the root stream through its own lifetime; regression-tested.
+
 Version 0.3.4
 -------------
  * Stores resource names as primary strings; creates temporary UTF-8 adapters

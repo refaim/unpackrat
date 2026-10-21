@@ -12,7 +12,6 @@ using AssetRipper.Export.Modules.Textures;
 using AssetRipper.Import.AssetCreation;
 using AssetRipper.Import.Configuration;
 using AssetRipper.Import.Structure;
-using AssetRipper.Import.Structure.Assembly.Managers;
 using AssetRipper.IO.Files;
 using AssetRipper.IO.Files.ResourceFiles;
 using AssetRipper.IO.Files.SerializedFiles;
@@ -208,16 +207,8 @@ internal static partial class UnitySource
 	/// </summary>
 	public static int LoadAndExport(IReadOnlyList<string> paths, string outputDirectory)
 	{
-		CoreConfiguration configuration = new()
-		{
-			ImportSettings = new ImportSettings
-			{
-				ScriptContentLevel = ScriptContentLevel.Level0,
-			},
-		};
-
-		using GameStructure structure = GameStructure.Load(paths, LocalFileSystem.Instance, configuration);
-		return ResourceExporter.ExportAssets(Wrap(structure.FileCollection.FetchAssets()), outputDirectory);
+		using GameBundle root = GameStructure.LoadResourceBundle(paths, LocalFileSystem.Instance, new CoreConfiguration(), new UnityResourceAssetFactory(), UnityResourceDefinitionFactory.Create);
+		return ResourceExporter.ExportAssets(Wrap(root.FetchAssets()), outputDirectory);
 	}
 
 	/// <summary>Maps each AssetRipper asset to the matching <see cref="IProbeAsset"/> view.</summary>
@@ -304,8 +295,7 @@ internal static partial class UnitySource
 		}
 
 		string directory = DependencyDirectory(path);
-		IAssemblyManager manager = new BaseManager(static _ => { });
-		LazyAssetFactory factory = new(fullReader ?? new UnityAssetFactory(new GameAssetFactory(manager)), compact);
+		LazyAssetFactory factory = new(fullReader ?? new UnityAssetFactory(new UnityResourceAssetFactory()), compact);
 		GameBundle root = new() { ResourceProvider = new SiblingResourceProvider(directory) };
 		List<FileBase> owned = [];
 		try
@@ -320,7 +310,7 @@ internal static partial class UnitySource
 			// synthesising per-type directories. It only populates IUnityObjectBase.OriginalPath,
 			// and it never decodes, converts or exports anything.
 			new OriginalPathProcessor(BundledAssetsExportMode.DirectExport)
-				.Process(new GameData(root, root.GetMaxUnityVersion(), manager, null));
+				.Process(root);
 			int dependencyCollections = root.FetchAssetCollections().Count() - selectedCollections;
 			return compact ? factory.BuildCompactGraph(root, selected, selection.Collections, owned, roots)
 				: new UnityGraph(root, selected, selection.Collections, dependencyCollections, owned, roots, factory);
@@ -644,6 +634,18 @@ internal static partial class UnitySource
 	{
 		public List<SerializedAssetCollection> Collections { get; } = [];
 		public List<SerializedFile> SerializedFiles { get; } = [];
+	}
+}
+
+/// <summary>
+/// Project-owned resource reader adapter. It uses the mature normal-object reader without an
+/// assembly manager, so dynamic MonoBehaviour script analysis is never part of the graph.
+/// </summary>
+internal sealed class UnityResourceAssetFactory : AssetFactoryBase
+{
+	public override IUnityObjectBase? ReadAsset(AssetInfo assetInfo, ReadOnlyArraySegment<byte> assetData, SerializedType? assetType, IReadOnlyList<SerializedTypeReference> referenceTypes)
+	{
+		return GameAssetFactory.ReadResourceAsset(assetInfo, assetData, UnityResourceDefinitionFactory.Create);
 	}
 }
 
