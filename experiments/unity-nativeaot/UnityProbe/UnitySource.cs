@@ -281,7 +281,7 @@ internal static partial class UnitySource
 	/// <see cref="OutOfMemoryException"/> can be injected at the reader boundary and observed to
 	/// escape unchanged. It is never part of the exported surface.
 	/// </summary>
-	internal static IUnityGraph OpenGraph(string path, Func<string, FileBase>? readFile, AssetFactoryBase? fullReader = null)
+	internal static IUnityGraph OpenGraph(string path, Func<string, FileBase>? readFile, AssetFactoryBase? fullReader = null, bool compact = false)
 	{
 		ArgumentNullException.ThrowIfNull(path);
 
@@ -290,7 +290,7 @@ internal static partial class UnitySource
 		// orders leave the handles open because the entry streams are slices that only free the
 		// shared stream when the outer root is disposed last.
 		List<SmartStream> roots = [];
-		Func<string, FileBase> reader = readFile ?? (p => ReadFile(p, roots));
+		Func<string, FileBase> reader = readFile ?? (p => ReadFile(p, roots, compact ? FileReadMode.CompactMetadataOnly : FileReadMode.MetadataOnly));
 
 		FileBase selected;
 		try
@@ -305,7 +305,7 @@ internal static partial class UnitySource
 
 		string directory = DependencyDirectory(path);
 		IAssemblyManager manager = new BaseManager(static _ => { });
-		LazyAssetFactory factory = new(fullReader ?? new UnityAssetFactory(new GameAssetFactory(manager)));
+		LazyAssetFactory factory = new(fullReader ?? new UnityAssetFactory(new GameAssetFactory(manager)), compact);
 		GameBundle root = new() { ResourceProvider = new SiblingResourceProvider(directory) };
 		List<FileBase> owned = [];
 		try
@@ -322,7 +322,8 @@ internal static partial class UnitySource
 			new OriginalPathProcessor(BundledAssetsExportMode.DirectExport)
 				.Process(new GameData(root, root.GetMaxUnityVersion(), manager, null));
 			int dependencyCollections = root.FetchAssetCollections().Count() - selectedCollections;
-			return new UnityGraph(root, selected, selection.Collections, dependencyCollections, owned, roots, factory);
+			return compact ? factory.BuildCompactGraph(root, selected, selection.Collections, owned, roots)
+				: new UnityGraph(root, selected, selection.Collections, dependencyCollections, owned, roots, factory);
 		}
 		catch (Exception exception)
 		{
@@ -358,18 +359,21 @@ internal static partial class UnitySource
 	/// the root is disposed last. Without a collector the stream is released immediately.
 	/// </summary>
 	private static FileBase ReadFile(string path, List<SmartStream>? roots)
+		=> ReadFile(path, roots, FileReadMode.MetadataOnly);
+
+	private static FileBase ReadFile(string path, List<SmartStream>? roots, FileReadMode mode)
 	{
 		SmartStream stream = SmartStream.OpenReadMulti(path, LocalFileSystem.Instance);
 		if (roots is null)
 		{
 			using (stream)
 			{
-				return SchemeReader.ReadFile(stream, MultiFileStream.GetFilePath(path), MultiFileStream.GetFileName(path), FileReadMode.MetadataOnly);
+				return SchemeReader.ReadFile(stream, MultiFileStream.GetFilePath(path), MultiFileStream.GetFileName(path), mode);
 			}
 		}
 
 		roots.Add(stream);
-		return SchemeReader.ReadFile(stream, MultiFileStream.GetFilePath(path), MultiFileStream.GetFileName(path), FileReadMode.MetadataOnly);
+		return SchemeReader.ReadFile(stream, MultiFileStream.GetFilePath(path), MultiFileStream.GetFileName(path), mode);
 	}
 
 	/// <summary>Releases the root input streams once the tree that reads through them is gone.</summary>

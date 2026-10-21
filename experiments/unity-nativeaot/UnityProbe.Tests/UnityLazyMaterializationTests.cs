@@ -63,7 +63,7 @@ public sealed class UnityLazyMaterializationTests
 
 	private static void AssertNoFullResourceObjects(IUnityGraph graph)
 	{
-		FieldInfo rootField = typeof(UnityGraph).GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+		FieldInfo rootField = graph.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
 			.Single(field => field.FieldType == typeof(GameBundle));
 		GameBundle root = (GameBundle)rootField.GetValue(graph)!;
 		Assert.DoesNotContain(root.FetchAssets(), asset => asset is ISprite or ITexture2D or ISpriteAtlas or ITextAsset or IFont or IMovieTexture or IVideoClip or IAudioClip or IMesh);
@@ -157,9 +157,11 @@ public sealed class UnityLazyMaterializationTests
 	}
 
 	[Theory]
-	[InlineData(false)]
-	[InlineData(true)]
-	public void InlineTextureAndTextBodiesAreNotReadWhileOpeningOrListing(bool text)
+	[InlineData(false, false)]
+	[InlineData(true, false)]
+	[InlineData(false, true)]
+	[InlineData(true, true)]
+	public void InlineTextureAndTextBodiesAreNotReadWhileOpeningOrListing(bool text, bool compact)
 	{
 		byte[] payload = Enumerable.Repeat((byte)'x', 2 * 1024 * 1024).ToArray();
 		byte[] serialized = text
@@ -171,7 +173,7 @@ public sealed class UnityLazyMaterializationTests
 		using SmartStream source = SmartStream.CreateOwned(guard);
 		FileBase selected = SchemeReader.ReadFile(source, "guard.assets", "guard.assets", FileReadMode.MetadataOnly);
 		FullReader reader = new();
-		using UnitySession session = UnitySession.FromGraph(UnitySource.OpenGraph("guard.assets", _ => selected, reader));
+		using UnitySession session = UnitySession.FromGraph(UnitySource.OpenGraph("guard.assets", _ => selected, reader, compact));
 		Assert.Equal(payload.LongLength, Assert.Single(session.Entries).SourceSize);
 		Assert.Empty(reader.Reads);
 		Assert.Equal(0, guard.Attempts);
@@ -243,11 +245,14 @@ public sealed class UnityLazyMaterializationTests
 		File.WriteAllBytes(path, UnityFixtureBuilder.SerializedDefaultNamedClass(classId, "derived"));
 		FullReader reader = new();
 		using UnitySession session = UnitySession.FromGraph(Open(path, reader));
+		using UnitySession compact = UnitySession.Open(path);
+		Assert.Equal(session.Entries, compact.Entries);
 		UnityCatalogEntry entry = Assert.Single(session.Entries);
 		Assert.Equal((UnityEntryKind)expectedKind, entry.Kind); Assert.Equal("derived", entry.Name); Assert.Equal(size, entry.SourceSize);
 		Assert.Empty(reader.Reads);
 		using MemoryStream output = new();
 		Assert.True(session.Export(0, output));
+		using MemoryStream compactOutput = new(); Assert.True(compact.Export(0, compactOutput)); Assert.Equal(output.ToArray(), compactOutput.ToArray());
 		if ((UnityEntryKind)expectedKind == UnityEntryKind.Text) Assert.Empty(output.ToArray());
 	}
 
@@ -283,8 +288,10 @@ public sealed class UnityLazyMaterializationTests
 		FullReader reader = new();
 		using UnitySession session = UnitySession.FromGraph(UnitySource.OpenGraph("selected.assets", _ => file, reader));
 		Assert.Empty(session.Entries); Assert.Empty(reader.Reads);
-	}	[Fact]
-	public void PatchVersionSpriteUsesTheMatureNextBuildLayoutWithoutReadingTexturePixelsAtOpen()
+	}	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void PatchVersionSpriteUsesTheMatureNextBuildLayoutWithoutReadingTexturePixelsAtOpen(bool compact)
 	{
 		byte[] bytes = UnityFixtureBuilder.SerializedSprite("patched", Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0,
 			downscale: 1f, layoutVersion: "5.4.2f1", headerVersion: "5.4.1p1");
@@ -309,7 +316,7 @@ public sealed class UnityLazyMaterializationTests
 		using SmartStream input = SmartStream.CreateOwned(guard);
 		var selected = SchemeReader.ReadFile(input, "selected.assets", "selected.assets", FileReadMode.MetadataOnly);
 		FullReader reader = new();
-		IUnityGraph graph = UnitySource.OpenGraph("selected.assets", _ => selected, reader);
+		IUnityGraph graph = UnitySource.OpenGraph("selected.assets", _ => selected, reader, compact: compact);
 		using UnitySession session = UnitySession.FromGraph(graph);
 		UnityCatalogEntry entry = Assert.Single(session.Entries, e => e.Kind == UnityEntryKind.Sprite);
 		Assert.Equal("patched", entry.Name); Assert.Equal(16, entry.SourceSize); Assert.Equal("png", entry.OutputExtension);

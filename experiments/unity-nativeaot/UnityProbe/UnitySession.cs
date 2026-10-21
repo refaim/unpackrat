@@ -12,11 +12,11 @@ namespace Unpackrat.UnityProbe;
 internal sealed class UnitySession : IDisposable
 {
 	private readonly IUnityGraph graph;
-	private readonly UnityCatalogEntry[] entries;
+	private readonly IReadOnlyList<UnityCatalogEntry> entries;
 	private readonly IProbeAsset[] exportTargets;
 	private bool disposed;
 
-	private UnitySession(IUnityGraph graph, UnityCatalogEntry[] entries, IProbeAsset[] exportTargets)
+	private UnitySession(IUnityGraph graph, IReadOnlyList<UnityCatalogEntry> entries, IProbeAsset[] exportTargets)
 	{
 		this.graph = graph;
 		this.entries = entries;
@@ -24,12 +24,13 @@ internal sealed class UnitySession : IDisposable
 	}
 
 	/// <summary>Opens the selected file or bundle at <paramref name="path"/> for on-demand export.</summary>
-	public static UnitySession Open(string path) => FromGraph(UnitySource.OpenGraph(path));
+	public static UnitySession Open(string path) => FromGraph(UnitySource.OpenGraph(path, readFile: null, compact: true));
 
 	/// <summary>Builds a catalogue over an already-loaded project-owned graph.</summary>
 	public static UnitySession FromGraph(IUnityGraph graph)
 	{
 		ArgumentNullException.ThrowIfNull(graph);
+		if (graph is ICompactUnityGraph compact) return new(graph, compact.Entries, []);
 
 		// Graph views are stable snapshots. Count eligibility without touching metadata so each
 		// immutable row is captured once directly into its final array, without growing/copying it.
@@ -63,6 +64,20 @@ internal sealed class UnitySession : IDisposable
 		return new UnitySession(graph, entries, exportTargets);
 	}
 
+	internal int Count => entries.Count;
+	internal UnityEntryMetadata Metadata(int index)
+	{
+		if (graph is ICompactUnityGraph compact) return compact.Metadata(index);
+		UnityCatalogEntry row = entries[index];
+		return new(row.Kind, row.CollectionIndex, row.PathId, row.SourceSize, row.OriginalPath, row.OutputExtension);
+	}
+	internal int NameLength(int index) => graph is ICompactUnityGraph compact ? compact.NameLength(index) : entries[index].Name.Length;
+	internal void CopyName(int index, Span<char> destination)
+	{
+		if (graph is ICompactUnityGraph compact) compact.CopyName(index, destination);
+		else entries[index].Name.AsSpan().CopyTo(destination);
+	}
+
 	/// <summary>The catalogue in stable session order.</summary>
 	public IReadOnlyList<UnityCatalogEntry> Entries => entries;
 
@@ -74,11 +89,18 @@ internal sealed class UnitySession : IDisposable
 	public bool Export(int index, Stream destination)
 	{
 		ArgumentNullException.ThrowIfNull(destination);
-		if (disposed || index < 0 || index >= exportTargets.Length)
+		if (disposed || index < 0 || index >= entries.Count)
 		{
 			return false;
 		}
 
+		if (graph is ICompactUnityGraph compact)
+		{
+			byte[]? data = compact.Export(index);
+			if (data is null) return false;
+			destination.Write(data);
+			return true;
+		}
 		IProbeAsset asset = exportTargets[index];
 		// Describe admits only these interfaces. Preserve its precedence for overlapping views;
 		// the remaining accepted target is a resource, with no per-entry delegate or metadata copy.
@@ -109,7 +131,7 @@ internal sealed class UnitySession : IDisposable
 	}
 
 	/// <summary>Captures immutable metadata once, without allocating an export wrapper or delegate.</summary>
-	private static UnityCatalogEntry? Describe(IProbeAsset asset, int index, int collectionIndex) => asset switch
+	internal static UnityCatalogEntry? Describe(IProbeAsset asset, int index, int collectionIndex) => asset switch
 	{
 		IProbeTexture texture => new(index, UnityEntryKind.Texture, collectionIndex, texture.PathId, texture.Name, KnownSourceSize(texture.SourceSize), texture.OriginalPath ?? string.Empty, OutputExtensions.TexturePng),
 		IProbeText text => new(index, UnityEntryKind.Text, collectionIndex, text.PathId, text.Name, KnownSourceSize(text.SourceSize), text.OriginalPath ?? string.Empty, OutputExtensions.TextBin),

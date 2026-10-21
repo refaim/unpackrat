@@ -1,4 +1,4 @@
-# Unity Observer: pinned stream ownership and opt-in metadata-only IO.
+# Unity Observer: pinned stream ownership, metadata-only IO and opt-in compact asset resolution.
 # Source: AssetRipper/AssetRipper @ beeb50ee1c223e856c860caa338e5309404956a3
 # Default eager reads and the original stream ownership fixes are preserved.
 
@@ -6,7 +6,7 @@ diff --git a/Source/AssetRipper.IO.Files/FileReadMode.cs b/Source/AssetRipper.IO
 new file mode 100644
 --- /dev/null
 +++ b/Source/AssetRipper.IO.Files/FileReadMode.cs
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,9 @@
 +namespace AssetRipper.IO.Files;
 +
 +/// <summary>Per-file policy; eager remains the default for existing callers.</summary>
@@ -14,6 +14,7 @@ new file mode 100644
 +{
 +	Eager,
 +	MetadataOnly,
++	CompactMetadataOnly,
 +}
 diff --git a/Source/AssetRipper.IO.Files/FileBase.cs b/Source/AssetRipper.IO.Files/FileBase.cs
 --- a/Source/AssetRipper.IO.Files/FileBase.cs
@@ -258,7 +259,11 @@ new file mode 100644
 diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
 --- a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
 +++ b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
-@@ -4,13 +4,13 @@
+@@ -1,16 +1,16 @@
+-﻿namespace AssetRipper.IO.Files.Streams.Smart;
++namespace AssetRipper.IO.Files.Streams.Smart;
+ 
+ public sealed partial class SmartStream : Stream
  {
  	private SmartStream()
  	{
@@ -380,18 +385,19 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs b/
  	public static bool HasLargeFilesSupport(FormatVersion generation) => generation >= FormatVersion.LargeFilesSupport;
  
 -	internal void Read(SerializedReader reader, bool longFileID, ReadOnlySpan<SerializedType> types, long dataOffset)
-+	internal void Read(SerializedReader reader, bool longFileID, ReadOnlySpan<SerializedType> types, long dataOffset,
++	internal int Read(SerializedReader reader, bool longFileID, ReadOnlySpan<SerializedType> types, long dataOffset,
 +		AssetRipper.IO.Files.Streams.Smart.SmartStream? source = null)
  	{
  		if (IsLongID(reader.Generation))
  		{
-@@ -64,8 +65,16 @@
+@@ -64,8 +65,17 @@
  
  		// Size of the object data.
  		int byteSize = reader.ReadInt32();
++		long sourceLength = reader.ObjectDataSourceLength ?? reader.BaseStream.Length;
 +		if (byteStart < 0 || dataOffset < 0 || byteSize < 0 ||
-+			dataOffset > reader.BaseStream.Length || byteStart > reader.BaseStream.Length - dataOffset ||
-+			byteSize > reader.BaseStream.Length - dataOffset - byteStart)
++			dataOffset > sourceLength || byteStart > sourceLength - dataOffset ||
++			byteSize > sourceLength - dataOffset - byteStart)
 +			throw new InvalidDataException("Object data is outside the serialized file.");
 +		DataOffset = dataOffset + byteStart;
 +		dataSize = byteSize;
@@ -402,7 +408,62 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs b/
  		{
  			long currentPosition = reader.BaseStream.Position;
  			long dataPosition = dataOffset + byteStart;
-@@ -239,7 +248,31 @@
+@@ -106,7 +116,7 @@
+ 			Stripped = false;
+ 			stripped = null;
+ 		}
+-		Type = GetSerializedType(types, stripped);
++		Type = GetSerializedType(types, stripped, out int resolvedTypeIndex);
+ 		if (Type is not null)
+ 		{
+ 			TypeID = Type.TypeID;
+@@ -123,6 +133,7 @@
+ 				Stripped = Type.IsStrippedType;
+ 			}
+ 		}
++		return resolvedTypeIndex;
+ 	}
+ 
+ 	internal readonly void Write(SerializedWriter writer, long byteStart)
+@@ -178,21 +189,24 @@
+ 		return $"{ClassID}[{FileID}]";
+ 	}
+ 
+-	private readonly SerializedType? GetSerializedType(ReadOnlySpan<SerializedType> types, bool? stripped)
+-	{
++	private readonly SerializedType? GetSerializedType(ReadOnlySpan<SerializedType> types, bool? stripped, out int resolvedTypeIndex)
++	{
++		resolvedTypeIndex = SerializedTypeIndex;
+ 		if (SerializedTypeIndex >= 0)
+ 		{
+ 			return types[SerializedTypeIndex];
+ 		}
+ 		else if (types.Length == 0)
+ 		{
++			resolvedTypeIndex = -1;
+ 			return default; //It's common on Unity 4 and lower for the array to be empty.
+ 		}
+ 		else
+ 		{
+ 			SerializedType? result = null;
+-			foreach (SerializedType type in types)
+-			{
++			for (int i = 0; i < types.Length; i++)
++			{
++				SerializedType type = types[i];
+ 				if (type.TypeID == TypeID)
+ 				{
+ 					if (stripped.HasValue && type.IsStrippedType != stripped.Value)
+@@ -201,7 +215,7 @@
+ 					}
+ 					else if (result is null)
+ 					{
+-						result = type;
++						result = type; resolvedTypeIndex = i;
+ 					}
+ 					else
+ 					{
+@@ -239,7 +253,47 @@
  	/// The data for the object.
  	/// </summary>
  	[AllowNull]
@@ -423,6 +484,22 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs b/
 +	private AssetRipper.IO.Files.Streams.Smart.SmartStream? dataSource;
 +	private long dataSize;
 +	public readonly bool HasObjectData => objectData is not null;
++	public readonly bool HasBorrowedData => dataSource is not null;
++	/// <summary>Borrowed file owner; callers must not dispose or retain it beyond the file lifetime.</summary>
++	public readonly Stream? BorrowedSource => dataSource;
++
++	/// <summary>Copies a file/type prototype with another validated borrowed object range.</summary>
++	public readonly ObjectInfo WithDataRange(long pathID, long offset, long length)
++	{
++		if (dataSource is null) throw new InvalidOperationException("The descriptor has no borrowed source.");
++		if (pathID == 0) throw new ArgumentException("The zero path ID is reserved.", nameof(pathID));
++		if (offset < 0 || length < 0 || offset > dataSource.Length || length > dataSource.Length - offset)
++			throw new ArgumentOutOfRangeException(nameof(offset));
++		ObjectInfo result = this;
++		result.FileID = pathID; result.DataOffset = offset; result.dataSize = length;
++		return result;
++	}
++
 +	public long DataOffset { readonly get; private set; }
 +	public readonly long DataSize => dataSize;
 +
@@ -435,10 +512,109 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs b/
  
  	public ObjectInfo()
  	{
+@@ -255,6 +309,88 @@
+ 		}
+ 		ScriptTypeIndex = type.ScriptTypeIndex;
+ 		Stripped = type.IsStrippedType;
++	}
++
++	// Parsed-only storage; public descriptors and their wide borrowed ranges remain unchanged.
++	internal readonly struct Borrowed
++	{
++		private readonly long path, offset;
++		private readonly int length, typeSlot, typeID, serializedIndex;
++		private readonly short classID, scriptIndex;
++		private readonly ushort destroyed;
++		private readonly bool stripped;
++		internal Borrowed(in ObjectInfo value, int resolvedTypeIndex)
++		{
++			path = value.FileID; offset = value.DataOffset; length = checked((int)value.DataSize);
++			typeSlot = resolvedTypeIndex; typeID = value.TypeID; serializedIndex = value.SerializedTypeIndex;
++			classID = value.ClassID; scriptIndex = value.ScriptTypeIndex; destroyed = value.IsDestroyed; stripped = value.Stripped;
++		}
++		internal ObjectInfo Expand(AssetRipper.IO.Files.Streams.Smart.SmartStream source, ReadOnlySpan<SerializedType> types)
++			=> new() { FileID = path, DataOffset = offset, dataSize = length, dataSource = source,
++				Type = typeSlot < 0 ? null : types[typeSlot], TypeID = typeID, SerializedTypeIndex = serializedIndex,
++				ClassID = classID, ScriptTypeIndex = scriptIndex, IsDestroyed = destroyed, Stripped = stripped };
++	}
++
++	// Modern records omit repeated type scalars; snapshots never consult mutable type
++	// fields during expansion. The Type reference still follows the original live slot.
++	internal sealed class BorrowedTable
++	{
++		private Borrowed[]? legacy;
++		private ModernBorrowed[]? modern;
++		private TypeSnapshot[]? snapshots;
++		internal BorrowedTable(int count, FormatVersion generation, ReadOnlySpan<SerializedType> types)
++		{
++			if (generation == FormatVersion.LargeFilesSupport && count > types.Length)
++			{
++				modern = new ModernBorrowed[count]; snapshots = new TypeSnapshot[types.Length];
++				for (int i = 0; i < types.Length; i++) snapshots[i] = new(types[i] is { } type ? new ObjectInfo(type) : default);
++			}
++			else legacy = new Borrowed[count];
++		}
++		internal int Length => modern?.Length ?? legacy!.Length;
++		internal ObjectInfo Expand(int index, AssetRipper.IO.Files.Streams.Smart.SmartStream source, ReadOnlySpan<SerializedType> types)
++			=> modern is { } rows ? rows[index].Expand(source, types, snapshots!) : legacy![index].Expand(source, types);
++		internal void Set(int index, in ObjectInfo value, int slot, AssetRipper.IO.Files.Streams.Smart.SmartStream source, ReadOnlySpan<SerializedType> types)
++		{
++			if (modern is { } rows)
++			{
++				if (value.SerializedTypeIndex >= 0 && snapshots![value.SerializedTypeIndex].Matches(value))
++				{
++					rows[index] = new(value); return;
++				}
++				// Unusual indices or callback-mutated type scalars keep the existing40B
++				// representation, including all values already parsed before this row.
++				legacy = new Borrowed[rows.Length];
++				for (int i = 0; i < index; i++) legacy[i] = new(rows[i].Expand(source, types, snapshots!), rows[i].TypeIndex);
++				modern = null; snapshots = null;
++			}
++			legacy![index] = new(value, slot);
++		}
++	}
++	private readonly struct ModernBorrowed
++	{
++		private readonly long path, offset;
++		private readonly int length;
++		internal readonly int TypeIndex;
++		internal ModernBorrowed(in ObjectInfo value)
++		{ path = value.FileID; offset = value.DataOffset; length = checked((int)value.DataSize); TypeIndex = value.SerializedTypeIndex; }
++		internal ObjectInfo Expand(AssetRipper.IO.Files.Streams.Smart.SmartStream source, ReadOnlySpan<SerializedType> types, TypeSnapshot[] snapshots)
++		{
++			TypeSnapshot type = snapshots[TypeIndex];
++			return new() { FileID = path, DataOffset = offset, dataSize = length, dataSource = source,
++				SerializedTypeIndex = TypeIndex, Type = types[TypeIndex], TypeID = type.TypeID,
++				ClassID = type.ClassID, ScriptTypeIndex = type.ScriptIndex, Stripped = type.Stripped };
++		}
++	}
++	private readonly struct TypeSnapshot
++	{
++		internal readonly int TypeID;
++		internal readonly short ClassID, ScriptIndex;
++		internal readonly bool Stripped;
++		internal TypeSnapshot(in ObjectInfo value)
++		{ TypeID = value.TypeID; ClassID = value.ClassID; ScriptIndex = value.ScriptTypeIndex; Stripped = value.Stripped; }
++		internal bool Matches(in ObjectInfo value)
++			=> TypeID == value.TypeID && ScriptIndex == value.ScriptTypeIndex && Stripped == value.Stripped;
+ 	}
+ 
+ 	public override readonly bool Equals([NotNullWhen(true)] object? obj)
 diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs b/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs
 --- a/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs
 +++ b/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs
-@@ -49,14 +49,15 @@
+@@ -5,6 +5,9 @@
+ 
+ internal sealed class SerializedReader : EndianReader
+ {
++	// Only a bounded metadata reader supplies the full borrowed file extent.
++	internal long? ObjectDataSourceLength { get; init; }
++
+ 	public SerializedReader(Stream stream, EndianType endianess, FormatVersion generation) : base(stream, endianess)
+ 	{
+ 		Generation = generation;
+@@ -49,15 +52,30 @@
  		return array;
  	}
  
@@ -454,48 +630,133 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs 
 -			instance.Read(this, longFileID, types, dataOffset);
 +			instance.Read(this, longFileID, types, dataOffset, source);
  			array[i] = instance;
++		}
++		return array;
++	}
++
++	internal ObjectInfo.BorrowedTable ReadBorrowedObjectInfoArray(bool longFileID, ReadOnlySpan<SerializedType> types, long dataOffset,
++		AssetRipper.IO.Files.Streams.Smart.SmartStream source)
++	{
++		int count = ReadInt32();
++		ObjectInfo.BorrowedTable array = new(count, Generation, types);
++		for (int i = 0; i < count; i++)
++		{
++			ObjectInfo instance = new();
++			int slot = instance.Read(this, longFileID, types, dataOffset, source);
++			array.Set(i, in instance, slot, source, types);
  		}
  		return array;
+ 	}
 diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMetadata.cs b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMetadata.cs
 --- a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMetadata.cs
 +++ b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMetadata.cs
-@@ -44,12 +44,12 @@
+@@ -44,12 +44,45 @@
  	/// </summary>
  	public static bool HasRefTypes(FormatVersion generation) => generation >= FormatVersion.SupportsRefObject;
  
 -	public void Read(SmartStream stream, SerializedFileHeader header)
 +	public void Read(SmartStream stream, SerializedFileHeader header, SmartStream? source = null)
++		=> Read(stream, header, source, false);
++
++	internal void Read(SmartStream stream, SerializedFileHeader header, SmartStream? source, bool compactObjects)
  	{
  		bool swapEndianess = ReadSwapEndianess(stream, header);
  		EndianType endianess = swapEndianess ? EndianType.BigEndian : EndianType.LittleEndian;
++		// Format22's metadata extent excludes its48-byte header. Older layouts and
++		// ineligible extents retain the original reader and its acceptance rules.
++		// Pinned big-endian primitives report truncated words as argument errors;
++		// leave that path unchanged instead of broadening the EOF retry.
++		if (compactObjects && source is not null && header.Version == FormatVersion.LargeFilesSupport && !swapEndianess)
++		{
++			long start = stream.Position;
++			if ((start & 3) == 0 && header.MetadataSize > 0
++				&& (ulong)start <= (ulong)stream.Length && header.MetadataSize <= stream.Length - start
++				&& start <= header.DataOffset && header.MetadataSize <= header.DataOffset - start)
++			{
++				using (SmartStream range = stream.CreateReadOnlySlice(start, header.MetadataSize))
++				using (BufferedStream buffered = new(range, 4096))
++				{
++					try
++					{
++						using SerializedReader blockReader = new(buffered, endianess, header.Version) { ObjectDataSourceLength = source.Length };
++						Read(blockReader, header.DataOffset, source, compactObjects);
++						return;
++					}
++					catch (EndOfStreamException) when (buffered.Position == header.MetadataSize)
++					{
++						// Historical readers accept some underdeclared extents; retry only
++						// this bounded EOF through the same original parser below.
++					}
++					finally { stream.Position = start + buffered.Position; }
++				}
++				stream.Position = start;
++			}
++		}
  		using SerializedReader reader = new SerializedReader(stream, endianess, header.Version);
 -		Read(reader, header.DataOffset);
-+		Read(reader, header.DataOffset, source);
++		Read(reader, header.DataOffset, source, compactObjects);
  	}
  
  	private bool ReadSwapEndianess(SmartStream stream, SerializedFileHeader header)
-@@ -72,7 +72,7 @@
+@@ -72,7 +105,7 @@
  		}
  	}
  
 -	private void Read(SerializedReader reader, long dataOffset)
-+	private void Read(SerializedReader reader, long dataOffset, SmartStream? source)
++	private void Read(SerializedReader reader, long dataOffset, SmartStream? source, bool compactObjects)
  	{
  		if (HasSignature(reader.Generation))
  		{
-@@ -99,7 +99,7 @@
+@@ -99,7 +132,14 @@
  			LongFileID = reader.ReadUInt32();
  		}
  
 -		Object = reader.ReadObjectInfoArray(LongFileID != 0, Types, dataOffset);
-+		Object = reader.ReadObjectInfoArray(LongFileID != 0, Types, dataOffset, source);
++		if (compactObjects)
++		{
++			Object = []; CompactObject = reader.ReadBorrowedObjectInfoArray(LongFileID != 0, Types, dataOffset, source!); compactSource = source;
++		}
++		else
++		{
++			CompactObject = null; Object = reader.ReadObjectInfoArray(LongFileID != 0, Types, dataOffset, source);
++		}
  
  		if (HasScriptTypes(reader.Generation))
  		{
+@@ -183,7 +223,23 @@
+ 	/// </summary>
+ 	public uint LongFileID { get; set; }
+ 	public bool SwapEndianess { get; set; }
+-	public ObjectInfo[] Object { get; set; } = [];
++	private ObjectInfo[] objects = [];
++	private SmartStream? compactSource;
++	public ObjectInfo[] Object
++	{
++		get
++		{
++			if (CompactObject is { } table)
++			{
++				ObjectInfo[] values = new ObjectInfo[table.Length];
++				for (int i = 0; i < values.Length; i++) values[i] = table.Expand(i, compactSource!, Types);
++				Object = values;
++			}
++			return objects;
++		}
++		set { objects = value; CompactObject = null; compactSource = null; }
++	}
++	internal ObjectInfo.BorrowedTable? CompactObject { get; private set; }
+ 	public LocalSerializedObjectIdentifier[] ScriptTypes { get; set; } = [];
+ 	public FileIdentifier[] Externals { get; set; } = [];
+ 	public Utf8String UserInformation { get; set; } = Utf8String.Empty;
 diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs b/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs
 --- a/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs
 +++ b/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs
-@@ -20,6 +20,7 @@
+@@ -17,9 +17,12 @@
+ {
+ 	private FileIdentifier[]? m_dependencies;
+ 	private ObjectInfo[]? m_objects;
++	private ObjectInfo.BorrowedTable? compactObjects;
++	private SmartStream? objectSource;
  	private SerializedType[]? m_types;
  	private LocalSerializedObjectIdentifier[]? m_scriptTypes;
  	private SerializedTypeReference[]? m_refTypes;
@@ -503,30 +764,60 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs b/Sou
  
  	public FormatVersion Generation { get; private set; }
  	public UnityVersion Version { get; private set; }
-@@ -59,6 +60,9 @@
+@@ -58,7 +61,38 @@
+ 	}
  	public EndianType EndianType { get; private set; }
  	public ReadOnlySpan<FileIdentifier> Dependencies => m_dependencies;
- 	public ReadOnlySpan<ObjectInfo> Objects => m_objects;
+-	public ReadOnlySpan<ObjectInfo> Objects => m_objects;
++	public ReadOnlySpan<ObjectInfo> Objects
++	{
++		get
++		{
++			if (compactObjects is { } table)
++			{
++				ObjectInfo[] values = new ObjectInfo[table.Length];
++				for (int i = 0; i < values.Length; i++) values[i] = table.Expand(i, objectSource!, m_types);
++				m_objects = values; compactObjects = null; objectSource = null;
++			}
++			return m_objects;
++		}
++	}
++	/// <summary>Captures the current table for an import; later file replacement or release cannot change its iteration source.</summary>
++	public ObjectTable CaptureObjectTable() => new(m_objects, compactObjects, objectSource, m_types);
++	public readonly struct ObjectTable
++	{
++		private readonly ObjectInfo[]? objects;
++		private readonly ObjectInfo.BorrowedTable? compact;
++		private readonly SmartStream? source;
++		private readonly SerializedType[]? types;
++		internal ObjectTable(ObjectInfo[]? objects, ObjectInfo.BorrowedTable? compact, SmartStream? source, SerializedType[]? types)
++		{ this.objects = objects; this.compact = compact; this.source = source; this.types = types; }
++		public int Count => compact?.Length ?? objects?.Length ?? 0;
++		public ObjectInfo this[int index] => compact is { } table ? table.Expand(index, source!, types) : objects.AsSpan()[index];
++	}
++	public int ObjectCount => compactObjects?.Length ?? m_objects?.Length ?? 0;
++	public ObjectInfo GetObjectInfo(int index) => compactObjects is { } table
++		? table.Expand(index, objectSource!, m_types) : Objects[index];
 +	/// <summary>Detaches the table after an importing factory has retained its descriptor values.</summary>
 +	/// <remarks>The file still owns its payload source, types, references and dependencies.</remarks>
-+	public void ReleaseObjectDescriptors() => m_objects = null;
++	public void ReleaseObjectDescriptors() { m_objects = null; compactObjects = null; objectSource = null; }
  	public ReadOnlySpan<SerializedType> Types => m_types;
  	public ReadOnlySpan<LocalSerializedObjectIdentifier> ScriptTypes => m_scriptTypes;
  	public ReadOnlySpan<SerializedTypeReference> RefTypes => m_refTypes;
-@@ -97,9 +101,22 @@
+@@ -97,9 +131,22 @@
  			stream.Position = header.FileSize - header.MetadataSize;
  		}
  		SerializedFileMetadata metadata = new();
 -		metadata.Read(stream, header);
 -
 -		SetProperties(header, metadata);
-+		SmartStream? source = ReadMode == FileReadMode.MetadataOnly ? stream.CreateReadOnlySlice(0, stream.Length) : null;
++		SmartStream? source = ReadMode is FileReadMode.MetadataOnly or FileReadMode.CompactMetadataOnly ? stream.CreateReadOnlySlice(0, stream.Length) : null;
 +		try
 +		{
-+			metadata.Read(stream, header, source);
++			metadata.Read(stream, header, source, ReadMode == FileReadMode.CompactMetadataOnly);
 +			SetProperties(header, metadata);
 +			payloadSource?.Dispose();
-+			payloadSource = source;
++			payloadSource = source; objectSource = source;
 +		}
 +		catch { source?.Dispose(); throw; }
 +	}
@@ -539,11 +830,29 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs b/Sou
  	}
  
  	private void SetProperties(SerializedFileHeader header, SerializedFileMetadata metadata)
+@@ -109,7 +156,8 @@
+ 		Platform = metadata.TargetPlatform;
+ 		EndianType = GetEndianType(header, metadata);
+ 		m_dependencies = metadata.Externals;
+-		m_objects = metadata.Object;
++		compactObjects = metadata.CompactObject;
++		m_objects = compactObjects is null ? metadata.Object : null;
+ 		m_types = metadata.Types;
+ 		m_scriptTypes = metadata.ScriptTypes;
+ 		m_refTypes = metadata.RefTypes;
+@@ -119,6 +167,7 @@
+ 
+ 	public override void Write(Stream stream)
+ 	{
++		_ = Objects;
+ 		long initialPosition = stream.Position;
+ 		SerializedFileHeader header = new()
+ 		{
 diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleDataStream.cs b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleDataStream.cs
 new file mode 100644
 --- /dev/null
 +++ b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleDataStream.cs
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,97 @@
 +using AssetRipper.IO.Files.Streams.Smart;
 +
 +namespace AssetRipper.IO.Files.BundleFiles.FileStream;
@@ -556,6 +865,7 @@ new file mode 100644
 +	private readonly long[] logicalOffsets;
 +	private readonly long[] compressedOffsets;
 +	private long position;
++	private int lastBlockIndex = -1;
 +	private bool disposed;
 +
 +	public BundleDataStream(SmartStream input, BlocksInfo blocks)
@@ -599,15 +909,22 @@ new file mode 100644
 +		int total = 0;
 +		while (!buffer.IsEmpty && position < Length)
 +		{
-+			// Upper bound handles empty blocks and exact block boundaries without a zero-progress loop.
-+			int low = 0, high = logicalOffsets.Length - 1;
-+			while (low < high)
++			// The hint describes an interval, not decoded contents. Shared entry ranges may seek
++			// this stream between reads, so validate it against the current logical position.
++			int blockIndex = lastBlockIndex;
++			if (blockIndex < 0 || position < logicalOffsets[blockIndex] || position >= logicalOffsets[blockIndex + 1])
 +			{
-+				int middle = low + (high - low) / 2;
-+				if (logicalOffsets[middle + 1] <= position) low = middle + 1;
-+				else high = middle;
++				// Upper bound skips empty blocks and exact boundaries without a zero-progress loop.
++				int low = 0, high = logicalOffsets.Length - 1;
++				while (low < high)
++				{
++					int middle = low + (high - low) / 2;
++					if (logicalOffsets[middle + 1] <= position) low = middle + 1;
++					else high = middle;
++				}
++				blockIndex = lastBlockIndex = low;
 +			}
-+			int read = reader.ReadBlockRange(low, compressedOffsets[low], position - logicalOffsets[low], buffer);
++			int read = reader.ReadBlockRange(blockIndex, logicalOffsets[blockIndex], compressedOffsets[blockIndex], position - logicalOffsets[blockIndex], buffer);
 +			position += read;
 +			total += read;
 +			buffer = buffer[read..];
@@ -636,7 +953,20 @@ new file mode 100644
 diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockReader.cs b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockReader.cs
 --- a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockReader.cs
 +++ b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockReader.cs
-@@ -80,12 +80,12 @@
+@@ -49,6 +49,12 @@
+ 			blockCompressedOffset += m_blocksInfo.StorageBlocks[blockIndex].CompressedSize;
+ 			blockDecompressedOffset += m_blocksInfo.StorageBlocks[blockIndex].UncompressedSize;
+ 		}
++		return ReadEntryCore(entry, blockIndex, blockCompressedOffset, blockDecompressedOffset);
++	}
++
++	// Both callers have located the starting block already. Keep the codec/cache path shared.
++	private SmartStream ReadEntryCore(FileStreamNode entry, int blockIndex, long blockCompressedOffset, long blockDecompressedOffset)
++	{
+ 		long entryOffsetInsideBlock = entry.Offset - blockDecompressedOffset;
+ 
+ 		using SmartStream entryStream = CreateStream(entry.Size);
+@@ -80,12 +86,12 @@
  				else
  				{
  					blockStreamOffset = 0;
@@ -650,7 +980,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockR
  					m_cachedBlockStream.Move(CreateTemporaryStream(block.UncompressedSize, out m_cachedBlockArray));
  					switch (compressType)
  					{
-@@ -95,10 +95,11 @@
+@@ -95,10 +101,11 @@
  
  						case CompressionType.Lz4:
  						case CompressionType.Lz4HC:
@@ -666,7 +996,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockR
  							if (bytesWritten < 0)
  							{
  								DecompressionFailedException.ThrowNoBytesWritten(entry.PathFixed, compressType);
-@@ -107,7 +108,7 @@
+@@ -107,7 +114,7 @@
  							{
  								DecompressionFailedException.ThrowIncorrectNumberBytesWritten(entry.PathFixed, compressType, uncompressedSize, bytesWritten);
  							}
@@ -675,7 +1005,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockR
  							break;
  
  						case CompressionType.Lzham:
-@@ -125,6 +126,7 @@
+@@ -125,6 +132,7 @@
  							}
  							break;
  					}
@@ -683,12 +1013,12 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockR
  					blockStream = m_cachedBlockStream;
  				}
  			}
-@@ -158,6 +160,37 @@
+@@ -158,6 +166,36 @@
  		return entryStream.CreateReference();
  	}
  
 +	// Reuse the existing codec and its single-block cache, but do not allocate an entry buffer.
-+	public int ReadBlockRange(int blockIndex, long compressedOffset, long offset, Span<byte> destination)
++	public int ReadBlockRange(int blockIndex, long logicalOffset, long compressedOffset, long offset, Span<byte> destination)
 +	{
 +		ObjectDisposedException.ThrowIf(m_isDisposed, this);
 +		StorageBlock block = m_blocksInfo.StorageBlocks[blockIndex];
@@ -704,11 +1034,10 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockR
 +			{
 +				// ReadEntry already owns the supported codec implementations and the pooled cache.
 +				// A one-byte view populates that cache without creating a second block-sized buffer.
-+				long logicalOffset = 0;
-+				for (int i = 0; i < blockIndex; i++) logicalOffset += m_blocksInfo.StorageBlocks[i].UncompressedSize;
 +				try
 +				{
-+					using SmartStream probe = ReadEntry(new FileStreamNode { Offset = logicalOffset, Size = 1 });
++					using SmartStream probe = ReadEntryCore(new FileStreamNode { Offset = logicalOffset, Size = 1 },
++						blockIndex, compressedOffset, logicalOffset);
 +				}
 +				catch { m_cachedBlockIndex = -1; throw; }
 +			}
@@ -721,7 +1050,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockR
  	private void Dispose(bool disposing)
  	{
  		m_isDisposed = true;
-@@ -167,6 +200,22 @@
+@@ -167,6 +205,22 @@
  			ArrayPool<byte>.Shared.Return(m_cachedBlockArray);
  			m_cachedBlockArray = null;
  		}
@@ -744,7 +1073,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockR
  	}
  
  	private static SmartStream CreateStream(long decompressedSize)
-@@ -215,6 +264,7 @@
+@@ -215,6 +269,7 @@
  
  	private readonly SmartStream m_cachedBlockStream = SmartStream.CreateNull();
  	private byte[]? m_cachedBlockArray;
@@ -759,7 +1088,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundle
  			stream.Align(16);
  		}
  
-+		using SmartStream? lazyData = ReadMode == FileReadMode.MetadataOnly
++		using SmartStream? lazyData = ReadMode is FileReadMode.MetadataOnly or FileReadMode.CompactMetadataOnly
 +			? SmartStream.CreateOwned(new BundleDataStream(stream, BlocksInfo)) : null;
  		using BundleFileBlockReader blockReader = new BundleFileBlockReader(stream, BlocksInfo);
  		foreach (FileStreamNode entry in DirectoryInfo.Nodes)
@@ -785,7 +1114,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/RawWeb/RawWebBundleFile.cs 
  
  	private void ReadRawWebData(Stream stream, long metadataOffset)
  	{
-+		if (ReadMode == FileReadMode.MetadataOnly)
++		if (ReadMode is FileReadMode.MetadataOnly or FileReadMode.CompactMetadataOnly)
 +		{
 +			using SmartStream source = stream is SmartStream smart ? smart.CreateReference() : SmartStream.CreateOwned(stream);
 +			foreach (RawWebNode entry in DirectoryInfo.Nodes)
@@ -805,7 +1134,7 @@ diff --git a/Source/AssetRipper.IO.Files/WebFiles/WebFile.cs b/Source/AssetRippe
  
  		foreach (WebFileEntry entry in entries)
  		{
-+			if (ReadMode == FileReadMode.MetadataOnly)
++			if (ReadMode is FileReadMode.MetadataOnly or FileReadMode.CompactMetadataOnly)
 +			{
 +				using SmartStream range = stream.CreateReadOnlySlice(checked(basePosition + entry.Offset), entry.Size);
 +				AddResourceFile(new ResourceFile(range, FilePath, entry.Name));
@@ -817,16 +1146,35 @@ diff --git a/Source/AssetRipper.IO.Files/WebFiles/WebFile.cs b/Source/AssetRippe
 diff --git a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs b/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
 --- a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
 +++ b/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
-@@ -6,5 +6,16 @@
+@@ -1,10 +1,34 @@
+-﻿using AssetRipper.Assets.Generics;
++using AssetRipper.Assets.Collections;
++using AssetRipper.Assets.Generics;
+ using AssetRipper.Assets.Metadata;
+ using AssetRipper.IO.Files.SerializedFiles.Parser;
++using AssetRipper.IO.Files.SerializedFiles;
+ 
+ namespace AssetRipper.Assets.IO;
  
  public abstract class AssetFactoryBase
  {
++	/// <summary>Completes opt-in logical rows before source descriptors can be released.</summary>
++	public virtual void CompleteCollection(AssetCollection collection) { }
++
 +	/// <summary>Opt in only when successful reads retain every descriptor needed later.</summary>
 +	/// <remarks>The collection releases only metadata-only source tables, after all assets are added.</remarks>
 +	public virtual bool ReleaseSourceObjectDescriptors => false;
 +
 +	/// <summary>Validates a complete source table before any object is read; default behavior is unchanged.</summary>
 +	public virtual void ValidateObjectTable(ReadOnlySpan<ObjectInfo> objects) { }
++
++	/// <summary>Collection-aware preparation; existing factories retain their original validation hook.</summary>
++	public virtual void ValidateObjectTable(AssetCollection collection, ReadOnlySpan<ObjectInfo> objects)
++		=> ValidateObjectTable(objects);
++
++	/// <summary>Indexed source tables remain opt-in; ordinary factories keep their span validation.</summary>
++	public virtual void ValidateObjectTable(AssetCollection collection, SerializedFile file)
++		=> ValidateObjectTable(collection, file.Objects);
 +
 +	public virtual IUnityObjectBase? ReadAsset(AssetInfo assetInfo, in ObjectInfo objectInfo,
 +		IReadOnlyList<SerializedTypeReference> referenceTypes)
@@ -837,14 +1185,23 @@ diff --git a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs b/Source/AssetRipp
 diff --git a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs b/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
 --- a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
 +++ b/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
-@@ -73,16 +73,21 @@
+@@ -1,4 +1,4 @@
+-﻿using AssetRipper.Assets.Bundles;
++using AssetRipper.Assets.Bundles;
+ using AssetRipper.Assets.IO;
+ using AssetRipper.Assets.Metadata;
+ using AssetRipper.IO.Files.SerializedFiles;
+@@ -73,16 +73,24 @@
  
  	private static void ReadData(SerializedAssetCollection collection, SerializedFile file, AssetFactoryBase factory)
  	{
-+		factory.ValidateObjectTable(file.Objects);
++		factory.ValidateObjectTable(collection, file);
  		SerializedTypeReference[] referenceTypes = file.RefTypes.ToArray();
- 		foreach (ObjectInfo objectInfo in file.Objects)
+-		foreach (ObjectInfo objectInfo in file.Objects)
++		SerializedFile.ObjectTable objects = file.CaptureObjectTable();
++		for (int i = 0; i < objects.Count; i++)
  		{
++			ObjectInfo objectInfo = objects[i];
  			int classID = objectInfo.TypeID < 0 ? 114 : objectInfo.TypeID;
  			AssetInfo assetInfo = new AssetInfo(collection, objectInfo.FileID, classID);
 -			IUnityObjectBase? asset = factory.ReadAsset(assetInfo, objectInfo.ObjectData, objectInfo.Type, referenceTypes);
@@ -854,9 +1211,72 @@ diff --git a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs 
  				collection.AddAsset(asset);
  			}
  		}
-+		if (file.ReadMode == AssetRipper.IO.Files.FileReadMode.MetadataOnly && factory.ReleaseSourceObjectDescriptors)
++		factory.CompleteCollection(collection);
++		if (file.ReadMode is AssetRipper.IO.Files.FileReadMode.MetadataOnly or AssetRipper.IO.Files.FileReadMode.CompactMetadataOnly && factory.ReleaseSourceObjectDescriptors)
 +		{
 +			file.ReleaseObjectDescriptors();
 +		}
  	}
  }
+diff --git a/Source/AssetRipper.Assets/Collections/AssetCollection.cs b/Source/AssetRipper.Assets/Collections/AssetCollection.cs
+--- a/Source/AssetRipper.Assets/Collections/AssetCollection.cs
++++ b/Source/AssetRipper.Assets/Collections/AssetCollection.cs
+@@ -1,4 +1,4 @@
+-﻿using AssetRipper.Assets.Bundles;
++using AssetRipper.Assets.Bundles;
+ using AssetRipper.Assets.Metadata;
+ using AssetRipper.IO.Endian;
+ using AssetRipper.IO.Files;
+@@ -10,6 +10,13 @@
+ /// <summary>
+ /// A collection of <see cref="IUnityObjectBase"/> assets.
+ /// </summary>
++/// <summary>Opt-in owner of logical assets not eagerly stored in a collection.</summary>
++public interface IAssetResolver
++{
++	IUnityObjectBase? TryGetAsset(long pathID);
++	void ReplaceAsset(IUnityObjectBase replacement);
++}
++
+ public abstract class AssetCollection : IReadOnlyCollection<IUnityObjectBase>
+ {
+ 	protected AssetCollection(Bundle bundle)
+@@ -33,6 +40,8 @@
+ 	private readonly List<AssetCollection?> dependencies = new();
+ 	public IReadOnlyDictionary<long, IUnityObjectBase> Assets => assets;
+ 	private readonly Dictionary<long, IUnityObjectBase> assets = new();
++	/// <summary>Optional logical assets. Enumerating the eager dictionary never invokes this resolver.</summary>
++	public IAssetResolver? AssetResolver { get; set; }
+ 	public UnityVersion OriginalVersion { get; protected set; }
+ 	public UnityVersion Version { get; protected set; }
+ 	public BuildTarget Platform { get; protected set; }
+@@ -144,7 +153,8 @@
+ 	public void ReplaceAsset(IUnityObjectBase replacement)
+ 	{
+ 		ValidateAsset(replacement);
+-		assets[replacement.PathID] = replacement;
++		if (assets.ContainsKey(replacement.PathID)) assets[replacement.PathID] = replacement;
++		else AssetResolver!.ReplaceAsset(replacement);
+ 
+ 		void ValidateAsset(IUnityObjectBase replacement)
+ 		{
+@@ -152,7 +162,7 @@
+ 			{
+ 				throw new ArgumentException("AssetInfo must have this marked as its collection.", nameof(replacement));
+ 			}
+-			if (!assets.TryGetValue(replacement.PathID, out IUnityObjectBase? original))
++			if (!TryGetAsset(replacement.PathID, out IUnityObjectBase? original))
+ 			{
+ 				throw new ArgumentException("There is no existing asset with this PathID.", nameof(replacement));
+ 			}
+@@ -188,7 +198,9 @@
+ 
+ 	public bool TryGetAsset<T>(long pathID, [NotNullWhen(true)] out T? asset) where T : IUnityObjectBase
+ 	{
+-		if (assets.TryGetValue(pathID, out IUnityObjectBase? @object))
++		assets.TryGetValue(pathID, out IUnityObjectBase? @object);
++		@object ??= AssetResolver?.TryGetAsset(pathID);
++		if (@object is not null)
+ 		{
+ 			if (typeof(T).IsAssignableTo(typeof(NullObject)))
+ 			{

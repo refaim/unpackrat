@@ -19,13 +19,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 PROJECT = ROOT / "experiments" / "unity-nativeaot" / "UnityProbe" / "UnityProbe.csproj"
-WORK_ROOT = ROOT / "out" / "unity-speed" / "gc-sdk-contract" / f"run-{os.getpid()}"
+WORK_ROOT = ROOT / "out" / "unity-gc-blocking-default" / "sdk-contract" / f"run-{os.getpid()}"
 OPT_IN = os.environ.get("UNPACKRAT_RUN_NATIVE_GC_TESTS") == "1"
 GC_POLICY_OPTIONS = {
     "System.GC.HeapCount",
     "System.GC.MaxHeapCount",
     "System.GC.DynamicAdaptationMode",
     "System.GC.ConserveMemory",
+    "System.GC.Concurrent",
 }
 
 # Supply only an input/response destination to the real compiler-response target.
@@ -76,7 +77,7 @@ def sdk_probe(case: str, rid: str, *, native: bool = True, response: bool = True
     args = [
         "dotnet", "msbuild", str(PROJECT), "-nologo", "-nodeReuse:false",
         "-getItem:NativeLibrary,IlcArg,RuntimeHostConfigurationOption",
-        "-getProperty:ServerGarbageCollection,FullRuntimeName,RuntimeIdentifier,PublishAot",
+        "-getProperty:ServerGarbageCollection,ConcurrentGarbageCollection,FullRuntimeName,RuntimeIdentifier,PublishAot",
     ]
     if response:
         args.append("-t:ResolveFrameworkReferences;WriteIlcRspFileForCompilation")
@@ -103,7 +104,7 @@ class NativeGcSdkContractTests(unittest.TestCase):
         if shutil.which("dotnet") is None:
             raise unittest.SkipTest("installed dotnet SDK is required")
 
-    def test_win_x64_links_exactly_the_static_server_gc_runtime(self):
+    def test_win_x64_links_exactly_the_static_workstation_gc_runtime(self):
         data, rsp = sdk_probe("win-x64", "win-x64")
         items = data["Items"]
         runtime_libraries = [
@@ -113,32 +114,33 @@ class NativeGcSdkContractTests(unittest.TestCase):
         ]
         self.assertEqual(
             [Path(item["Identity"]).name for item in runtime_libraries],
-            ["Runtime.ServerGC.lib"],
-            "the real SDK must link exactly its static Server GC runtime",
+            ["Runtime.WorkstationGC.lib"],
+            "the real SDK must link exactly its static Workstation GC runtime",
         )
         self.assertTrue(Path(runtime_libraries[0]["Identity"]).is_file(), "installed runtime library missing")
         self.assertEqual(Path(runtime_libraries[0]["DefiningProjectFullPath"]).name, "Microsoft.NETCore.Native.Windows.targets")
-        self.assertEqual(data["Properties"]["ServerGarbageCollection"], "true")
-        expected = "--runtimeopt:gcServer=1"
-        matches = [item for item in items["IlcArg"] if item["Identity"] == expected]
-        self.assertEqual(len(matches), 1, expected)
-        self.assertEqual(Path(matches[0]["DefiningProjectFullPath"]).name, "Microsoft.NETCore.Native.targets")
-        self.assertEqual(rsp.count(expected), 1, "real SDK response file must carry the same flag")
+        self.assertEqual(data["Properties"]["ServerGarbageCollection"], "false")
+        self.assertEqual(
+            [item["Identity"] for item in items["IlcArg"] if item["Identity"].startswith("--runtimeopt:gcServer=")],
+            [],
+            "Workstation GC is the actual SDK default; no Server GC runtime option may remain",
+        )
+        self.assertEqual([line for line in rsp if line.startswith("--runtimeopt:gcServer=")], [])
 
-    def test_win_x64_embeds_adaptive_conservation_without_a_fixed_heap_count(self):
-        data, rsp = sdk_probe("win-x64-adaptive-conservation", "win-x64")
+    def test_win_x64_embeds_blocking_workstation_gc_and_memory_conservation(self):
+        data, rsp = sdk_probe("win-x64-blocking-conservation", "win-x64")
         items = data["Items"]
         expected_options = {
-            "System.GC.MaxHeapCount": "4",
-            "System.GC.DynamicAdaptationMode": "1",
             "System.GC.ConserveMemory": "9",
+            "System.GC.Concurrent": "false",
         }
         options = [
             (item["Identity"], item["Value"])
             for item in items["RuntimeHostConfigurationOption"]
             if item["Identity"] in GC_POLICY_OPTIONS
         ]
-        self.assertCountEqual(options, expected_options.items(), "a fixed HeapCount disables dynamic adaptation")
+        self.assertCountEqual(options, expected_options.items(), "Workstation GC must embed blocking collection and conservation without Server GC heap policy")
+        self.assertEqual(data["Properties"]["ConcurrentGarbageCollection"], "false")
         expected_flags = [f"--runtimeknob:{name}={value}" for name, value in expected_options.items()]
         policy_prefixes = tuple(f"--runtimeknob:{name}=" for name in GC_POLICY_OPTIONS)
         self.assertCountEqual(
@@ -174,6 +176,7 @@ class NativeGcSdkContractTests(unittest.TestCase):
 
     def assert_not_configured(self, data, rsp):
         self.assertNotEqual(data["Properties"]["ServerGarbageCollection"].lower(), "true")
+        self.assertNotEqual(data["Properties"]["ConcurrentGarbageCollection"].lower(), "false")
         self.assertFalse(any(item["Identity"] in GC_POLICY_OPTIONS for item in data["Items"]["RuntimeHostConfigurationOption"]))
         policy_prefixes = tuple(f"--runtimeknob:{name}=" for name in GC_POLICY_OPTIONS)
         self.assertFalse(any(item["Identity"] == "--runtimeopt:gcServer=1" or item["Identity"].startswith(policy_prefixes) for item in data["Items"]["IlcArg"]))

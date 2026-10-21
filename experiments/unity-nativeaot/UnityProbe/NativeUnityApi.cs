@@ -35,6 +35,12 @@ public static unsafe class NativeUnityApi
 	internal static int GetEntryExtension(ulong session, int index, ushort* extension, int capacity, int* length)
 		=> Production.GetEntryExtension(session, index, extension, capacity, length);
 
+	[UnmanagedCallersOnly(EntryPoint = "unpackrat_unity_get_metadata", CallConvs = [typeof(CallConvCdecl)])]
+	internal static int GetMetadata(ulong session, int index, UnityMetadata* metadata, ushort* name,
+		int nameCapacity, ushort* original, int originalCapacity, ushort* extension, int extensionCapacity)
+		=> Production.GetMetadata(session, index, metadata, name, nameCapacity, original, originalCapacity,
+			extension, extensionCapacity);
+
 	[UnmanagedCallersOnly(EntryPoint = "unpackrat_unity_export", CallConvs = [typeof(CallConvCdecl)])]
 	internal static int Export(ulong session, int index, delegate* unmanaged[Cdecl]<void*, byte*, int, int> write, void* context)
 		=> Production.Export(session, index, write, context);

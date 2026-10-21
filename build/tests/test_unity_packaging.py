@@ -24,7 +24,7 @@ import main  # noqa: E402
 
 
 UNITY = "unity"
-UNITY_VERSION = "0.3.3"
+UNITY_VERSION = "0.3.4"
 MODULES_UNDER_TEST = ("renpy", "rpgmaker", "zanzarah", "godot")
 
 UNITY_SO_X86 = b"\x7fELF unity shared object x86 fixture\n"

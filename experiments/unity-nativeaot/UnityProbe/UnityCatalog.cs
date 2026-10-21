@@ -64,6 +64,17 @@ internal static class DeclaredSourceSize
 /// Project-owned view of a loaded asset graph whose collections are exactly the *selected* set.
 /// Dependency collections loaded only for reference resolution are deliberately absent.
 /// </summary>
+internal readonly record struct UnityEntryMetadata(UnityEntryKind Kind, int CollectionIndex, long PathId, long SourceSize, string OriginalPath, string OutputExtension);
+
+internal interface ICompactUnityGraph
+{
+	IReadOnlyList<UnityCatalogEntry> Entries { get; }
+	UnityEntryMetadata Metadata(int index);
+	int NameLength(int index);
+	void CopyName(int index, Span<char> destination);
+	byte[]? Export(int index);
+}
+
 internal interface IUnityGraph : IDisposable
 {
 	IReadOnlyList<IUnityGraphCollection> Collections { get; }

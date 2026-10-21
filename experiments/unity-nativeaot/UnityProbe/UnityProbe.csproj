@@ -17,15 +17,22 @@
 		<IlcDisableReflection>true</IlcDisableReflection>
 	</PropertyGroup>
 
-	<!-- Use adaptive Server GC with memory conservation for the shared x64 module.
-	     A fixed HeapCount disables adaptation. The SDK embeds these runtime defaults;
-	     MaxHeapCount is an adaptive policy input, not an instantaneous heap-count claim. -->
+	<!-- Release shared AOT modules for either Windows architecture use independent
+	     size defaults. This does not remove PDBs, and explicit values remain
+	     authoritative. -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(PublishAot)' == 'true' and '$(NativeLib)' == 'Shared' and ('$(RuntimeIdentifier)' == 'win-x64' or '$(RuntimeIdentifier)' == 'win-x86')">
+		<StackTraceSupport Condition="'$(StackTraceSupport)' == ''">false</StackTraceSupport>
+		<OptimizationPreference Condition="'$(OptimizationPreference)' == ''">Size</OptimizationPreference>
+		<IlcDehydrate Condition="'$(IlcDehydrate)' == ''">true</IlcDehydrate>
+	</PropertyGroup>
+
+	<!-- Use blocking Workstation GC with memory conservation for the shared Windows x64 module.
+	     Other build modes retain the SDK's existing GC defaults. -->
 	<PropertyGroup Condition="'$(PublishAot)' == 'true' and '$(NativeLib)' == 'Shared' and '$(RuntimeIdentifier)' == 'win-x64'">
-		<ServerGarbageCollection>true</ServerGarbageCollection>
+		<ServerGarbageCollection>false</ServerGarbageCollection>
+		<ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
 	</PropertyGroup>
 	<ItemGroup Condition="'$(PublishAot)' == 'true' and '$(NativeLib)' == 'Shared' and '$(RuntimeIdentifier)' == 'win-x64'">
-		<RuntimeHostConfigurationOption Include="System.GC.MaxHeapCount" Value="4" />
-		<RuntimeHostConfigurationOption Include="System.GC.DynamicAdaptationMode" Value="1" />
 		<RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
 	</ItemGroup>
 

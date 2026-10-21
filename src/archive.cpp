@@ -52,6 +52,14 @@ namespace archive
         if (!opened_) {
             throw read_error();
         }
+        if (auto *catalogue = extractor_->indexed_files()) {
+            try {
+                catalogue->prepare();
+            } catch (extractor::read_error &) {
+                throw read_error();
+            }
+            return;
+        }
         if (!files_.empty()) {
             return;
         }
@@ -75,10 +83,63 @@ namespace archive
         return *files_[index];
     }
 
+    extractor::file_metadata archive::get_metadata(const size_t index) const
+    {
+        if (const auto *catalogue = extractor_->indexed_files()) {
+            return catalogue->metadata(index);
+        }
+        const auto &file = get_file(index);
+        const auto header_size = std::ssize(file.header);
+        // Preserve the legacy C-string path behavior, including an embedded terminator.
+        return {std::string_view(file.path.c_str()), header_size + file.uncompressed_body_size_in_bytes,
+                header_size + file.compressed_body_size_in_bytes};
+    }
+
+    void archive::get_metadata_into(const size_t index, const std::span<char> buffer,
+                                    extractor::file_metadata &out) const
+    {
+        if (const auto *catalogue = extractor_->indexed_files()) {
+            // A lazy catalogue materialises the path into the caller buffer; a retained
+            // provider keeps its own storage and is copied through metadata() unchanged.
+            if (const auto column = catalogue->path_into(index, buffer)) {
+                out.path = std::string_view(buffer.data(), column->written);
+                out.size = column->size;
+                out.packed_size = column->packed_size;
+                return;
+            }
+            out = catalogue->metadata(index);
+            return;
+        }
+        out = get_metadata(index);
+    }
+
+    std::optional<extractor::indexed_catalogue::column>
+    archive::get_wide_metadata_into(const size_t index, const std::span<wchar_t> buffer) const
+    {
+        const auto *catalogue = extractor_->indexed_files();
+        if (catalogue == nullptr) {
+            return std::nullopt;
+        }
+        const auto column = catalogue->wide_path_into(index, buffer);
+        if (column && column->written > buffer.size()) {
+            // Reject a malformed producer before the caller can consume a short buffer.
+            throw extractor::read_error();
+        }
+        return column;
+    }
+
     void archive::extract_file(const size_t index, const std::filesystem::path &path,
                                const std::function<void(int64_t)> &report_progress) const
     {
-        const extractor::file &file = get_file(index);
+        const auto *catalogue = extractor_->indexed_files();
+        const extractor::file *legacy = nullptr;
+        if (catalogue != nullptr) {
+            if (index >= catalogue->count()) {
+                throw std::out_of_range("Index out of range");
+            }
+        } else {
+            legacy = &get_file(index);
+        }
         std::ofstream output(path, std::ios::binary);
         if (!output.is_open()) {
             throw write_error();
@@ -86,7 +147,7 @@ namespace archive
         output.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ofstream::failbit) |
                                                               static_cast<unsigned>(std::ofstream::badbit)));
 
-        if (file.extract) {
+        if (catalogue != nullptr || legacy->extract) {
             // A custom handler owns the whole destination body. On any failure the
             // partially written destination is discarded without masking the original
             // exception; a failed output open above never removes an existing file.
@@ -98,7 +159,11 @@ namespace archive
             };
 
             try {
-                file.extract(*stream_, output, report_progress);
+                if (catalogue != nullptr) {
+                    catalogue->extract(index, output, report_progress);
+                } else {
+                    legacy->extract(*stream_, output, report_progress);
+                }
                 output.close();
             } catch (const extractor::read_error &) {
                 discard_partial();
@@ -113,6 +178,7 @@ namespace archive
             return;
         }
 
+        const extractor::file &file = *legacy;
         constexpr int64_t buffer_size = 128LL * 1024;
         std::vector<char> buffer(buffer_size);
 

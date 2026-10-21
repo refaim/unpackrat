@@ -57,6 +57,24 @@ internal struct UnityEntry
 	public uint Reserved2;
 }
 
+/// <summary>The fixed 48-byte combined metadata descriptor the ABI writes into caller memory.</summary>
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct UnityMetadata
+{
+	internal const uint Size = 48;
+
+	public uint StructSize;
+	public int Kind;
+	public int CollectionIndex;
+	public uint Reserved;
+	public long PathId;
+	public long SourceSize;
+	public int NameLength;
+	public int OriginalLength;
+	public int ExtensionLength;
+	public uint Reserved2;
+}
+
 /// <summary>
 /// The tested boundary behind the exported Unity session entry points: a fixed handle registry over
 /// <see cref="UnitySession"/> instances, with one serialised operation per session.
@@ -188,7 +206,7 @@ internal sealed unsafe class UnitySessionAbi
 		}
 
 		*sessionOut = token;
-		*countOut = session.Entries.Count;
+		*countOut = session.Count;
 		return UnityAbi.Ok;
 	}
 
@@ -226,19 +244,20 @@ internal sealed unsafe class UnitySessionAbi
 
 		try
 		{
-			IReadOnlyList<UnityCatalogEntry> entries = slot.Session!.Entries;
-			if (index < 0 || index >= entries.Count)
+			UnitySession current = slot.Session!;
+			if (index < 0 || index >= current.Count)
 			{
 				return UnityAbi.OutOfRange;
 			}
 
-			UnityCatalogEntry found = entries[index];
+			UnityEntryMetadata found = current.Metadata(index);
+			int nameLength = current.NameLength(index);
 			// The own zero-based enum maps to the frozen external kind ids by a single +1, so a new
 			// resource kind cannot be mislabelled as an older one the way a texture/text ternary would.
 			entry->Kind = (int)found.Kind + 1;
 			entry->CollectionIndex = found.CollectionIndex;
 			entry->PathId = found.PathId;
-			entry->NameLength = (uint)found.Name.Length;
+			entry->NameLength = (uint)nameLength;
 
 			if (name == null)
 			{
@@ -246,14 +265,14 @@ internal sealed unsafe class UnitySessionAbi
 				return UnityAbi.Ok;
 			}
 
-			if (nameCapacity < found.Name.Length)
+			if (nameCapacity < nameLength)
 			{
 				return UnityAbi.BufferTooSmall;
 			}
 
-			if (found.Name.Length > 0)
+			if (nameLength > 0)
 			{
-				found.Name.AsSpan().CopyTo(new Span<char>((char*)name, found.Name.Length));
+				current.CopyName(index, new Span<char>((char*)name, nameLength));
 			}
 
 			return UnityAbi.Ok;
@@ -288,13 +307,13 @@ internal sealed unsafe class UnitySessionAbi
 
 		try
 		{
-			IReadOnlyList<UnityCatalogEntry> entries = slot.Session!.Entries;
-			if (index < 0 || index >= entries.Count)
+			UnitySession current = slot.Session!;
+			if (index < 0 || index >= current.Count)
 			{
 				return UnityAbi.OutOfRange;
 			}
 
-			*sizeOut = entries[index].SourceSize;
+			*sizeOut = current.Metadata(index).SourceSize;
 			return UnityAbi.Ok;
 		}
 		finally
@@ -333,13 +352,13 @@ internal sealed unsafe class UnitySessionAbi
 
 		try
 		{
-			IReadOnlyList<UnityCatalogEntry> entries = slot.Session!.Entries;
-			if (index < 0 || index >= entries.Count)
+			UnitySession current = slot.Session!;
+			if (index < 0 || index >= current.Count)
 			{
 				return UnityAbi.OutOfRange;
 			}
 
-			string original = entries[index].OriginalPath;
+			string original = current.Metadata(index).OriginalPath;
 			*pathLength = original.Length;
 			if (path == null)
 			{
@@ -395,13 +414,13 @@ internal sealed unsafe class UnitySessionAbi
 
 		try
 		{
-			IReadOnlyList<UnityCatalogEntry> entries = slot.Session!.Entries;
-			if (index < 0 || index >= entries.Count)
+			UnitySession current = slot.Session!;
+			if (index < 0 || index >= current.Count)
 			{
 				return UnityAbi.OutOfRange;
 			}
 
-			string value = entries[index].OutputExtension;
+			string value = current.Metadata(index).OutputExtension;
 			*length = value.Length;
 			if (extension == null)
 			{
@@ -425,6 +444,119 @@ internal sealed unsafe class UnitySessionAbi
 			Release(slot);
 		}
 	}
+
+	/// <summary>
+	/// Reads the whole metadata of catalogue entry <paramref name="index"/> in one serialised
+	/// operation, writing the descriptor and the three field lengths and copying each field into its
+	/// caller-owned UTF-16 buffer when that buffer is large enough.
+	/// </summary>
+	public int GetMetadata(ulong session, int index, UnityMetadata* metadata, ushort* name,
+		int nameCapacity, ushort* original, int originalCapacity, ushort* extension, int extensionCapacity)
+	{
+		if (metadata == null)
+		{
+			return UnityAbi.InvalidArgument;
+		}
+
+		if (metadata->StructSize != UnityMetadata.Size)
+		{
+			return UnityAbi.InvalidArgument;
+		}
+
+		// A caller-supplied size of exactly 48 promises 48 writable bytes, so the whole descriptor
+		// is initialised before anything else can fail.
+		*metadata = default;
+		metadata->StructSize = UnityMetadata.Size;
+
+		if (nameCapacity < 0 || (name == null && nameCapacity > 0)
+			|| originalCapacity < 0 || (original == null && originalCapacity > 0)
+			|| extensionCapacity < 0 || (extension == null && extensionCapacity > 0))
+		{
+			return UnityAbi.InvalidArgument;
+		}
+
+		Slot? slot = Acquire(session, out int status);
+		if (slot is null)
+		{
+			return status;
+		}
+
+		try
+		{
+			UnitySession current = slot.Session!;
+			if (index < 0 || index >= current.Count)
+			{
+				return UnityAbi.OutOfRange;
+			}
+
+			UnityEntryMetadata found = current.Metadata(index);
+			int nameLength = current.NameLength(index);
+			string originalPath = found.OriginalPath;
+			string outputExtension = found.OutputExtension;
+
+			// Every length lands in the descriptor before any buffer is touched, so a bounded
+			// caller can retry with exact buffers on a short-buffer report.
+			metadata->Kind = (int)found.Kind + 1;
+			metadata->CollectionIndex = found.CollectionIndex;
+			metadata->PathId = found.PathId;
+			metadata->SourceSize = found.SourceSize;
+			metadata->NameLength = nameLength;
+			metadata->OriginalLength = originalPath.Length;
+			metadata->ExtensionLength = outputExtension.Length;
+
+			// Each field copies only when its caller buffer fits. A field with a short buffer is
+			// left untouched and reports a single BufferTooSmall for the whole call; a null buffer
+			// with zero capacity is a size query for that field.
+			bool shortBuffer = false;
+
+			if (name != null)
+			{
+				if (nameCapacity < nameLength)
+				{
+					shortBuffer = true;
+				}
+				else if (nameLength > 0)
+				{
+					current.CopyName(index, new Span<char>((char*)name, nameLength));
+				}
+			}
+
+			if (original != null)
+			{
+				if (originalCapacity < originalPath.Length)
+				{
+					shortBuffer = true;
+				}
+				else if (originalPath.Length > 0)
+				{
+					originalPath.AsSpan().CopyTo(new Span<char>((char*)original, originalPath.Length));
+				}
+			}
+
+			if (extension != null)
+			{
+				if (extensionCapacity < outputExtension.Length)
+				{
+					shortBuffer = true;
+				}
+				else if (outputExtension.Length > 0)
+				{
+					outputExtension.AsSpan().CopyTo(new Span<char>((char*)extension, outputExtension.Length));
+				}
+			}
+
+			return shortBuffer ? UnityAbi.BufferTooSmall : UnityAbi.Ok;
+		}
+		finally
+		{
+			Release(slot);
+		}
+	}
+
+	/// <summary>
+	/// Materialises entry <paramref name="index"/> and hands it to <paramref name="write"/> in chunks
+	/// of at most <see cref="MaxChunkSize"/> bytes, honouring cancellation and write failures.
+	/// </summary>
 
 	/// <summary>
 	/// Materialises entry <paramref name="index"/> and hands it to <paramref name="write"/> in chunks
@@ -504,7 +636,7 @@ internal sealed unsafe class UnitySessionAbi
 
 	private static int ExportCore(UnitySession session, int index, delegate* unmanaged[Cdecl]<void*, byte*, int, int> write, void* context)
 	{
-		if (index < 0 || index >= session.Entries.Count)
+		if (index < 0 || index >= session.Count)
 		{
 			return UnityAbi.OutOfRange;
 		}

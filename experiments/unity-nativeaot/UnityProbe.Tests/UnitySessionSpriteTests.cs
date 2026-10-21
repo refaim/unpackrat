@@ -432,6 +432,8 @@ public sealed class UnitySessionSpriteTests
 		File.WriteAllBytes(Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName), atlasFile);
 
 		using UnitySession session = UnitySession.Open(selected);
+		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(selected, readFile: null));
+		Assert.Equal(legacy.Entries, session.Entries);
 		Assert.DoesNotContain(session.Entries, e => e.Kind == UnityEntryKind.Sprite);
 	}
 
@@ -445,6 +447,8 @@ public sealed class UnitySessionSpriteTests
 		string selected = WriteSelected("sprite.assets", spriteFile);
 
 		using UnitySession session = UnitySession.Open(selected);
+		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(selected, readFile: null));
+		Assert.Equal(legacy.Entries, session.Entries);
 		Assert.DoesNotContain(session.Entries, e => e.Kind == UnityEntryKind.Sprite);
 	}
 
@@ -769,6 +773,8 @@ public sealed class UnitySessionSpriteTests
 		File.WriteAllBytes(Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName), atlasFile);
 
 		using UnitySession session = UnitySession.Open(selected);
+		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(selected, readFile: null));
+		Assert.Equal(legacy.Entries, session.Entries);
 		Assert.DoesNotContain(session.Entries, e => e.Kind == UnityEntryKind.Sprite);
 	}
 

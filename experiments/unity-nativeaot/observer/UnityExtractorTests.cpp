@@ -17,6 +17,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -49,12 +50,34 @@ namespace
         std::string payload;
     };
 
+    // A mutation the backend may apply to any metadata call after the first one for an entry,
+    // i.e. to the sized retry the adapter issues after UNITY_BUFFER_TOO_SMALL. Each optional
+    // overrides exactly one descriptor field of the reused descriptor; `status` is what the
+    // retry call returns. It models a backend that answers the second call with changed truth.
+    struct retry_descriptor_patch
+    {
+        std::optional<std::int32_t> struct_size;
+        std::optional<std::int32_t> kind;
+        std::optional<std::int32_t> reserved;
+        std::optional<std::int32_t> reserved2;
+        std::optional<std::int64_t> source_size;
+        std::optional<std::int32_t> name_length;
+        std::optional<std::int32_t> original_length;
+        std::optional<std::int32_t> extension_length;
+        int status = UNITY_OK;
+    };
+
     struct stub_state
     {
         int open_result = UNITY_OK;
         std::uint64_t token = 0x1122334455667788ull;
         std::optional<int> count_override;
         std::vector<stub_entry> entries;
+        // When set, the second-and-later metadata call for an entry reports this patch.
+        std::optional<retry_descriptor_patch> retry_patch;
+        // Per-entry metadata call count, so "the retry" is well defined per entry. Populated
+        // only while retry_patch is set, keeping the healthy stub path allocation-free.
+        std::vector<int> metadata_calls_per_entry;
 
         int query_result = UNITY_OK;
         int copy_result = UNITY_OK;
@@ -102,6 +125,9 @@ namespace
         int entry_path_copy_calls = 0;
         int entry_extension_query_calls = 0;
         int entry_extension_copy_calls = 0;
+        // Every metadata ABI call the adapter makes, across all scopes, so a test can prove one
+        // GetItem is a single combined read instead of a scalar-getter fan-out.
+        int metadata_calls = 0;
     };
 
     stub_state *g_stub = nullptr;
@@ -165,6 +191,7 @@ namespace
     // so ordinary runs pay only the integer add/subtract.
     std::size_t g_live_bytes = 0;
     std::size_t g_peak_bytes = 0;
+    std::size_t g_allocation_calls = 0;
     bool g_measuring_heap = false;
 
     // Opens a peak-tracking window for the current scope. The baseline is the live heap at
@@ -175,6 +202,7 @@ namespace
         heap_window() noexcept : baseline_(g_live_bytes)
         {
             g_peak_bytes = g_live_bytes;
+            g_allocation_calls = 0;
             g_measuring_heap = true;
         }
 
@@ -191,6 +219,11 @@ namespace
         [[nodiscard]] std::size_t peak_over_current() const noexcept
         {
             return g_peak_bytes - g_live_bytes;
+        }
+
+        [[nodiscard]] std::size_t allocation_calls() const noexcept
+        {
+            return g_allocation_calls;
         }
 
         heap_window(const heap_window &) = delete;
@@ -445,6 +478,159 @@ namespace
             std::memcpy(extension, declared.data(), declared.size() * sizeof(std::uint16_t));
         }
         return UNITY_OK;
+    }
+
+    // The additive combined getter the native adapter now drives. It reports the same stub
+    // values the scalar getters did and honours the same fault knobs, so a corrupt-metadata
+    // case still rejects the entry through one serialised call instead of a scalar fan-out.
+    std::int32_t stub_get_metadata(const std::uint64_t session, const std::int32_t index,
+                                   UnityMetadata *const metadata, std::uint16_t *const name,
+                                   const std::int32_t name_capacity, std::uint16_t *const original,
+                                   const std::int32_t original_capacity, std::uint16_t *const extension,
+                                   const std::int32_t extension_capacity)
+    {
+        stub_state &s = *g_stub;
+        if (metadata == nullptr || metadata->struct_size != 48) {
+            return UNITY_INVALID_ARGUMENT;
+        }
+        *metadata = UnityMetadata{};
+        metadata->struct_size = 48;
+        if (name_capacity < 0 || (name == nullptr && name_capacity > 0) || original_capacity < 0 ||
+            (original == nullptr && original_capacity > 0) || extension_capacity < 0 ||
+            (extension == nullptr && extension_capacity > 0)) {
+            return UNITY_INVALID_ARGUMENT;
+        }
+        if (session != s.token) {
+            return UNITY_INVALID_HANDLE;
+        }
+        if (index < 0 || index >= static_cast<std::int32_t>(s.entries.size())) {
+            return UNITY_OUT_OF_RANGE;
+        }
+        if (s.query_result != UNITY_OK) {
+            return s.query_result;
+        }
+        if (s.copy_result != UNITY_OK && name != nullptr) {
+            return s.copy_result;
+        }
+        if (s.source_size_result != UNITY_OK) {
+            return s.source_size_result;
+        }
+        if (s.entry_path_result != UNITY_OK) {
+            return s.entry_path_result;
+        }
+        if (s.entry_extension_result != UNITY_OK) {
+            return s.entry_extension_result;
+        }
+
+        const stub_entry &e = s.entries[static_cast<std::size_t>(index)];
+        // The stub must not copy long fixture strings while a GetItem heap probe is open;
+        // these views are consumed synchronously by this call and the backing vectors outlive it.
+        const std::u16string_view declared_path =
+            index < static_cast<std::int32_t>(s.original_paths.size())
+                ? std::u16string_view(s.original_paths[static_cast<std::size_t>(index)])
+                : std::u16string_view{};
+        const std::u16string_view declared_extension =
+            index < static_cast<std::int32_t>(s.extensions.size())
+                ? std::u16string_view(s.extensions[static_cast<std::size_t>(index)])
+                : std::u16string_view{};
+
+        const std::int32_t name_length = static_cast<std::int32_t>(
+            s.query_name_length.value_or(static_cast<std::uint32_t>(e.name.size())));
+        const std::int32_t original_length =
+            s.entry_path_length_out.value_or(static_cast<std::int32_t>(declared_path.size()));
+        const std::int32_t extension_length =
+            s.entry_extension_length_out.value_or(static_cast<std::int32_t>(declared_extension.size()));
+
+        metadata->struct_size = static_cast<std::uint32_t>(s.struct_size_out.value_or(48));
+        metadata->kind = s.query_kind.value_or(e.kind);
+        metadata->reserved = static_cast<std::uint32_t>(s.reserved_out.value_or(0));
+        metadata->source_size = index < static_cast<std::int32_t>(s.source_sizes.size())
+                                    ? s.source_sizes[static_cast<std::size_t>(index)]
+                                    : 0;
+        metadata->name_length = name_length;
+        metadata->original_length = original_length;
+        metadata->extension_length = extension_length;
+        metadata->reserved2 = static_cast<std::uint32_t>(s.reserved2_out.value_or(0));
+
+        bool short_buffer = false;
+        if (name != nullptr) {
+            if (name_capacity < name_length) {
+                short_buffer = true;
+            } else if (!e.name.empty()) {
+                std::memcpy(name, e.name.data(), e.name.size() * sizeof(std::uint16_t));
+            }
+        }
+        if (original != nullptr) {
+            if (s.entry_path_copy_result != UNITY_OK) {
+                return s.entry_path_copy_result;
+            }
+            if (s.entry_path_copy_length_out.has_value() &&
+                *s.entry_path_copy_length_out != original_length) {
+                return UNITY_DATA_FAILURE;
+            }
+            if (original_capacity < original_length) {
+                short_buffer = true;
+            } else if (!declared_path.empty()) {
+                std::memcpy(original, declared_path.data(), declared_path.size() * sizeof(std::uint16_t));
+            }
+        }
+        if (extension != nullptr) {
+            if (s.entry_extension_copy_result != UNITY_OK) {
+                return s.entry_extension_copy_result;
+            }
+            if (s.entry_extension_copy_length_out.has_value() &&
+                *s.entry_extension_copy_length_out != extension_length) {
+                return UNITY_DATA_FAILURE;
+            }
+            if (extension_capacity < extension_length) {
+                short_buffer = true;
+            } else if (!declared_extension.empty()) {
+                std::memcpy(extension, declared_extension.data(),
+                            declared_extension.size() * sizeof(std::uint16_t));
+            }
+        }
+
+        // Count this entry's metadata calls so a configured retry mutation can fire only on the
+        // second-and-later call, modelling a backend that answers the sized retry differently.
+        // The ordinal table is fault-scoped: an unarmed stub takes an allocation-free path, so
+        // the healthy catalogue never grows a per-entry vector (which would otherwise show up as
+        // retained bytes in the allocation probes).
+        if (s.retry_patch.has_value()) {
+            if (index >= static_cast<std::int32_t>(s.metadata_calls_per_entry.size())) {
+                s.metadata_calls_per_entry.resize(static_cast<std::size_t>(index) + 1, 0);
+            }
+            const int call_ordinal = s.metadata_calls_per_entry[static_cast<std::size_t>(index)]++;
+            if (call_ordinal >= 1) {
+                const retry_descriptor_patch &patch = *s.retry_patch;
+                if (patch.struct_size.has_value()) {
+                    metadata->struct_size = static_cast<std::uint32_t>(*patch.struct_size);
+                }
+                if (patch.kind.has_value()) {
+                    metadata->kind = *patch.kind;
+                }
+                if (patch.reserved.has_value()) {
+                    metadata->reserved = static_cast<std::uint32_t>(*patch.reserved);
+                }
+                if (patch.reserved2.has_value()) {
+                    metadata->reserved2 = static_cast<std::uint32_t>(*patch.reserved2);
+                }
+                if (patch.source_size.has_value()) {
+                    metadata->source_size = *patch.source_size;
+                }
+                if (patch.name_length.has_value()) {
+                    metadata->name_length = *patch.name_length;
+                }
+                if (patch.original_length.has_value()) {
+                    metadata->original_length = *patch.original_length;
+                }
+                if (patch.extension_length.has_value()) {
+                    metadata->extension_length = *patch.extension_length;
+                }
+                return patch.status;
+            }
+        }
+
+        return short_buffer ? UNITY_BUFFER_TOO_SMALL : UNITY_OK;
     }
 
     // ---- Observer harness helpers -------------------------------------------------
@@ -754,6 +940,9 @@ void *operator new(const std::size_t size)
         throw std::bad_alloc{};
     }
     g_live_bytes += _msize(block);
+    if (g_measuring_heap) {
+        ++g_allocation_calls;
+    }
     if (g_measuring_heap && g_live_bytes > g_peak_bytes) {
         g_peak_bytes = g_live_bytes;
     }
@@ -795,6 +984,7 @@ extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_get_entry(std::uint64_t
                                                                    UnityEntry *entry, std::uint16_t *name,
                                                                    std::int32_t name_capacity)
 {
+    ++g_stub->metadata_calls;
     return stub_get_entry(session, index, entry, name, name_capacity);
 }
 
@@ -807,6 +997,7 @@ extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_export(std::uint64_t se
 extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_get_source_size(std::uint64_t session, std::int32_t index,
                                                                         std::int64_t *size_out)
 {
+    ++g_stub->metadata_calls;
     return stub_get_source_size(session, index, size_out);
 }
 
@@ -815,6 +1006,7 @@ extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_get_entry_path(std::uin
                                                                         std::int32_t path_capacity,
                                                                         std::int32_t *path_length)
 {
+    ++g_stub->metadata_calls;
     return stub_get_entry_path(session, index, path, path_capacity, path_length);
 }
 
@@ -822,7 +1014,18 @@ extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_get_entry_extension(
     std::uint64_t session, std::int32_t index, std::uint16_t *extension, std::int32_t extension_capacity,
     std::int32_t *extension_length)
 {
+    ++g_stub->metadata_calls;
     return stub_get_entry_extension(session, index, extension, extension_capacity, extension_length);
+}
+
+extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_get_metadata(
+    std::uint64_t session, std::int32_t index, UnityMetadata *metadata, std::uint16_t *name,
+    std::int32_t name_capacity, std::uint16_t *original, std::int32_t original_capacity,
+    std::uint16_t *extension, std::int32_t extension_capacity)
+{
+    ++g_stub->metadata_calls;
+    return stub_get_metadata(session, index, metadata, name, name_capacity, original, original_capacity,
+                             extension, extension_capacity);
 }
 
 extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_close(std::uint64_t session)
@@ -869,8 +1072,11 @@ TEST_CASE("unity adapter: valid archive lists source-size entries and brace fall
     REQUIRE(storage != nullptr);
     REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
 
-    REQUIRE(stub->size_query_calls == 2);
-    REQUIRE(stub->copy_calls == 2);
+    // Two fixed-kind entries are listed with one combined metadata call each; the scalar
+    // per-field getters the combined form replaces are never driven.
+    REQUIRE(stub->metadata_calls == 2);
+    REQUIRE(stub->size_query_calls == 0);
+    REQUIRE(stub->copy_calls == 0);
     REQUIRE(stub->export_calls == 0);
 
     REQUIRE(item_path(mod, storage, 0) == L"{Texture2D}\\0_fixture.png");
@@ -888,6 +1094,300 @@ TEST_CASE("unity adapter: valid archive lists source-size entries and brace fall
     REQUIRE(stub->close_calls == 1);
 }
 
+TEST_CASE("unity adapter: one combined metadata call lists a normal entry without a scalar fan-out",
+          "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"fixture", "payload")};
+    stub->source_sizes = {7};
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+
+    // A fixed-kind entry is exactly one combined metadata call, and the per-field scalar
+    // getters the combined form replaces are never driven.
+    REQUIRE(stub->metadata_calls == 1);
+    REQUIRE(stub->size_query_calls == 0);
+    REQUIRE(stub->copy_calls == 0);
+    REQUIRE(stub->source_size_calls == 0);
+    REQUIRE(stub->entry_path_query_calls == 0);
+    REQUIRE(stub->entry_path_copy_calls == 0);
+    REQUIRE(stub->entry_extension_query_calls == 0);
+    REQUIRE(stub->entry_extension_copy_calls == 0);
+
+    // One GetItem re-reads the same entry through exactly one more combined call.
+    const int before = stub->metadata_calls;
+    StorageItemInfo item{};
+    REQUIRE(mod.api.GetItem(storage, 0, &item) == GET_ITEM_OK);
+    REQUIRE(std::wstring(item.Path) == L"{TextAsset}\\0_fixture.bin");
+    REQUIRE(item.Size == 7);
+    REQUIRE(item.PackedSize == 7);
+    REQUIRE(stub->metadata_calls - before == 1);
+    REQUIRE(stub->size_query_calls == 0);
+    REQUIRE(stub->copy_calls == 0);
+    REQUIRE(stub->entry_path_query_calls == 0);
+    REQUIRE(stub->source_size_calls == 0);
+
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: a dynamic kind folds its extension into one combined metadata call",
+          "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {font_entry(u"font", "FONTDATA")};
+    stub->source_sizes = {8};
+    stub->extensions = {u"ttf"};
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+
+    // A dynamic kind folds its 1..16 unit extension into the same combined call, so it too is
+    // one call and the scalar extension getter the getter-only path used is never driven.
+    REQUIRE(stub->metadata_calls == 1);
+    REQUIRE(stub->entry_extension_query_calls == 0);
+    REQUIRE(stub->entry_extension_copy_calls == 0);
+    StorageItemInfo item{};
+    REQUIRE(mod.api.GetItem(storage, 0, &item) == GET_ITEM_OK);
+    REQUIRE(std::wstring(item.Path) == L"{Font}\\0_font.ttf");
+
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: a field past the staged buffer pays one bounded retry, never a scalar fan-out",
+          "[unity][unit]")
+{
+    stub_binding stub;
+    const std::u16string long_name(800, u'a');  // over the 512-unit staged name buffer
+    stub->entries = {text_entry(long_name, "payload")};
+    stub->source_sizes = {7};
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+
+    // The first combined call reports the exact lengths and one sized retry finishes the read,
+    // so a long field costs two combined calls and still drives no scalar getter.
+    REQUIRE(stub->metadata_calls == 2);
+    REQUIRE(stub->size_query_calls == 0);
+    REQUIRE(stub->copy_calls == 0);
+    REQUIRE(stub->source_size_calls == 0);
+    REQUIRE(stub->entry_path_query_calls == 0);
+
+    // The over-long name keeps its bounded truncation, exactly as the retained catalogue did.
+    StorageItemInfo item{};
+    REQUIRE(mod.api.GetItem(storage, 0, &item) == GET_ITEM_OK);
+    REQUIRE(std::wstring(item.Path) == L"{TextAsset}\\0_" + std::wstring(96, L'a') + L".bin");
+
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: a sized retry that reports a changed descriptor is rejected before use",
+          "[unity][unit]")
+{
+    // A name past the 512-unit staged buffer forces exactly one sized retry. Every case below
+    // then has the retry overwrite the reused descriptor with changed truth; because the retry
+    // sizes its buffers from the first descriptor, the adapter must reject the change instead of
+    // trusting it (a negative length would size a huge allocation, a wider extension a stack read).
+    const std::u16string long_name(800, u'a');
+
+    const auto reject_patched = [&](const retry_descriptor_patch &patch, const int expected_calls) {
+        stub_binding stub;
+        stub->entries = {font_entry(long_name, "payload")};
+        stub->source_sizes = {7};
+        stub->extensions = {u"ttf"};
+        stub->retry_patch = patch;
+        const temp_archive archive;
+        const loaded_module mod;
+
+        HANDLE storage = nullptr;
+        REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+        REQUIRE(mod.api.PrepareFiles(storage) == FALSE);
+        REQUIRE(stub->metadata_calls == expected_calls);
+        mod.api.CloseStorage(storage);
+        REQUIRE(stub->close_calls == 1);
+    };
+
+    SECTION("a negative retry name length is rejected before it sizes an allocation")
+    {
+        reject_patched(retry_descriptor_patch{.name_length = -1}, 2);
+    }
+    SECTION("a wider retry name length is rejected although it is within the copy ceiling")
+    {
+        reject_patched(retry_descriptor_patch{.name_length = 1000}, 2);
+    }
+    SECTION("a changed retry original length is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.original_length = 5}, 2);
+    }
+    SECTION("a changed dynamic retry extension length is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.extension_length = 1}, 2);
+    }
+    SECTION("an over-long dynamic retry extension length is rejected before the stack read")
+    {
+        reject_patched(retry_descriptor_patch{.extension_length = 17}, 2);
+    }
+    SECTION("a negative retry extension length is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.extension_length = -1}, 2);
+    }
+    SECTION("a changed retry kind is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.kind = UNITY_KIND_TEXTURE_PNG}, 2);
+    }
+    SECTION("an unknown retry kind is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.kind = 99}, 2);
+    }
+    SECTION("a changed retry source size is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.source_size = 99}, 2);
+    }
+    SECTION("a negative retry source size is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.source_size = -1}, 2);
+    }
+    SECTION("a changed retry struct size is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.struct_size = 40}, 2);
+    }
+    SECTION("a set retry reserved word is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.reserved = 1}, 2);
+    }
+    SECTION("a set retry second reserved word is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.reserved2 = 1}, 2);
+    }
+    SECTION("a failing retry status is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.status = UNITY_DATA_FAILURE}, 2);
+    }
+    SECTION("a retry that is still too small is rejected")
+    {
+        reject_patched(retry_descriptor_patch{.status = UNITY_BUFFER_TOO_SMALL}, 2);
+    }
+    SECTION("an unchanged retry reports the same descriptor and is accepted")
+    {
+        stub_binding stub;
+        stub->entries = {font_entry(long_name, "payload")};
+        stub->source_sizes = {7};
+        stub->extensions = {u"ttf"};
+        const temp_archive archive;
+        const loaded_module mod;
+
+        HANDLE storage = nullptr;
+        REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+        REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+        REQUIRE(stub->metadata_calls == 2);
+        REQUIRE(item_path(mod, storage, 0) == L"{Font}\\0_" + std::wstring(96, L'a') + L".ttf");
+        REQUIRE(item_size(mod, storage, 0) == 7);
+        mod.api.CloseStorage(storage);
+    }
+}
+
+TEST_CASE("unity adapter: a negative declared extension length is rejected on the first call",
+          "[unity][unit]")
+{
+    stub_binding stub;
+    // A fixed kind ignores the extension value, but a negative declared length is still corrupt.
+    stub->entries = {text_entry(u"fixture")};
+    stub->entry_extension_length_out = -1;
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == FALSE);
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: the reused staged name buffer is not regrown for a later short entry",
+          "[unity][unit]")
+{
+    // The first entry grows the reused name buffer past the staged bound; the second entry then
+    // takes the already-large buffer without regrowing it, so it still costs a single call.
+    stub_binding stub;
+    const std::u16string long_name(800, u'a');
+    stub->entries = {text_entry(long_name), text_entry(u"short")};
+    stub->source_sizes = {1, 2};
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+    REQUIRE(stub->metadata_calls == 3);
+    REQUIRE(item_path(mod, storage, 0) == L"{TextAsset}\\0_" + std::wstring(96, L'a') + L".bin");
+    REQUIRE(item_path(mod, storage, 1) == L"{TextAsset}\\1_short.bin");
+    mod.api.CloseStorage(storage);
+}
+
+TEST_CASE("unity adapter: collision candidates resolve independently of their own preserved path",
+          "[unity][unit]")
+{
+    // A dotted ancestor directory only becomes a collision candidate when its leading index is
+    // well formed; a candidate is a real conflict only when that entry's own preserved path is
+    // one of the required directories. The fixture carries one candidate of each outcome and
+    // several non-candidate dotted ancestors, so every branch of the parse and the confirmation
+    // is exercised with a concrete listing result.
+    stub_binding stub;
+    stub->entries = {
+        text_entry(u"inner"),  // 0: ancestor candidate 5, kept hierarchy
+        text_entry(u"y"),      // 1: ancestor candidate 6, kept hierarchy
+        text_entry(u"z"),      // 2: dotted ancestor that is not a leading index
+        text_entry(u"v"),      // 3: ancestor candidate 8, kept hierarchy
+        text_entry(u"u"),      // 4: leading index past the entry count
+        text_entry(u"other"),  // 5: candidate whose preserved path is not a required directory
+        text_entry(u"x"),      // 6: candidate whose preserved path falls back (rooted original)
+        text_entry(u"w"),      // 7: digit then non-digit before the underscore
+        texture_entry(u"alpha"),  // 8: candidate whose preserved path IS a required directory
+    };
+    stub->original_paths = {
+        u"5_alpha.png/inner.txt",     // candidate 5
+        u"6_beta.png/y.txt",          // candidate 6
+        u"dir.name/z.txt",            // dotted, digits == 0 -> not a candidate
+        u"8_alpha.png/v.txt",         // candidate 8 + required directory 8_alpha.png
+        u"9999_delta.png/u.txt",      // leading number 9 >= count -> not a candidate
+        u"other",                     // preserved "5_other.bin"
+        u"\\evil\\x",                 // rooted -> no preserved path
+        u"7x.png/w.txt",              // digit then non-digit -> not a candidate
+        u"alpha",                     // preserved "8_alpha.png" == required directory
+    };
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+    REQUIRE(stub->export_calls == 0);
+
+    REQUIRE(item_path(mod, storage, 0) == L"5_alpha.png\\0_inner.bin");
+    REQUIRE(item_path(mod, storage, 1) == L"6_beta.png\\1_y.bin");
+    REQUIRE(item_path(mod, storage, 2) == L"dir.name\\2_z.bin");
+    REQUIRE(item_path(mod, storage, 3) == L"8_alpha.png\\3_v.bin");
+    REQUIRE(item_path(mod, storage, 4) == L"9999_delta.png\\4_u.bin");
+    REQUIRE(item_path(mod, storage, 5) == L"5_other.bin");
+    REQUIRE(item_path(mod, storage, 6) == L"{TextAsset}\\6_x.bin");
+    REQUIRE(item_path(mod, storage, 7) == L"7x.png\\7_w.bin");
+    REQUIRE(item_path(mod, storage, 8) == L"{Texture2D}\\8_alpha.png");
+
+    mod.api.CloseStorage(storage);
+}
+
 TEST_CASE("unity adapter: a Font entry lists with its braced folder and dynamic extension", "[unity][unit]")
 {
     stub_binding stub;
@@ -901,10 +1401,11 @@ TEST_CASE("unity adapter: a Font entry lists with its braced folder and dynamic 
     REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
     REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
 
-    // Font is a first-class resource: it lands in its own braced fallback folder and
-    // takes the dynamic output extension the additive ABI getter reports, not png/bin.
-    REQUIRE(stub->entry_extension_query_calls == 1);
-    REQUIRE(stub->entry_extension_copy_calls == 1);
+    // Font is a first-class resource: one combined metadata call lists it with its own braced
+    // fallback folder and the dynamic output extension that same call reports, not png/bin.
+    REQUIRE(stub->metadata_calls == 1);
+    REQUIRE(stub->entry_extension_query_calls == 0);
+    REQUIRE(stub->entry_extension_copy_calls == 0);
     REQUIRE(item_path(mod, storage, 0) == L"{Font}\\0_font.ttf");
     REQUIRE(item_size(mod, storage, 0) == 8);
     REQUIRE(item_packed_size(mod, storage, 0) == 8);
@@ -934,10 +1435,11 @@ TEST_CASE("unity adapter: every resource kind lists with its own folder and outp
     REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
     REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
 
-    // Only the three dynamic kinds (Font, VideoClip, AudioClip) consult the getter; the
-    // fixed kinds keep their frozen table extension and never query it.
-    REQUIRE(stub->entry_extension_query_calls == 3);
-    REQUIRE(stub->entry_extension_copy_calls == 3);
+    // Every kind, fixed or dynamic, is listed by one combined metadata call; the dynamic kinds
+    // take the token that call reports, so no scalar extension getter is ever driven.
+    REQUIRE(stub->metadata_calls == 8);
+    REQUIRE(stub->entry_extension_query_calls == 0);
+    REQUIRE(stub->entry_extension_copy_calls == 0);
     REQUIRE(stub->export_calls == 0);
 
     REQUIRE(item_path(mod, storage, 0) == L"{Texture2D}\\0_tex.png");
@@ -1173,7 +1675,9 @@ TEST_CASE("unity adapter: item size and packed size both carry the declared sour
     REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
     REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
 
-    REQUIRE(stub->source_size_calls == 2);
+    // The declared source length now arrives inside the combined metadata call.
+    REQUIRE(stub->metadata_calls == 2);
+    REQUIRE(stub->source_size_calls == 0);
     REQUIRE(stub->export_calls == 0);
 
     // The Size column shows the original source payload length, the same value as PackedSize.
@@ -1213,9 +1717,10 @@ TEST_CASE("unity adapter: original asset paths are preserved and unsafe paths fa
     REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
     REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
 
-    // The adapter queries the original path once and copies it once per entry.
-    REQUIRE(stub->entry_path_query_calls == 3);
-    REQUIRE(stub->entry_path_copy_calls == 3);
+    // The adapter reads each entry once through the combined getter, which is where the
+    // original path is reported and copied; the scalar path getter is never driven.
+    REQUIRE(stub->metadata_calls == 3);
+    REQUIRE(stub->entry_path_query_calls == 0);
     REQUIRE(stub->export_calls == 0);
 
     // The original parent hierarchy and the known basename are preserved; the file kind
@@ -1565,25 +2070,31 @@ TEST_CASE("unity adapter: fallback catalogue scratch stays bounded while final f
         bool prepared = false;
         std::size_t peak = 0;
         std::size_t transient = 0;
+        std::size_t allocation_calls = 0;
         {
             const heap_window window;
             prepared = mod.api.PrepareFiles(storage) == TRUE;
             peak = window.peak_delta();
             transient = window.peak_over_current();
+            allocation_calls = window.allocation_calls();
         }
         // Fixture setup, assertions and enumeration are outside the tracked window. The
         // final live catalogue is subtracted so the bound measures temporary duplication,
         // independent of file-object size and allocator rounding on x86 versus x64.
         std::printf("unity catalogue heap count=%u peak=%zu retained=%zu transient=%zu\n",
                     count, peak, peak - transient, transient);
+        std::printf("unity scratch allocation calls count=%u calls=%zu\n", count, allocation_calls);
         REQUIRE(prepared);
         REQUIRE(stub->export_calls == 0);
         REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
-        REQUIRE(stub->size_query_calls == static_cast<int>(count));
-        REQUIRE(stub->copy_calls == static_cast<int>(count));
-        REQUIRE(stub->entry_path_query_calls == static_cast<int>(count));
+        // The re-preparation is a no-op, so the whole pass is one combined metadata call per
+        // entry and never fans out to the scalar per-field getters.
+        REQUIRE(stub->metadata_calls == static_cast<int>(count));
+        REQUIRE(stub->size_query_calls == 0);
+        REQUIRE(stub->copy_calls == 0);
+        REQUIRE(stub->entry_path_query_calls == 0);
         REQUIRE(stub->entry_path_copy_calls == 0);
-        REQUIRE(stub->source_size_calls == static_cast<int>(count));
+        REQUIRE(stub->source_size_calls == 0);
         REQUIRE(stub->entry_extension_query_calls == 0);
         REQUIRE(stub->entry_extension_copy_calls == 0);
         for (std::uint32_t index = 0; index < count; ++index) {
@@ -1605,6 +2116,11 @@ TEST_CASE("unity adapter: fallback catalogue scratch stays bounded while final f
         remove_file(destination);
         mod.api.CloseStorage(storage);
         REQUIRE(stub->close_calls == 1);
+        // Bound the retained catalogue, including final path allocations, not just scratch.
+        REQUIRE(peak - transient <= static_cast<std::size_t>(count) * 128U + 64U * 1024U);
+        // A per-row name buffer and second UTF-8 allocation violate this churn budget.
+        // Fixed slack covers arena growth and catalogue setup on both supported ABIs.
+        CHECK(allocation_calls <= static_cast<std::size_t>(count) * 5U + 128U);
         return transient;
     };
 
@@ -1613,6 +2129,162 @@ TEST_CASE("unity adapter: fallback catalogue scratch stays bounded while final f
     // The extra 7168 fallback rows add final files, not a second retained metadata table.
     // 64 KiB allows bounded conversion scratch without depending on an exact allocation count.
     REQUIRE(large <= small + 64U * 1024U);
+}
+
+TEST_CASE("unity adapter: reused name and original scratch never retains a prior row", "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(std::u16string(96, u'a'), "first"), text_entry(u"x", "short"),
+                     text_entry(u"", "empty"), text_entry(u"\u03a9\U0001f600", "unicode"),
+                     text_entry(std::u16string(1, char16_t{0xD83D}), "preserved"), font_entry(u"font")};
+    stub->original_paths = {u"Assets/first.txt", u"", std::u16string(32768, u'z'),
+                            std::u16string(1, char16_t{0xD83D}), u"Assets/keep.txt", u""};
+    stub->source_sizes = {1, 2, 3, 4, 5, 6};
+    stub->extensions = {u"", u"", u"", u"", u"", u"otf"};
+    const temp_archive archive;
+    const loaded_module mod;
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+    const std::vector<std::wstring> expected = {L"Assets\\0_first.bin", L"{TextAsset}\\1_x.bin",
+        L"{TextAsset}\\2_resource.bin", L"{TextAsset}\\3_\u03a9\U0001f600.bin",
+        L"Assets\\4_keep.bin", L"{Font}\\5_font.otf"};
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        StorageItemInfo item{};
+        REQUIRE(mod.api.GetItem(storage, static_cast<int>(index), &item) == GET_ITEM_OK);
+        REQUIRE(std::wstring(item.Path) == expected[index]);
+        REQUIRE(item.Size == static_cast<std::int64_t>(index) + 1);
+        REQUIRE(item.PackedSize == static_cast<std::int64_t>(index) + 1);
+    }
+    // Preparation reads every entry once and each GetItem re-reads one entry. Every read is one
+    // combined metadata call and the over-long original path adds a second bounded retry, so the
+    // lifecycle is exactly twice the per-pass metadata work: 2*(1+1+2+1+1+1) = 14 calls, with
+    // the Font extension folded into its combined read and no scalar fan-out anywhere.
+    REQUIRE(stub->metadata_calls == 14);
+    REQUIRE(stub->size_query_calls == 0);
+    REQUIRE(stub->copy_calls == 0);
+    REQUIRE(stub->entry_path_query_calls == 0);
+    REQUIRE(stub->entry_path_copy_calls == 0);
+    REQUIRE(stub->source_size_calls == 0);
+    REQUIRE(stub->entry_extension_query_calls == 0);
+    REQUIRE(stub->entry_extension_copy_calls == 0);
+    REQUIRE(stub->export_calls == 0);
+    const std::filesystem::path destination = archive.path.wstring() + L".scratch-out";
+    for (int index = 0; index < 5; ++index) {
+        REQUIRE(module_extract(mod, storage, index, destination) == SER_SUCCESS);
+        REQUIRE(read_file(destination) == stub->entries[index].payload);
+    }
+    remove_file(destination);
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: retained indexed catalogue has a compact row and path budget", "[unity][unit]")
+{
+    std::uint32_t count = 1024;
+    bool preserved = false;
+    SECTION("1024 short fallback rows") { count = 1024; }
+    SECTION("8192 short fallback rows") { count = 8192; }
+    SECTION("2048 long original paths with every row preserved") { count = 2048; preserved = true; }
+    stub_binding stub;
+    stub->entries.assign(count, text_entry(u"leaf", "payload"));
+    stub->source_sizes.assign(count, 7);
+    if (preserved) stub->original_paths.assign(count, u"Assets/Resources/" + std::u16string(80, u'a') + u".dat");
+    const temp_archive archive;
+    const loaded_module mod;
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    bool prepared = false;
+    std::size_t retained = 0;
+    {
+        const heap_window window;
+        prepared = mod.api.PrepareFiles(storage) == TRUE;
+        retained = window.peak_delta() - window.peak_over_current();
+    }
+    REQUIRE(prepared);
+    REQUIRE(stub->export_calls == 0);
+    std::size_t path_bytes = 0;
+    for (std::uint32_t index = 0; index < count; ++index) {
+        StorageItemInfo item{};
+        REQUIRE(mod.api.GetItem(storage, static_cast<int>(index), &item) == GET_ITEM_OK);
+        const std::wstring expected = preserved
+            ? L"Assets\\Resources\\" + std::to_wstring(index) + L"_" + std::wstring(80, L'a') + L".bin"
+            : L"{TextAsset}\\" + std::to_wstring(index) + L"_leaf.bin";
+        REQUIRE(std::wstring(item.Path) == expected);
+        REQUIRE(item.Size == 7);
+        REQUIRE(item.PackedSize == 7);
+        path_bytes += expected.size(); // This fixture is ASCII, so this is its exact UTF-8 length.
+    }
+    StorageItemInfo end{};
+    REQUIRE(mod.api.GetItem(storage, static_cast<int>(count), &end) == GET_ITEM_NOMOREITEMS);
+    // Every entry is one combined metadata call during preparation and one again in its
+    // GetItem, so the lifecycle is exactly 2*count combined calls and no scalar fan-out.
+    REQUIRE(stub->metadata_calls == static_cast<int>(count) * 2);
+    REQUIRE(stub->size_query_calls == 0);
+    REQUIRE(stub->copy_calls == 0);
+    REQUIRE(stub->entry_path_query_calls == 0);
+    REQUIRE(stub->entry_path_copy_calls == 0);
+    REQUIRE(stub->source_size_calls == 0);
+    const std::filesystem::path destination = archive.path.wstring() + L".compact-budget-out";
+    for (const int index : {0, static_cast<int>(count) - 1}) {
+        REQUIRE(module_extract(mod, storage, index, destination) == SER_SUCCESS);
+        REQUIRE(read_file(destination) == "payload");
+    }
+    remove_file(destination);
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+    std::printf("unity compact budget count=%u preserved=%d retained=%zu path_bytes=%zu\n", count, preserved, retained, path_bytes);
+    // The retained catalogue keeps only a sparse conflict index set: the per-entry rows
+    // and the whole final-path arena are not retained. path_bytes is deliberately unused
+    // because no final path outlives preparation.
+    static_cast<void>(path_bytes);
+    REQUIRE(retained <= static_cast<std::size_t>(count) * 4U + 8192U);
+}
+
+TEST_CASE("unity adapter: compact catalogue bounds retained long original paths", "[unity][unit]")
+{
+    constexpr std::uint32_t count = 2048;
+    stub_binding stub;
+    stub->entries.assign(count, text_entry(u"fallback", "payload"));
+    stub->source_sizes.assign(count, 7);
+    stub->original_paths.assign(count, u"Assets/Resources/" + std::u16string(80, u'a') + u".dat");
+    const temp_archive archive;
+    const loaded_module mod;
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    bool prepared = false;
+    std::size_t retained = 0;
+    {
+        const heap_window window;
+        prepared = mod.api.PrepareFiles(storage) == TRUE;
+        retained = window.peak_delta() - window.peak_over_current();
+    }
+    REQUIRE(prepared);
+    std::printf("unity long catalogue count=%u retained=%zu\n", count, retained);
+    REQUIRE(stub->export_calls == 0);
+    for (std::uint32_t index = 0; index < count; ++index) {
+        StorageItemInfo item{};
+        REQUIRE(mod.api.GetItem(storage, static_cast<int>(index), &item) == GET_ITEM_OK);
+        REQUIRE(std::wstring(item.Path) == L"Assets\\Resources\\" + std::to_wstring(index) + L"_" + std::wstring(80, L'a') + L".bin");
+        REQUIRE(item.Size == 7);
+        REQUIRE(item.PackedSize == 7);
+    }
+    REQUIRE(stub->metadata_calls == static_cast<int>(count) * 2);
+    REQUIRE(stub->entry_path_query_calls == 0);
+    REQUIRE(stub->entry_path_copy_calls == 0);
+    REQUIRE(stub->size_query_calls == 0);
+    REQUIRE(stub->source_size_calls == 0);
+    StorageItemInfo end{};
+    REQUIRE(mod.api.GetItem(storage, static_cast<int>(count), &end) == GET_ITEM_NOMOREITEMS);
+    const std::filesystem::path destination = archive.path.wstring() + L".long-catalogue-out";
+    for (const int index : {0, static_cast<int>(count) - 1}) {
+        REQUIRE(module_extract(mod, storage, index, destination) == SER_SUCCESS);
+        REQUIRE(read_file(destination) == "payload");
+    }
+    remove_file(destination);
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+    REQUIRE(retained <= static_cast<std::size_t>(count) * 4U + 8192U);
 }
 
 TEST_CASE("unity adapter: preserved paths defer malformed fallback labels until collision resolution", "[unity][unit]")
@@ -1629,11 +2301,13 @@ TEST_CASE("unity adapter: preserved paths defer malformed fallback labels until 
         REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
         REQUIRE(item_path(mod, storage, 0) == L"Assets\\0_ok.bin");
         REQUIRE(item_path(mod, storage, 1) == L"{TextAsset}\\1_leaf.bin");
-        REQUIRE(stub->size_query_calls == 2);
-        REQUIRE(stub->copy_calls == 2);
-        REQUIRE(stub->entry_path_query_calls == 2);
-        REQUIRE(stub->entry_path_copy_calls == 1);
-        REQUIRE(stub->source_size_calls == 2);
+        // PrepareFiles plus two GetItems are four combined metadata calls, no scalar fan-out.
+        REQUIRE(stub->metadata_calls == 4);
+        REQUIRE(stub->size_query_calls == 0);
+        REQUIRE(stub->copy_calls == 0);
+        REQUIRE(stub->entry_path_query_calls == 0);
+        REQUIRE(stub->entry_path_copy_calls == 0);
+        REQUIRE(stub->source_size_calls == 0);
         REQUIRE(stub->export_calls == 0);
     }
     SECTION("a later directory collision requires the malformed fallback and rejects preparation")
@@ -1641,8 +2315,11 @@ TEST_CASE("unity adapter: preserved paths defer malformed fallback labels until 
         stub->original_paths = {u"Assets/ok.txt", u"Assets/0_ok.bin/nested.txt"};
         REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
         REQUIRE(mod.api.PrepareFiles(storage) == FALSE);
-        REQUIRE(stub->size_query_calls == 2);
-        REQUIRE(stub->entry_path_query_calls == 2);
+        // Two entries plus one sparse collision-candidate re-read: three combined calls before
+        // the atomic preparation failure.
+        REQUIRE(stub->metadata_calls == 3);
+        REQUIRE(stub->size_query_calls == 0);
+        REQUIRE(stub->entry_path_query_calls == 0);
         REQUIRE(stub->export_calls == 0);
     }
     mod.api.CloseStorage(storage);
@@ -1748,7 +2425,10 @@ TEST_CASE("unity adapter: original path query failures reject preparation and re
         HANDLE storage = nullptr;
         REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
         REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
-        REQUIRE(stub->entry_path_query_calls == 1);
+        // The oversized declared path is never copied: one combined read reports the length and
+        // one bounded retry finishes the entry without materialising the path.
+        REQUIRE(stub->metadata_calls == 2);
+        REQUIRE(stub->entry_path_query_calls == 0);
         REQUIRE(stub->entry_path_copy_calls == 0);
         REQUIRE(item_path(mod, storage, 0) == L"{TextAsset}\\0_fixture.bin");
         mod.api.CloseStorage(storage);
@@ -1816,7 +2496,9 @@ TEST_CASE("unity adapter: original path policy preserves safe shapes and falls b
     HANDLE storage = nullptr;
     REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
     REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
-    REQUIRE(stub->entry_path_query_calls == 20);
+    // Twenty fixed-kind entries, one combined metadata call each and no scalar path getter.
+    REQUIRE(stub->metadata_calls == 20);
+    REQUIRE(stub->entry_path_query_calls == 0);
     REQUIRE(stub->export_calls == 0);
 
     REQUIRE(item_path(mod, storage, 0) == L"Assets\\Resources\\Textures\\0_hero.png");
@@ -2432,5 +3114,586 @@ TEST_CASE("unity adapter: an unpaired surrogate label is rejected", "[unity][uni
         REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
         REQUIRE(mod.api.PrepareFiles(storage) == FALSE);
         mod.api.CloseStorage(storage);
+    }
+}
+
+namespace {
+    class metadata_state final : public extractor::storage_state, public extractor::indexed_catalogue {
+    public:
+        std::string path;
+        explicit metadata_state(std::string value) : path(std::move(value)) {}
+        extractor::indexed_catalogue *indexed_files() noexcept override { return this; }
+        void prepare() override {}
+        size_t count() const noexcept override { return 1; }
+        extractor::file_metadata metadata(size_t index) const override {
+            if (index != 0) throw std::out_of_range("entry");
+            return {path, 19, 11};
+        }
+        void extract(size_t, std::ostream &, const std::function<void(int64_t)> &) const override {}
+    };
+    class metadata_extractor final : public extractor::extractor {
+    public:
+        explicit metadata_extractor(std::string path) {
+            state_ = std::make_unique<metadata_state>(std::move(path));
+        }
+    };
+}
+
+TEST_CASE("unity adapter: counted metadata preserves Observer path conversion") {
+    loaded_module module;
+    std::string path;
+    std::wstring expected;
+    int expected_result = GET_ITEM_OK;
+    SECTION("empty") {}
+    SECTION("maximum output") { path.assign(1023, 'a'); expected.assign(1023, L'a'); }
+    SECTION("output full") { path.assign(1024, 'a'); expected_result = GET_ITEM_ERROR; }
+    SECTION("bounded UTF8 input") { path.assign(4092, 'a'); expected_result = GET_ITEM_ERROR; }
+    SECTION("unsupported UTF8 length") { path.assign(4093, 'a'); expected_result = GET_ITEM_ERROR; }
+    SECTION("embedded terminator") { path = std::string("a\0tail", 6); expected = L"a"; }
+    SECTION("malformed UTF8 replacement") { path = "a\xff"; expected = L"a\xfffd"; }
+    SECTION("maximum multibyte output") {
+        for (int i = 0; i != 1023; ++i) path += "\xe2\x82\xac";
+        expected.assign(1023, L'\x20ac');
+    }
+    archive::archive subject(std::make_unique<metadata_extractor>(path));
+    StorageItemInfo info;
+    std::memset(&info, 0x7f, sizeof(info));
+    REQUIRE(module.api.GetItem(&subject, 0, &info) == expected_result);
+    REQUIRE(info.Size == 19);
+    REQUIRE(info.PackedSize == 11);
+    REQUIRE(info.Attributes == FILE_ATTRIBUTE_NORMAL);
+    REQUIRE(info.NumHardlinks == 0);
+    if (expected_result == GET_ITEM_OK) {
+        REQUIRE(std::wstring(info.Path) == expected);
+        for (size_t i = expected.size(); i != std::size(info.Path); ++i) REQUIRE(info.Path[i] == 0);
+    }
+    REQUIRE(module.api.GetItem(&subject, 1, &info) == GET_ITEM_NOMOREITEMS);
+}
+
+TEST_CASE("unity adapter: compact index commits only after successful preparation") {
+    stub_binding stub;
+    stub->entries = {text_entry(u"first", "one"), text_entry(u"second", "two")};
+    temp_archive source;
+    extractor::extractor subject;
+    std::istringstream input;
+    static_cast<void>(subject.get_archive_info(input, {}, source.path));
+    auto *provider = subject.indexed_files();
+    REQUIRE(provider != nullptr);
+    REQUIRE(provider->count() == 0);
+    std::array<char, 512> path_buffer{};
+    REQUIRE_THROWS_AS(provider->path_into(0, path_buffer), std::out_of_range);
+    std::ostringstream output;
+    REQUIRE_THROWS_AS(provider->extract(0, output, [](int64_t) {}), std::out_of_range);
+    REQUIRE_THROWS_AS(subject.list_files(input), extractor::read_error);
+    bool allocation_failed = false;
+    fault_armed = true;
+    try { provider->prepare(); }
+    catch (const std::bad_alloc &) { allocation_failed = true; }
+    fault_armed = false;
+    REQUIRE(allocation_failed);
+    REQUIRE(provider->count() == 0);
+    stub->entries[1].kind = 999;
+    REQUIRE_THROWS_AS(provider->prepare(), extractor::read_error);
+    REQUIRE(provider->count() == 0);
+    REQUIRE_THROWS_AS(provider->path_into(0, path_buffer), std::out_of_range);
+    const auto path_of = [provider](const std::size_t index) {
+        std::array<char, 512> buffer{};
+        const auto entry = provider->path_into(index, buffer);
+        REQUIRE(entry.has_value());
+        return std::string(buffer.data(), entry->written);
+    };
+    stub->entries[1].kind = UNITY_KIND_TEXT_RAW;
+    provider->prepare();
+    REQUIRE(provider->count() == 2);
+    REQUIRE(path_of(0) == "{TextAsset}\\0_first.bin");
+    REQUIRE(path_of(1) == "{TextAsset}\\1_second.bin");
+    // A lazy catalogue deliberately refuses the retained route: metadata() is an error, never
+    // a dangling or empty path, so a future caller that only knows metadata() fails loudly.
+    REQUIRE_THROWS_AS(provider->metadata(0), extractor::read_error);
+    // A mis-sized caller buffer is rejected rather than truncating the real name.
+    std::array<char, 1> tiny_buffer{};
+    REQUIRE_THROWS_AS(provider->path_into(0, tiny_buffer), extractor::read_error);
+    // Re-preparing a committed index is a no-op and the lazy path rebuilds identically.
+    provider->prepare();
+    REQUIRE(path_of(0) == "{TextAsset}\\0_first.bin");
+    provider->extract(1, output, [](int64_t) {});
+    REQUIRE(output.str() == "two");
+    subject.reset_storage();
+    REQUIRE(subject.indexed_files() == nullptr);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: a listing allocation failure maps to GET_ITEM_ERROR without escaping the ABI",
+          "[unity][unit]")
+{
+    stub_binding stub;
+    // A raw name beyond the per-call PMR arena forces the metadata scratch to grow through the
+    // real upstream allocator, so the one-shot fault is observable at the ABI boundary while
+    // the preserved original path stays short and valid.
+    std::u16string long_name(20'000, u'x');
+    stub->entries = {text_entry(long_name, "payload")};
+    stub->source_sizes = {7};
+    stub->original_paths = {u"Assets/leaf.png"};
+    const temp_archive archive;
+    const loaded_module mod;
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+
+    StorageItemInfo info;
+    std::memset(&info, 0x7f, sizeof(info));
+    bool escaped = false;
+    int result = -1;
+    // The next dynamic allocation the lazy GetItem performs fails, modelling an out-of-memory
+    // condition at the ABI boundary rather than an internal test seam.
+    fault_armed = true;
+    try {
+        result = mod.api.GetItem(storage, 0, &info);
+    } catch (...) {
+        escaped = true;
+    }
+    fault_armed = false;
+
+    REQUIRE_FALSE(escaped);
+    REQUIRE(result == GET_ITEM_ERROR);
+    // Defensive output: a failed record is zeroed, never a half-written one.
+    REQUIRE(info.Path[0] == 0);
+    REQUIRE(info.Size == 0);
+    REQUIRE(info.PackedSize == 0);
+    REQUIRE(info.Attributes == 0);
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: a purely numeric directory is a plain directory, never a candidate",
+          "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"hero"), text_entry(u"meta")};
+    // Both ancestor directories are made only of digits whose value is a valid catalogue index
+    // ("0" and "1", both below the two-entry count), so a leading-index parse that ignored the
+    // file-name shape would treat each as another entry's preserved name. Neither carries a
+    // '.', so the catalogue-dot guard must keep them plain directories and emit no candidate.
+    stub->original_paths = {
+        u"Assets/0/hero.txt",
+        u"Assets/1/meta.txt",
+    };
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+
+    // Each exact whole path keeps its numeric directory untouched; neither entry is forced to
+    // its braced fallback and no directory is renamed, so the identity is the original shape.
+    REQUIRE(item_path(mod, storage, 0) == L"Assets\\0\\0_hero.bin");
+    REQUIRE(item_path(mod, storage, 1) == L"Assets\\1\\1_meta.bin");
+    // Preparation plus the two GetItems are combined metadata reads only.
+    REQUIRE(stub->metadata_calls == 4);
+    REQUIRE(stub->entry_path_query_calls == 0);
+    REQUIRE(stub->export_calls == 0);
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: a directory whose leading unit is below '0' is not a preserved name",
+          "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"one"), text_entry(u"two"), text_entry(u"three")};
+    // Every ancestor here starts with a unit below L'0' ('.' 0x2E, '!' 0x21, '-' 0x2D), so the
+    // leading-index scan must stop before reading any digit and read no preserved name.
+    stub->original_paths = {
+        u"Assets/.dot/one.txt",
+        u"Assets/!bang/two.txt",
+        u"Assets/-dash/three.txt",
+    };
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+
+    // The exact whole paths are preserved with their leading punctuation intact, so none of
+    // these sub-'0' directories is mistaken for a candidate or pushes its entry to fallback.
+    REQUIRE(item_path(mod, storage, 0) == L"Assets\\.dot\\0_one.bin");
+    REQUIRE(item_path(mod, storage, 1) == L"Assets\\!bang\\1_two.bin");
+    REQUIRE(item_path(mod, storage, 2) == L"Assets\\-dash\\2_three.bin");
+    REQUIRE(stub->metadata_calls == 6);
+    REQUIRE(stub->entry_path_query_calls == 0);
+    REQUIRE(stub->export_calls == 0);
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+
+TEST_CASE("unity adapter: healthy fixed and dynamic GetItem use no heap allocation", "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {
+        text_entry(u"alpha", "alpha"),
+        font_entry(u"font", "FONTDATA"),
+    };
+    stub->source_sizes = {5, 8};
+    stub->extensions = {u"", u"ttf"};
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+
+    // The fixture, preparation and every assertion stay outside the probe. Only the two
+    // public GetItem calls run while the allocation window is open.
+    StorageItemInfo text{};
+    StorageItemInfo font{};
+    int text_result = GET_ITEM_ERROR;
+    int font_result = GET_ITEM_ERROR;
+    std::size_t get_item_allocations = 0;
+    {
+        const heap_window window;
+        text_result = mod.api.GetItem(storage, 0, &text);
+        font_result = mod.api.GetItem(storage, 1, &font);
+        get_item_allocations = window.allocation_calls();
+    }
+
+    // The healthy fixture never arms retry_patch, so the stub's per-entry ordinal table
+    // stays unallocated and this count covers only the two public GetItem calls.
+    REQUIRE(get_item_allocations == 0);
+    REQUIRE(text_result == GET_ITEM_OK);
+    REQUIRE(font_result == GET_ITEM_OK);
+    REQUIRE(std::wstring(text.Path) == L"{TextAsset}\\0_alpha.bin");
+    REQUIRE(std::wstring(font.Path) == L"{Font}\\1_font.ttf");
+    REQUIRE(text.Size == 5);
+    REQUIRE(text.PackedSize == 5);
+    REQUIRE(font.Size == 8);
+    REQUIRE(font.PackedSize == 8);
+    REQUIRE(stub->export_calls == 0);
+
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: path_into rejects an empty caller buffer for a healthy fallback", "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"fixture", "payload")};
+    stub->source_sizes = {7};
+    temp_archive source;
+    extractor::extractor subject;
+    std::istringstream input;
+    static_cast<void>(subject.get_archive_info(input, {}, source.path));
+    auto *provider = subject.indexed_files();
+    REQUIRE(provider != nullptr);
+    provider->prepare();
+    REQUIRE(provider->count() == 1);
+
+    std::array<char, 512> buffer{};
+    const auto entry = provider->path_into(0, buffer);
+    REQUIRE(entry.has_value());
+    REQUIRE(std::string(buffer.data(), entry->written) == "{TextAsset}\\0_fixture.bin");
+    REQUIRE(entry->written == 25);
+    REQUIRE(entry->size == 7);
+    REQUIRE(entry->packed_size == 7);
+
+    REQUIRE_THROWS_AS(provider->path_into(0, std::span<char>{}), extractor::read_error);
+
+    subject.reset_storage();
+    REQUIRE(stub->close_calls == 1);
+}
+TEST_CASE("unity adapter: healthy preserved GetItem uses no heap allocation", "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"name", "payload")};
+    stub->source_sizes = {7};
+    stub->original_paths = {u"Assets/UI/name.txt"};
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+
+    alignas(std::max_align_t) StorageItemInfo item{};
+    int result = GET_ITEM_ERROR;
+    std::size_t get_item_allocations = 0;
+    {
+        const heap_window window;
+        result = mod.api.GetItem(storage, 0, &item);
+        get_item_allocations = window.allocation_calls();
+    }
+
+    REQUIRE(get_item_allocations == 0);
+    REQUIRE(result == GET_ITEM_OK);
+    REQUIRE(std::wstring(item.Path) == L"Assets\\UI\\0_name.bin");
+    REQUIRE(item.Size == 7);
+    REQUIRE(item.PackedSize == 7);
+    REQUIRE(stub->export_calls == 0);
+
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: preserved path_into rejects undersized caller buffers", "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"name", "payload")};
+    stub->source_sizes = {7};
+    stub->original_paths = {u"Assets/UI/name.txt"};
+    const temp_archive source;
+    extractor::extractor subject;
+    std::istringstream input;
+    static_cast<void>(subject.get_archive_info(input, {}, source.path));
+    auto *provider = subject.indexed_files();
+    REQUIRE(provider != nullptr);
+    provider->prepare();
+    REQUIRE(provider->count() == 1);
+
+    std::array<char, 512> buffer{};
+    const auto entry = provider->path_into(0, buffer);
+    REQUIRE(entry.has_value());
+    REQUIRE(std::string(buffer.data(), entry->written) == "Assets\\UI\\0_name.bin");
+    REQUIRE(entry->written == std::string_view("Assets\\UI\\0_name.bin").size());
+    REQUIRE(entry->size == 7);
+    REQUIRE(entry->packed_size == 7);
+
+    std::array<char, 1> one_byte{};
+    REQUIRE_THROWS_AS(provider->path_into(0, one_byte), extractor::read_error);
+    REQUIRE_THROWS_AS(provider->path_into(0, std::span<char>{}), extractor::read_error);
+
+    subject.reset_storage();
+    REQUIRE(stub->close_calls == 1);
+}
+TEST_CASE("unity adapter: a negative declared name length is rejected on the first combined call",
+          "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"fixture")};
+    // The ABI field is an int32; this seam sets its unsigned representation so the first
+    // combined metadata call reports -1 without requiring a large or malformed name buffer.
+    stub->query_name_length = 0xFFFFFFFFU;
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == FALSE);
+
+    // The negative length is rejected before a sized retry or any scalar getter is used.
+    REQUIRE(stub->metadata_calls == 1);
+    REQUIRE(stub->size_query_calls == 0);
+    REQUIRE(stub->copy_calls == 0);
+    REQUIRE(stub->export_calls == 0);
+
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+// Append to UnityExtractorTests.cpp after the existing unity adapter tests.
+//
+// The public PrepareFiles path is the only code inside the heap window. Fixture construction,
+// open, metadata/export assertions, first/last item checks and close all run outside it.
+TEST_CASE("unity adapter: public PrepareFiles keeps fallback scratch allocation calls constant",
+          "[unity][unit]")
+{
+    const auto measure = [](const std::uint32_t count) {
+        stub_binding stub;
+        stub->entries.reserve(count);
+        stub->source_sizes.assign(count, 7);
+        for (std::uint32_t index = 0; index < count; ++index) {
+            stub->entries.push_back(text_entry(u"leaf", "payload"));
+        }
+
+        const temp_archive archive;
+        const loaded_module mod;
+        HANDLE storage = nullptr;
+        REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+        REQUIRE(storage != nullptr);
+
+        bool prepared = false;
+        std::size_t allocation_calls = 0;
+        {
+            const heap_window window;
+            prepared = mod.api.PrepareFiles(storage) == TRUE;
+            allocation_calls = window.allocation_calls();
+        }
+
+        // Healthy short fallback entries need one combined metadata read each. The probe must
+        // not fan out to scalar getters, and preparation must not export anything.
+        const int prepare_metadata_calls = stub->metadata_calls;
+        const bool scalar_calls_untouched =
+            stub->size_query_calls == 0 && stub->copy_calls == 0 &&
+            stub->entry_path_query_calls == 0 && stub->entry_path_copy_calls == 0 &&
+            stub->source_size_calls == 0 && stub->entry_extension_query_calls == 0 &&
+            stub->entry_extension_copy_calls == 0;
+
+        if (prepared) {
+            // Resolve the endpoints outside the probe so only PrepareFiles is measured.
+            const int last_index = static_cast<int>(count) - 1;
+            alignas(std::max_align_t) StorageItemInfo first{};
+            alignas(std::max_align_t) StorageItemInfo last{};
+            REQUIRE(mod.api.GetItem(storage, 0, &first) == GET_ITEM_OK);
+            REQUIRE(mod.api.GetItem(storage, last_index, &last) == GET_ITEM_OK);
+            REQUIRE(std::wstring(first.Path) == L"{TextAsset}\\0_leaf.bin");
+            REQUIRE(std::wstring(last.Path) ==
+                    L"{TextAsset}\\" + std::to_wstring(last_index) + L"_leaf.bin");
+            REQUIRE(first.Size == 7);
+            REQUIRE(first.PackedSize == 7);
+            REQUIRE(last.Size == 7);
+            REQUIRE(last.PackedSize == 7);
+        }
+
+        mod.api.CloseStorage(storage);
+        REQUIRE(stub->close_calls == 1);
+
+        REQUIRE(prepared);
+        REQUIRE(prepare_metadata_calls == static_cast<int>(count));
+        REQUIRE(scalar_calls_untouched);
+        REQUIRE(stub->export_calls == 0);
+
+        std::printf("unity prepare scratch count=%u calls=%zu\n", count, allocation_calls);
+        CAPTURE(count, allocation_calls);
+        CHECK(allocation_calls <= 4U);
+    };
+
+    measure(64U);
+    measure(1024U);
+}
+TEST_CASE("unity adapter: wide path route materialises preserved and fallback names", "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"name", "payload"), text_entry(u"fallback", "other")};
+    stub->source_sizes = {7, 5};
+    stub->original_paths = {u"Assets/UI/name.txt"};
+    const temp_archive source;
+    extractor::extractor subject;
+    std::istringstream input;
+    static_cast<void>(subject.get_archive_info(input, {}, source.path));
+    auto *provider = subject.indexed_files();
+    REQUIRE(provider != nullptr);
+    provider->prepare();
+    REQUIRE(provider->count() == 2);
+
+    std::array<wchar_t, 64> buffer{};
+    const auto preserved = provider->wide_path_into(0, buffer);
+    REQUIRE(preserved.has_value());
+    REQUIRE(std::wstring(buffer.data(), preserved->written) == L"Assets\\UI\\0_name.bin");
+    REQUIRE(preserved->written == std::wstring_view(L"Assets\\UI\\0_name.bin").size());
+    REQUIRE(preserved->size == 7);
+    REQUIRE(preserved->packed_size == 7);
+
+    const auto fallback = provider->wide_path_into(1, buffer);
+    REQUIRE(fallback.has_value());
+    REQUIRE(std::wstring(buffer.data(), fallback->written) == L"{TextAsset}\\1_fallback.bin");
+    REQUIRE(fallback->written == std::wstring_view(L"{TextAsset}\\1_fallback.bin").size());
+    REQUIRE(fallback->size == 5);
+    REQUIRE(fallback->packed_size == 5);
+
+    REQUIRE_THROWS_AS(provider->wide_path_into(0, std::span<wchar_t>{}), extractor::read_error);
+    std::array<wchar_t, 1> tiny_buffer{};
+    REQUIRE_THROWS_AS(provider->wide_path_into(0, tiny_buffer), extractor::read_error);
+    REQUIRE_THROWS_AS(provider->wide_path_into(provider->count(), buffer), std::out_of_range);
+
+    subject.reset_storage();
+    REQUIRE(stub->close_calls == 1);
+}
+TEST_CASE("unity adapter: wide route rejects malformed UTF-16 in a fallback label", "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {text_entry(u"valid")};
+    stub->source_sizes = {1};
+    const temp_archive source;
+    extractor::extractor subject;
+    std::istringstream input;
+    static_cast<void>(subject.get_archive_info(input, {}, source.path));
+    auto *provider = subject.indexed_files();
+    REQUIRE(provider != nullptr);
+    provider->prepare();
+    REQUIRE(provider->count() == 1);
+
+    // Preparation saw the valid label. A later backend answer must not let the wide route
+    // bypass the UTF-16 validation that the old UTF-8 materialisation applies.
+    stub->entries[0].name = std::u16string(1, char16_t{0xD83D});
+    std::array<wchar_t, 64> wide_buffer{};
+    REQUIRE_THROWS_AS(provider->wide_path_into(0, wide_buffer), extractor::read_error);
+
+    std::array<char, 64> utf8_buffer{};
+    REQUIRE_THROWS_AS(provider->path_into(0, utf8_buffer), extractor::read_error);
+
+    subject.reset_storage();
+    REQUIRE(stub->close_calls == 1);
+}
+// Append to UnityExtractorTests.cpp after the existing wide-route fault test.
+//
+// The fixture is prepared while the backend reports a valid label. Mutating the backend
+// afterwards forces the public UTF-8 and wide path routes to validate the changed metadata
+// themselves, without duplicating the private decision function.
+TEST_CASE("unity adapter: wide route covers the malformed and valid UTF-16 branch table", "[unity][unit]")
+{
+    struct path_case final
+    {
+        std::u16string name;
+        bool valid = false;
+        std::wstring expected;
+        std::u8string expected_utf8;
+    };
+
+    const std::array<path_case, 4> cases{{
+        {std::u16string(1, char16_t{0xDC00}), false, {}, {}},
+        {std::u16string{char16_t{0xD83D}, char16_t{0xE000}}, false, {}, {}},
+        {std::u16string{char16_t{0xD83D}, char16_t{0xDC00}}, true, L"{TextAsset}\\0_\U0001F400.bin",
+         u8"{TextAsset}\\0_\U0001F400.bin"},
+        {std::u16string(1, char16_t{0xE000}), true, L"{TextAsset}\\0_\uE000.bin",
+         u8"{TextAsset}\\0_\uE000.bin"},
+    }};
+
+    for (std::size_t case_index = 0; case_index < cases.size(); ++case_index) {
+        const path_case &test = cases[case_index];
+        CAPTURE(case_index, test.valid);
+
+        stub_binding stub;
+        stub->entries = {text_entry(u"valid")};
+        stub->source_sizes = {1};
+
+        const temp_archive source;
+        extractor::extractor subject;
+        std::istringstream input;
+        static_cast<void>(subject.get_archive_info(input, {}, source.path));
+        auto *provider = subject.indexed_files();
+        REQUIRE(provider != nullptr);
+        provider->prepare();
+        REQUIRE(provider->count() == 1);
+
+        // Prepare saw only the valid label. Each public route must perform its own check on
+        // the backend's later answer rather than relying on preparation's earlier decision.
+        stub->entries[0].name = test.name;
+
+        std::array<char, 64> utf8_buffer{};
+        std::array<wchar_t, 64> wide_buffer{};
+        if (!test.valid) {
+            REQUIRE_THROWS_AS(provider->path_into(0, utf8_buffer), extractor::read_error);
+            REQUIRE_THROWS_AS(provider->wide_path_into(0, wide_buffer), extractor::read_error);
+        } else {
+            const auto utf8 = provider->path_into(0, utf8_buffer);
+            REQUIRE(utf8.has_value());
+            REQUIRE(std::string_view(utf8_buffer.data(), utf8->written) ==
+                    std::string_view(reinterpret_cast<const char *>(test.expected_utf8.data()),
+                                     test.expected_utf8.size()));
+            REQUIRE(utf8->written == test.expected_utf8.size());
+            REQUIRE(utf8->size == 1);
+            REQUIRE(utf8->packed_size == 1);
+
+            const auto wide = provider->wide_path_into(0, wide_buffer);
+            REQUIRE(wide.has_value());
+            REQUIRE(std::wstring_view(wide_buffer.data(), wide->written) == test.expected);
+            REQUIRE(wide->written == test.expected.size());
+            REQUIRE(wide->size == 1);
+            REQUIRE(wide->packed_size == 1);
+        }
+
+        REQUIRE(stub->export_calls == 0);
+        subject.reset_storage();
+        REQUIRE(stub->close_calls == 1);
     }
 }

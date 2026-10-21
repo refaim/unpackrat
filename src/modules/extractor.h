@@ -5,6 +5,7 @@
 #include <functional>
 #include <istream>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <span>
 #include <stdexcept>
@@ -49,11 +50,72 @@ namespace extractor
         }
     };
 
+    // Borrowed metadata remains valid while the owning catalogue is alive and unchanged.
+    // Sizes already include any format-specific header; paths are normalized UTF-8.
+    struct file_metadata final
+    {
+        std::string_view path;
+        int64_t size = 0;
+        int64_t packed_size = 0;
+    };
+
+    // Optional owner-dispatched route for compact indexes. Legacy extractors keep their
+    // existing file objects and raw-body/header/custom-handler behavior unchanged.
+    class indexed_catalogue
+    {
+      public:
+        virtual ~indexed_catalogue() = default;
+        virtual void prepare() = 0;
+        [[nodiscard]] virtual size_t count() const noexcept = 0;
+        // Retained metadata for providers that keep their paths alive for the whole
+        // catalogue lifetime. A lazy provider that cannot retain every final path overrides
+        // path_into() instead; this default is a hard error so a lazy catalogue can never
+        // silently hand back a wrong, empty or dangling path.
+        [[nodiscard]] virtual file_metadata metadata(size_t index) const
+        {
+            static_cast<void>(index);
+            throw read_error();
+        }
+        // Lazy route for a compact index that keeps only a sparse conflict set: materialise
+        // entry `index` into the caller-owned `buffer` and return the byte count plus both
+        // sizes. The written path borrows `buffer` for the duration of the call only, so no
+        // catalogue storage and no shared scratch is exposed. Returning nullopt asks the
+        // caller to fall back to the retained metadata() route.
+        struct column final
+        {
+            std::size_t written = 0;
+            int64_t size = 0;
+            int64_t packed_size = 0;
+        };
+        [[nodiscard]] virtual std::optional<column> path_into(size_t index, std::span<char> buffer) const
+        {
+            static_cast<void>(index);
+            static_cast<void>(buffer);
+            return std::nullopt;
+        }
+        // Optional wide route for a caller-owned path buffer. The implementation writes at
+        // most buffer.size() wchar_t units and returns their count in `written` (wchar_t units,
+        // not bytes); it never includes a terminator. The path is written only into the
+        // caller-owned buffer and is borrowed for this call only.
+        // An empty or undersized buffer throws read_error, and an out-of-range index throws
+        // std::out_of_range. Returning nullopt asks the caller to use path_into() instead, so
+        // the default leaves legacy and UTF-8-only providers unchanged.
+        [[nodiscard]] virtual std::optional<column> wide_path_into(size_t index, std::span<wchar_t> buffer) const
+        {
+            static_cast<void>(index);
+            static_cast<void>(buffer);
+            return std::nullopt;
+        }
+        virtual void extract(size_t index, std::ostream &output,
+                             const std::function<void(int64_t)> &report_progress) const = 0;
+    };
+
     // An extractor owns its archive-specific lifetime state. Entry callbacks may borrow this
     // state because archive destroys its file list before releasing the extractor.
     struct storage_state
     {
         virtual ~storage_state() = default;
+        [[nodiscard]] virtual indexed_catalogue *indexed_files() noexcept { return nullptr; }
     };
 
     struct archive_info final
@@ -105,6 +167,13 @@ namespace extractor
         std::vector<std::unique_ptr<file>> list_files(std::istream &stream);
 
         uint32_t decrypt(uint32_t magic, std::vector<char> &data) const;
+
+        // Non-owning capability lookup: state_ owns the provider and archive keeps this
+        // extractor alive through every metadata/export call, including a failed prepare.
+        [[nodiscard]] indexed_catalogue *indexed_files() const noexcept
+        {
+            return state_ ? state_->indexed_files() : nullptr;
+        }
 
         void reset_storage() noexcept
         {

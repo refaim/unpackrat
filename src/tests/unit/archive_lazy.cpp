@@ -712,3 +712,147 @@ TEST_CASE("sdk wchar: comparison accepts valid two-byte aligned wchar_t arrays",
     CHECK(std::wmemcmp(left.text.data(), right.text.data(), 4) < 0);
     CHECK(std::wmemcmp(right.text.data(), left.text.data(), 4) > 0);
 }
+
+TEST_CASE("archive lazy: metadata borrows normalized legacy paths and includes headers")
+{
+    const auto contents = make_archive_contents();
+    const test::support::temporary_file source("metadata", contents);
+    test::support::fake_extractor_state state;
+    auto first = make_raw_definition("HDR");
+    first.path = "folder/item.bin";
+    state.files.push_back(std::move(first));
+    auto second = make_raw_definition("");
+    second.path = std::string("prefix\0ignored", 14);
+    state.files.push_back(std::move(second));
+    const test::support::fake_extractor_scope scope(state);
+    archive::archive subject(std::make_unique<extractor::extractor>());
+    REQUIRE_THROWS_AS(subject.get_metadata(0), std::out_of_range);
+    static_cast<void>(subject.open(source.path(), {}));
+    subject.prepare_files();
+    const auto before = subject.get_metadata(0);
+    REQUIRE(before.path == "folder\\item.bin");
+    REQUIRE(before.size == body_size + 3);
+    REQUIRE(before.packed_size == body_size + 3);
+    REQUIRE(subject.get_metadata(1).path == "prefix");
+    REQUIRE(before.path == "folder\\item.bin");
+    REQUIRE(subject.get_metadata(0).path.data() == before.path.data());
+    REQUIRE_THROWS_AS(subject.get_metadata(2), std::out_of_range);
+}
+
+TEST_CASE("archive lazy: get_metadata_into materialises legacy metadata into the caller buffer")
+{
+    const auto contents = make_archive_contents();
+    const test::support::temporary_file source("metadata-into", contents);
+    test::support::fake_extractor_state state;
+    auto first = make_raw_definition("HDR");
+    first.path = "folder/item.bin";
+    state.files.push_back(std::move(first));
+    const test::support::fake_extractor_scope scope(state);
+    archive::archive subject(std::make_unique<extractor::extractor>());
+    static_cast<void>(subject.open(source.path(), {}));
+    subject.prepare_files();
+
+    // A legacy provider keeps its own paths, so the buffer route can leave them borrowed
+    // while still reporting the same sizes and normalised name as get_metadata.
+    std::array<char, 64> buffer{};
+    extractor::file_metadata metadata;
+    subject.get_metadata_into(0, buffer, metadata);
+    REQUIRE(metadata.path == "folder\\item.bin");
+    REQUIRE(metadata.size == body_size + 3);
+    REQUIRE(metadata.packed_size == body_size + 3);
+    CHECK_THROWS_AS(subject.get_metadata_into(1, buffer, metadata), std::out_of_range);
+}
+
+TEST_CASE("archive lazy: an indexed catalogue drives both metadata routes and a zero-sized buffer falls back")
+{
+    // A minimal lazy provider: path_into materialises only when the caller buffer is large enough,
+    // and metadata() stands in for the retained fallback the caller must use otherwise.
+    struct lazy_catalogue final : extractor::indexed_catalogue
+    {
+        static const std::string &retained_path(const std::size_t index)
+        {
+            static const std::array<std::string, 2> paths{"retained-0", "retained-1"};
+            return paths[index];
+        }
+
+        void prepare() override
+        {
+        }
+
+        [[nodiscard]] std::size_t count() const noexcept override
+        {
+            return 2;
+        }
+
+        [[nodiscard]] extractor::file_metadata metadata(const std::size_t index) const override
+        {
+            if (index >= 2) {
+                throw extractor::read_error();
+            }
+            return {retained_path(index), 10 + static_cast<std::int64_t>(index),
+                    20 + static_cast<std::int64_t>(index)};
+        }
+
+        [[nodiscard]] std::optional<column> path_into(const std::size_t index,
+                                                      const std::span<char> buffer) const override
+        {
+            if (index >= 2) {
+                throw extractor::read_error();
+            }
+            const std::string path = "lazy-" + std::to_string(index);
+            if (buffer.size() < path.size()) {
+                return std::nullopt;
+            }
+            for (std::size_t offset = 0; offset < path.size(); ++offset) {
+                buffer[offset] = path[offset];
+            }
+            return column{path.size(), 100 + static_cast<std::int64_t>(index), 200 + static_cast<std::int64_t>(index)};
+        }
+
+        void extract(std::size_t, std::ostream &, const std::function<void(std::int64_t)> &) const override
+        {
+        }
+    };
+    struct lazy_state final : extractor::storage_state
+    {
+        lazy_catalogue catalogue;
+
+        [[nodiscard]] extractor::indexed_catalogue *indexed_files() noexcept override
+        {
+            return &catalogue;
+        }
+    };
+
+    const auto contents = make_archive_contents();
+    const test::support::temporary_file source("metadata-lazy", contents);
+    test::support::fake_extractor_state state;
+    state.storage_factory = []() -> std::unique_ptr<extractor::storage_state> {
+        return std::make_unique<lazy_state>();
+    };
+    const test::support::fake_extractor_scope scope(state);
+    archive::archive subject(std::make_unique<extractor::extractor>());
+    static_cast<void>(subject.open(source.path(), {}));
+    subject.prepare_files();
+
+    // A buffer that fits the materialised path reports the lazy column's sizes.
+    std::array<char, 64> buffer{};
+    extractor::file_metadata materialised;
+    subject.get_metadata_into(0, buffer, materialised);
+    REQUIRE(materialised.path == "lazy-0");
+    REQUIRE(materialised.size == 100);
+    REQUIRE(materialised.packed_size == 200);
+
+    // A zero-sized caller buffer cannot hold the path, so the provider's retained metadata is
+    // served instead of a truncated or dangling borrow.
+    extractor::file_metadata fallback;
+    subject.get_metadata_into(1, std::span<char>{}, fallback);
+    REQUIRE(fallback.path == "retained-1");
+    REQUIRE(fallback.size == 11);
+    REQUIRE(fallback.packed_size == 21);
+
+    // The retained route is also reachable directly through get_metadata for a lazy catalogue.
+    const extractor::file_metadata direct = subject.get_metadata(1);
+    REQUIRE(direct.path == "retained-1");
+    REQUIRE(direct.size == 11);
+    REQUIRE(direct.packed_size == 21);
+}

@@ -1,7 +1,9 @@
 #include "api.h"
 #include "archive.h"
+#include "core/archive_limits.h"
 #include "modules/extractor.h"
 
+#include <array>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
@@ -118,25 +120,57 @@ extern "C" int MODULE_EXPORT GetItem(HANDLE storage, int item_index, StorageItem
         return GET_ITEM_ERROR;
     }
 
+    // Every rejection path leaves the caller a fully initialised, zeroed record instead of a
+    // half-written or stale one. A successful call overwrites it below.
+    std::memset(item_info, 0, sizeof(StorageItemInfo));
+
     const auto *archive = static_cast<archive::archive *>(storage);
     try {
-        const auto &file = archive->get_file(item_index);
-        const auto header_size = std::ssize(file.header);
-
         alignas(std::max_align_t) StorageItemInfo local_info;
         std::memset(&local_info, 0, sizeof(StorageItemInfo));
         local_info.Attributes = FILE_ATTRIBUTE_NORMAL;
-        local_info.Size = header_size + file.uncompressed_body_size_in_bytes;
-        local_info.PackedSize = header_size + file.compressed_body_size_in_bytes;
         local_info.NumHardlinks = 0;
-        const auto chars_written = MultiByteToWideChar(CP_UTF8, 0, file.path.c_str(), -1, local_info.Path,
-                                                       static_cast<int>(std::size(local_info.Path)));
+
+        // A provider that already has a validated WCHAR path writes it directly into the
+        // caller record. The final slot stays reserved for the ABI terminator.
+        const std::span<wchar_t> wide_buffer(local_info.Path, std::size(local_info.Path) - 1);
+        if (const auto wide = archive->get_wide_metadata_into(item_index, wide_buffer)) {
+            local_info.Size = wide->size;
+            local_info.PackedSize = wide->packed_size;
+            local_info.Path[wide->written] = L'\0';
+            std::memcpy(item_info, &local_info, sizeof(StorageItemInfo));
+            return GET_ITEM_OK;
+        }
+
+        // Legacy and UTF-8-only providers keep the existing call-frame path and conversion.
+        std::array<char, unpackrat::archive_limits::max_path_bytes> path_buffer{};
+        extractor::file_metadata metadata;
+        archive->get_metadata_into(item_index, path_buffer, metadata);
+        local_info.Size = metadata.size;
+        local_info.PackedSize = metadata.packed_size;
+        // The Observer path remains a terminated string, including legacy embedded-NUL
+        // prefix semantics. Bound its UTF-8 representation before narrowing to Win32 int.
+        const auto path = metadata.path.substr(0, metadata.path.find('\0'));
+        int chars_written = 0;
+        if (path.size() <= unpackrat::archive_limits::max_path_bytes) {
+            chars_written = path.empty() ? 1 : MultiByteToWideChar(
+                CP_UTF8, 0, path.data(), static_cast<int>(path.size()), local_info.Path,
+                static_cast<int>(std::size(local_info.Path)) - 1);
+        }
         std::memcpy(item_info, &local_info, sizeof(StorageItemInfo));
         if (chars_written == 0) {
             return GET_ITEM_ERROR;
         }
     } catch (std::out_of_range &) {
         return GET_ITEM_NOMOREITEMS;
+    } catch (extractor::read_error &) {
+        // A lazy materialisation failure (backend error, stale handle, malformed label) is
+        // a listing error, never an uncaught exception across the C ABI.
+        return GET_ITEM_ERROR;
+    } catch (const std::bad_alloc &) {
+        // An allocation failure while materialising a lazy path is terminal, exactly as in
+        // ExtractItem: it is translated once here and never allowed to escape the C ABI.
+        return GET_ITEM_ERROR;
     }
 
     return GET_ITEM_OK;

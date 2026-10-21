@@ -114,9 +114,11 @@ public sealed class UnityDeferredFactoryTests
 	}
 
 	[Theory]
-	[InlineData("2022.1.0f1")]
-	[InlineData("5.4.1p1")]
-	public void AResourceInterfaceWithoutACanonicalSchemaRetainsItsIdentityWithoutReadingItsBody(string version)
+	[InlineData("2022.1.0f1", false)]
+	[InlineData("2022.1.0f1", true)]
+	[InlineData("5.4.1p1", false)]
+	[InlineData("5.4.1p1", true)]
+	public void AResourceInterfaceWithoutACanonicalSchemaRetainsItsIdentityWithoutReadingItsBody(string version, bool compact)
 	{
 		// Model a future generated resource subclass whose schema is absent from the pinned TPK.
 		var collection = AssetCreator.CreateCollection(UnityVersion.Parse(version));
@@ -126,7 +128,7 @@ public sealed class UnityDeferredFactoryTests
 		object shape = method.Invoke(null, [future, definition, collection.Version])!;
 		Assert.Equal(UnityEntryKind.Text, shape.GetType().GetProperty("Kind")!.GetValue(shape));
 		Assert.Null(shape.GetType().GetProperty("Template")!.GetValue(shape));
-		Reader inner = new(); UnitySource.LazyAssetFactory factory = new(inner);
+		Reader inner = new(); UnitySource.LazyAssetFactory factory = new(inner, compact);
 		var cache = (System.Collections.IDictionary)typeof(UnitySource.LazyAssetFactory)
 			.GetField("shapes", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(factory)!;
 		cache.Add((future.ClassID, collection.Version, collection.Flags.IsRelease()), shape);
@@ -135,7 +137,10 @@ public sealed class UnityDeferredFactoryTests
 		using SerializedFile file = (SerializedFile)SchemeReader.ReadFile(input, "future.assets", "future.assets", FileReadMode.MetadataOnly);
 		ObjectInfo descriptor = file.Objects[0];
 		physical.ForbidReads = true;
-		IUnityObjectBase identity = factory.ReadAsset(future, in descriptor, [])!;
+		if (compact) factory.ValidateObjectTable(collection, [descriptor]);
+		IUnityObjectBase? result = factory.ReadAsset(future, in descriptor, []);
+		if (compact) { Assert.Null(result); factory.CompleteCollection(collection); }
+		IUnityObjectBase identity = compact ? collection.TryGetAsset(future.PathID)! : result!;
 		Assert.Equal(future, identity.AssetInfo);
 		Assert.Empty(Assert.IsAssignableFrom<INamed>(identity).Name.String);
 		Assert.Null(identity.GetType().GetProperty("Projection")!.GetValue(identity));

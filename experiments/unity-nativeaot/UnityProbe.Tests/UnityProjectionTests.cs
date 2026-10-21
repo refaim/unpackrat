@@ -831,4 +831,45 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		Assert.Equal(7, projection.Number("m_Width"));
 		Assert.Equal(new[] { "m_RenderDataKey/data", "m_Width" }, projection.Keys);
 	}
+	[Fact]
+	public void BorrowedSubrangeChecksBoundsAndEveryReadFormWithoutOwningTheSource()
+	{
+		using MemoryStream input = new([9, 1, 2, 3, 4, 9], false);
+		UnityProjection.State state = new(Root(Field("m_Width", AssetValueType.Int32)));
+		Stream bounded = state.Reader.BaseStream;
+		var attach = bounded.GetType().GetMethod("AttachRange")!;
+		foreach ((long offset, long count) in new[] { (-1L, 1L), (0L, -1L), (7L, 0L), (5L, 2L) })
+			Assert.IsType<ArgumentOutOfRangeException>(Assert.Throws<System.Reflection.TargetInvocationException>(() => attach.Invoke(bounded, [input, offset, count])).InnerException);
+		attach.Invoke(bounded, [input, 1L, 4L]);
+		Assert.Equal(4, bounded.Length); Assert.Equal(0, bounded.Position);
+		byte[] first = new byte[2]; Assert.Equal(2, bounded.Read(first, 0, 2)); Assert.Equal(new byte[] { 1, 2 }, first);
+		Assert.Equal(3, bounded.ReadByte()); Assert.Equal(3, bounded.Position);
+		Assert.Equal(3, bounded.Seek(-1, SeekOrigin.End)); Assert.Equal(4, bounded.ReadByte());
+		Assert.Throws<EndOfStreamException>(() => bounded.ReadByte());
+		bounded.Position = 0; Assert.Equal(4, bounded.Read(new byte[4].AsSpan()));
+		bounded.GetType().GetMethod("Attach")!.Invoke(bounded, [input]); input.Position = 1;
+		Assert.Equal(1, bounded.Read(new byte[1], 0, 1)); Assert.Equal(2, bounded.ReadByte());
+		using MemoryStream shrunk = new(); shrunk.Write([9, 1, 2, 3, 4, 9]);
+		attach.Invoke(bounded, [shrunk, 1L, 4L]); shrunk.SetLength(0);
+		Assert.Equal(-1, bounded.ReadByte()); Assert.Equal(0, bounded.Position);
+
+		Assert.Equal(3, input.Position); bounded.Dispose(); Assert.True(input.CanRead);
+	}
+
+	[Fact]
+	public void BorrowedDynamicAtlasScratchReplacesOldDictionaryCapturesOnEveryRead()
+	{
+		var template = Root(Field("m_RenderDataMap", AssetValueType.None, Field("Array", AssetValueType.Array,
+			Field("size", AssetValueType.Int32), Field("data", AssetValueType.None,
+				Field("first", AssetValueType.Int64), Field("second", AssetValueType.None, Field("texture", AssetValueType.None,
+					Field("m_FileID", AssetValueType.Int32), Field("m_PathID", AssetValueType.Int64)))))));
+		template.Type = "SpriteAtlas";
+		UnityProjection.State state = new(template);
+		using MemoryStream first = Data(w => { w.Write(1); w.Write(7L); w.Write(0); w.Write(9L); });
+		UnityProjection scratch = UnityProjection.ReadBorrowed(first, 0, first.Length, template, false, state);
+		Assert.Contains(scratch.Keys, key => key.Contains("data#0"));
+		using MemoryStream empty = Data(w => w.Write(0));
+		Assert.Same(scratch, UnityProjection.ReadBorrowed(empty, 0, empty.Length, template, false, state)); Assert.Empty(scratch.Keys);
+	}
+
 }

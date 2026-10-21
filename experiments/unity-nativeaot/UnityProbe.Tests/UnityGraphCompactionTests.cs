@@ -83,7 +83,7 @@ public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 		IUnityGraph graph = UnitySource.OpenGraph(path, readFile: null, fullReader: reader);
 		using UnitySession session = UnitySession.FromGraph(graph);
 		IProbeAsset view = graph.Collections[0].Assets.Single(asset => ((IProbeResource)asset).Name == "resource");
-		IUnityObjectBase identity = Root(graph).FetchAssets().Single(asset => Deferred(asset) && Property(asset, "Name")!.ToString() == "resource");
+		IUnityObjectBase identity = Root(graph).FetchAssets().Single(asset => Deferred(asset) && ((INamed)asset).Name.String == "resource");
 		Assert.Same(identity, view);
 		Assert.Null(Property(identity, "Projection"));
 		UnityCatalogEntry entry = session.Entries.Single(e => e.Name == "resource");
@@ -98,6 +98,91 @@ public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 			Assert.Equal(entry.OutputExtension, ((IProbeResource)view).OutputExtension);
 			Assert.Equal("resource", ((IProbeResource)view).Name);
 		}
+	}
+
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static WeakReference[] WatchNameAdapters(IEnumerable<IUnityObjectBase> identities)
+	{
+		List<WeakReference> watched = [];
+		FieldInfo bytesField = typeof(Utf8String).GetFields(PrivateFields).Single(field => field.FieldType == typeof(byte[]));
+		foreach (IUnityObjectBase identity in identities)
+		{
+			Utf8String name = ((INamed)identity).Name;
+			byte[] bytes = (byte[])bytesField.GetValue(name)!;
+			Assert.NotEmpty(bytes); // Empty UTF-8 buffers may be shared singletons.
+			watched.Add(new(name));
+			watched.Add(new(bytes));
+		}
+		return watched.ToArray();
+	}
+
+	[Fact]
+	public void ACompleteLazyCatalogueDoesNotRetainItsTransientUtf8NameAdaptersOrBuffers()
+	{
+		const int count = 4096;
+		using SerializedFile file = Read(UnityFixtureBuilder.SerializedRepeatedTextAssets(count), "large.assets");
+		GameBundle root = new(); FullReader reader = new(); UnitySource.LazyAssetFactory factory = new(reader);
+		SerializedAssetCollection collection = root.AddCollectionFromSerializedFile(file, factory);
+		using UnityGraph graph = new(root, file, [collection], 0, [], [], factory);
+		using UnitySession session = UnitySession.FromGraph(graph);
+		IUnityObjectBase[] identities = collection.ToArray();
+		Assert.Equal(count, session.Entries.Count);
+		Assert.Equal(Enumerable.Range(1, count).Select(i => (long)i), session.Entries.Select(e => e.PathId));
+		Assert.Equal(Enumerable.Range(0, count), session.Entries.Select(e => e.Index));
+		Assert.All(session.Entries, entry => { Assert.Equal("notes", entry.Name); Assert.Equal(7, entry.SourceSize); Assert.Equal(string.Empty, entry.OriginalPath); });
+		Assert.Empty(reader.Reads);
+		WeakReference[] watched = WatchNameAdapters(identities);
+		Assert.Equal(2 * count, watched.Length);
+		GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+		int alive = watched.Count(weak => weak.IsAlive);
+		output.WriteLine($"Retained UTF-8 name adapters and buffers: {alive}/{watched.Length}.");
+		Assert.Equal(0, alive);
+		foreach (int index in new[] { 0, count / 2, count - 1, 0 })
+		{
+			using MemoryStream destination = new(); Assert.True(session.Export(index, destination));
+			Assert.Equal(Encoding.UTF8.GetBytes("payload"), destination.ToArray());
+			Assert.Same(identities[index], collection.Single(asset => asset.PathID == index + 1));
+			Assert.Equal("notes", ((IProbeResource)identities[index]).Name);
+		}
+		Assert.Equal(new[] { 49, 49, 49, 49 }, reader.Reads);
+		GC.KeepAlive(root); GC.KeepAlive(graph); GC.KeepAlive(session); GC.KeepAlive(identities);
+	}
+
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static WeakReference AssignName(INamed identity, string text)
+	{
+		Utf8String adapter = new(text);
+		identity.Name = adapter;
+		return new(adapter);
+	}
+
+	[Theory]
+	[InlineData("")]
+	[InlineData("renamed")]
+	[InlineData("имя-猫-🌙")]
+	public void TheNamedBridgePreservesAssignedValuesWithoutOwningTheIncomingAdapter(string name)
+	{
+		using SerializedFile file = Read(UnityFixtureBuilder.SerializedTextAsset("original", "payload"), "named.assets");
+		GameBundle root = new(); FullReader reader = new(); UnitySource.LazyAssetFactory factory = new(reader);
+		SerializedAssetCollection collection = root.AddCollectionFromSerializedFile(file, factory);
+		IUnityObjectBase identity = Assert.Single(collection);
+		WeakReference assigned = AssignName((INamed)identity, name);
+		using UnityGraph graph = new(root, file, [collection], 0, [], [], factory);
+		using UnitySession session = UnitySession.FromGraph(graph);
+		Assert.Equal(name, Assert.Single(session.Entries).Name);
+		Assert.Equal(name, ((INamed)identity).Name.String);
+		Assert.Equal(Encoding.UTF8.GetBytes(name), ((INamed)identity).Name.Data.ToArray());
+		GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+		Assert.False(assigned.IsAlive);
+		for (int pass = 0; pass < 2; pass++)
+		{
+			using MemoryStream destination = new(); Assert.True(session.Export(0, destination));
+			Assert.Equal(Encoding.UTF8.GetBytes("payload"), destination.ToArray());
+			Assert.Same(identity, Assert.Single(collection));
+			Assert.Equal(name, ((IProbeResource)identity).Name);
+		}
+		Assert.Equal(new[] { 49, 49 }, reader.Reads);
+		GC.KeepAlive(root); GC.KeepAlive(graph); GC.KeepAlive(session); GC.KeepAlive(identity);
 	}
 
 	[Fact]

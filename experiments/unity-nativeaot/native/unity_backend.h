@@ -105,6 +105,28 @@ typedef struct UnityEntry {
 } UnityEntry;
 #pragma pack(pop)
 
+#pragma pack(push, 8)
+/*
+ * Combined metadata descriptor for one catalogue entry, exactly 48 bytes; field order
+ * and offsets are frozen. It is the single-call form of the scalar getters: one
+ * unpackrat_unity_get_metadata call reports the entry descriptor, the declared source
+ * payload length and the three UTF-16 field lengths, and copies each field whose caller
+ * buffer is large enough. The caller sets struct_size = 48 on input.
+ */
+typedef struct UnityMetadata {
+    uint32_t struct_size;       /* offset  0: caller sets 48 on input */
+    int32_t kind;               /* offset  4: UnityEntryKind value */
+    int32_t collection_index;   /* offset  8 */
+    uint32_t reserved;          /* offset 12: zero */
+    int64_t path_id;            /* offset 16: signed catalogue id */
+    int64_t source_size;        /* offset 24: declared source payload length (>= 0) */
+    int32_t name_length;        /* offset 32: UTF-16 units, no terminator (>= 0) */
+    int32_t original_length;    /* offset 36: original asset path units (>= 0) */
+    int32_t extension_length;   /* offset 40: output extension units (>= 0) */
+    uint32_t reserved2;         /* offset 44: zero */
+} UnityMetadata;
+#pragma pack(pop)
+
 /*
  * Export write callback. Returning 0 accepts the whole chunk, 1 requests
  * cancellation, any other value is a write failure. The byte pointer is
@@ -169,6 +191,27 @@ UNPACKRAT_UNITY_API int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_get_entry_exte
     uint64_t session, int32_t index, uint16_t* extension, int32_t capacity,
     int32_t* length);
 
+/*
+ * Reads the whole metadata of catalogue entry `index` in ONE serialised operation: the
+ * descriptor, declared source length and the three UTF-16 field lengths land in
+ * `metadata`, and each field is copied into its caller buffer when that buffer is large
+ * enough. It is purely additive: the scalar getters above are unchanged.
+ *
+ * `metadata` must be non-null with struct_size == 48 and is fully initialised before any
+ * other failure. A negative capacity, or a null buffer with a positive capacity, is
+ * UNITY_INVALID_ARGUMENT. A null buffer with zero capacity is a size query for that field:
+ * its length is still reported and nothing is copied. A field whose buffer is smaller than
+ * its length is not copied; such a call returns UNITY_BUFFER_TOO_SMALL after writing every
+ * length, so a bounded caller can retry with exact buffers. UNITY_OK means every requested
+ * field was copied. Out-of-range is UNITY_OUT_OF_RANGE. Every reported length is
+ * non-negative and a negative length never appears on a successful read. Nothing STL,
+ * managed or owned crosses the boundary: only fixed structs and caller-owned UTF-16 buffers.
+ */
+UNPACKRAT_UNITY_API int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_get_metadata(
+    uint64_t session, int32_t index, UnityMetadata* metadata, uint16_t* name,
+    int32_t name_capacity, uint16_t* original, int32_t original_capacity,
+    uint16_t* extension, int32_t extension_capacity);
+
 UNPACKRAT_UNITY_API int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_close(
     uint64_t session);
 
@@ -190,6 +233,10 @@ typedef int32_t(UNPACKRAT_UNITY_CDECL* unpackrat_unity_get_entry_path_fn)(
 typedef int32_t(UNPACKRAT_UNITY_CDECL* unpackrat_unity_get_entry_extension_fn)(
     uint64_t session, int32_t index, uint16_t* extension, int32_t capacity,
     int32_t* length);
+typedef int32_t(UNPACKRAT_UNITY_CDECL* unpackrat_unity_get_metadata_fn)(
+    uint64_t session, int32_t index, UnityMetadata* metadata, uint16_t* name,
+    int32_t name_capacity, uint16_t* original, int32_t original_capacity,
+    uint16_t* extension, int32_t extension_capacity);
 typedef int32_t(UNPACKRAT_UNITY_CDECL* unpackrat_unity_close_fn)(
     uint64_t session);
 
@@ -213,5 +260,17 @@ UNPACKRAT_UNITY_STATIC_ASSERT(offsetof(UnityEntry, name_length) == 24,
                               "UnityEntry.name_length offset");
 UNPACKRAT_UNITY_STATIC_ASSERT(offsetof(UnityEntry, reserved2) == 28,
                               "UnityEntry.reserved2 offset");
+UNPACKRAT_UNITY_STATIC_ASSERT(sizeof(UnityMetadata) == 48,
+                              "UnityMetadata must be exactly 48 bytes");
+UNPACKRAT_UNITY_STATIC_ASSERT(offsetof(UnityMetadata, kind) == 4,
+                              "UnityMetadata.kind offset");
+UNPACKRAT_UNITY_STATIC_ASSERT(offsetof(UnityMetadata, path_id) == 16,
+                              "UnityMetadata.path_id offset");
+UNPACKRAT_UNITY_STATIC_ASSERT(offsetof(UnityMetadata, source_size) == 24,
+                              "UnityMetadata.source_size offset");
+UNPACKRAT_UNITY_STATIC_ASSERT(offsetof(UnityMetadata, name_length) == 32,
+                              "UnityMetadata.name_length offset");
+UNPACKRAT_UNITY_STATIC_ASSERT(offsetof(UnityMetadata, extension_length) == 40,
+                              "UnityMetadata.extension_length offset");
 
 #endif /* UNPACKRAT_UNITY_BACKEND_H */

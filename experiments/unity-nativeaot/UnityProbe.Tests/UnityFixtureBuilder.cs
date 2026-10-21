@@ -10,6 +10,7 @@ using AssetRipper.Assets.IO.Writing;
 using AssetRipper.Import.AssetCreation;
 using AssetRipper.IO.Endian;
 using AssetRipper.IO.Files;
+using AssetRipper.IO.Files.Streams.Smart;
 using AssetRipper.IO.Files.BundleFiles;
 using AssetRipper.IO.Files.BundleFiles.FileStream;
 using AssetRipper.IO.Files.SerializedFiles;
@@ -91,6 +92,47 @@ internal static class UnityFixtureBuilder
 		builder.Objects.Add(new ObjectInfo { FileID = 1, TypeID = classId, ClassID = unchecked((short)classId),
 			SerializedTypeIndex = 0, Type = builder.Types[0], ObjectData = WriteAssetBytes(collection, asset) });
 		return Serialize(builder.Build());
+	}
+
+	public static byte[] SerializedRepeatedSprites(int count, bool malformedLast = false)
+	{
+		byte[] pixel = [10, 20, 30, 255];
+		byte[] bytes = SerializedSprite("hero", pixel, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+		using SmartStream input = SmartStream.CreateMemory(bytes);
+		using SerializedFile source = (SerializedFile)SchemeReader.ReadFile(input, "sprite.assets", "sprite.assets");
+		SerializedFileBuilder builder = NewBuilder(source.Version, Texture2DClassId, SpriteClassId);
+		builder.Objects.Add(new ObjectInfo { FileID = 1, TypeID = Texture2DClassId, ClassID = Texture2DClassId, SerializedTypeIndex = 0,
+			Type = builder.Types[0], ObjectData = source.Objects[0].ObjectData });
+		byte[] sprite = source.Objects[1].ObjectData;
+		for (int i = 0; i < count; i++)
+			builder.Objects.Add(new ObjectInfo { FileID = i + 2, TypeID = SpriteClassId, ClassID = SpriteClassId, SerializedTypeIndex = 1,
+				Type = builder.Types[1], ObjectData = malformedLast && i == count - 1 ? new byte[] { 1 } : sprite });
+		return Serialize(builder.Build());
+	}
+
+	// Modes: direct, atlas key7, missing atlas key8, malformed header, invalid direct file.
+	public static (byte[] Selected, byte[] Atlas) SerializedSpriteLinkCases(params int[] modes)
+	{
+		byte[] pixel = [10, 20, 30, 255];
+		(byte[] selected, byte[] atlas) = SerializedAtlasSprite("hero", pixel, 1, 1, pixel, 1, 1, 0, 0, 1, 1, 0, 0, 2, 7, 7);
+		(byte[] missing, _) = SerializedAtlasSprite("hero", pixel, 1, 1, pixel, 1, 1, 0, 0, 1, 1, 0, 0, 2, 8, 7);
+		byte[] direct = SerializedSprite("hero", pixel, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+		byte[] invalid = SerializedSprite("hero", pixel, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, textureFileOverride: -1);
+		byte[] Body(byte[] bytes, int row)
+		{
+			using SmartStream input = SmartStream.CreateMemory(bytes);
+			using SerializedFile file = (SerializedFile)SchemeReader.ReadFile(input, "links.assets", "links.assets");
+			return file.Objects[row].ObjectData;
+		}
+		byte[][] bodies = [Body(direct, 1), Body(selected, 1), Body(missing, 1), [1], Body(invalid, 1)];
+		SerializedFileBuilder builder = NewBuilder(UnityVersion.Parse("2021.3.0f1"), Texture2DClassId, SpriteClassId);
+		builder.Objects.Add(new ObjectInfo { FileID = 1, TypeID = Texture2DClassId, ClassID = Texture2DClassId, SerializedTypeIndex = 0,
+			Type = builder.Types[0], ObjectData = Body(direct, 0) });
+		for (int i = 0; i < modes.Length; i++) builder.Objects.Add(new ObjectInfo { FileID = i + 2, TypeID = SpriteClassId, ClassID = SpriteClassId,
+			SerializedTypeIndex = 1, Type = builder.Types[1], ObjectData = bodies[modes[i]] });
+		builder.Dependencies.Add(new FileIdentifier { Type = AssetType.Serialized, AssetPath = Utf8String.Empty,
+			PathNameOrigin = AtlasDependencyName, PathName = SpecialFileNames.FixFileIdentifier(AtlasDependencyName) });
+		return (Serialize(builder.Build()), atlas);
 	}
 
 	public static byte[] SerializedRepeatedTextAssets(int count)
@@ -552,6 +594,8 @@ internal static class UnityFixtureBuilder
 		long spritePathId = 2,
 		string? layoutVersion = null,
 		string? headerVersion = null,
+		bool externalTexture = false,
+		int? textureFileOverride = null,
 		params string[] dependencies)
 	{
 		UnityVersion version = UnityVersion.Parse(layoutVersion ?? "2021.3.0f1");
@@ -570,7 +614,17 @@ internal static class UnityFixtureBuilder
 		ISpriteRenderData renderData = sprite.RD;
 		if (linksTexture)
 		{
-			renderData.Texture.SetAsset(collection, texture);
+			renderData.Texture.SetAsset(collection, externalTexture
+				? CreateTexture(AssetCreator.CreateCollection(version), name + "_external", textureData, textureWidth, textureHeight) : texture);
+		}
+
+		if (textureFileOverride is { } file)
+		{
+			Span<byte> pointerBytes = stackalloc byte[12];
+			BinaryPrimitives.WriteInt32LittleEndian(pointerBytes, file);
+			BinaryPrimitives.WriteInt64LittleEndian(pointerBytes[4..], renderData.Texture.PathID);
+			EndianSpanReader reader = new(pointerBytes, EndianType.LittleEndian);
+			renderData.Texture.ReadRelease(ref reader);
 		}
 
 		renderData.DownscaleMultiplier = downscale;
@@ -648,7 +702,7 @@ internal static class UnityFixtureBuilder
 		uint settingsRaw,
 		long spriteKeyValue,
 		long atlasKeyValue,
-		bool linkAtlasTexture = true, int leadingAtlasEntries = 0)
+		bool linkAtlasTexture = true, int leadingAtlasEntries = 0, int atlasTextureFileId = 0, bool missingTextureDependency = false, long? referencedAtlasPath = null)
 	{
 		UnityVersion version = UnityVersion.Parse("2021.3.0f1");
 		ProcessedAssetCollection atlasCollection = AssetCreator.CreateCollection(version);
@@ -667,6 +721,7 @@ internal static class UnityFixtureBuilder
 		if (linkAtlasTexture)
 		{
 			entry.Value.Texture.SetAsset(atlasCollection, atlasTexture);
+			entry.Value.Texture.GetType().GetField("m_FileID_", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(entry.Value.Texture, atlasTextureFileId);
 		}
 		entry.Value.TextureRect.X = atlasRectX;
 		entry.Value.TextureRect.Y = atlasRectY;
@@ -701,6 +756,7 @@ internal static class UnityFixtureBuilder
 		renderData.SettingsRaw = 2u;
 		SetRenderDataKey(sprite.RenderDataKey, spriteKeyValue);
 		sprite.SpriteAtlas.SetAsset(spriteCollection, atlas);
+		if (referencedAtlasPath is { } atlasPath) sprite.SpriteAtlas.GetType().GetField("m_PathID_", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(sprite.SpriteAtlas, atlasPath);
 
 		byte[] localTextureObjectData = WriteAssetBytes(spriteCollection, localTexture);
 		byte[] spriteObjectData = WriteAssetBytes(spriteCollection, sprite);
@@ -723,6 +779,8 @@ internal static class UnityFixtureBuilder
 			Type = atlasBuilder.Types[1],
 			ObjectData = atlasObjectData,
 		});
+
+		if (missingTextureDependency) atlasBuilder.Dependencies.Add(new FileIdentifier { Type = AssetType.Serialized, AssetPath = Utf8String.Empty, PathNameOrigin = "missing-texture.assets", PathName = "missing-texture.assets" });
 
 		SerializedFileBuilder spriteBuilder = NewBuilder(version, Texture2DClassId, SpriteClassId);
 		spriteBuilder.Objects.Add(new ObjectInfo

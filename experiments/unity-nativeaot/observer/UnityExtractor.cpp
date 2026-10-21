@@ -9,6 +9,8 @@
 // the virtual path preserves the asset's original directory hierarchy when the backend
 // reports one. Nothing here loads a library, spawns a process, or converts assets eagerly.
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -16,7 +18,9 @@
 #include <fstream>
 #include <functional>
 #include <ios>
+#include <limits>
 #include <memory>
+#include <memory_resource>
 #include <optional>
 #include <set>
 #include <span>
@@ -90,6 +94,26 @@ namespace extractor
         // the retained extension metadata.
         constexpr std::int32_t max_extension_units = 16;
 
+        // Reusable per-entry read buffers. One fixed combined metadata call covers the common
+        // small entry in a single ABI round trip; only a field longer than these bounds pays one
+        // exact-size retry, so a normal entry costs exactly one call instead of one per field.
+        constexpr std::size_t initial_name_units = 512;
+        constexpr std::size_t initial_path_units = 2048;
+
+        // Per-call stack scratch for lazy path materialisation. The healthy short entry
+        // fits entirely in caller-frame storage, so a normal GetItem performs no heap
+        // allocation; a field that outgrows the arena falls back to its upstream
+        // allocator, keeping the existing bounded retry and long-field behaviour.
+        constexpr std::size_t get_item_scratch_bytes = 16 * 1024;
+
+        // Per-entry stack arena for Prepare validation. Healthy short metadata is rebuilt
+        // entirely in caller-frame storage; a field that outgrows the arena spills to its
+        // upstream allocator and is reclaimed by that iteration's arena destructor.
+        constexpr std::size_t prepare_scratch_bytes = 16 * 1024;
+
+        using scratch_string = std::pmr::wstring;
+        using scratch_units = std::pmr::vector<std::uint16_t>;
+
         // The widest braced fallback folder ({MovieTexture}) fixes the widest fallback
         // path any bounded entry can produce (folder + separator + index + '_' + label +
         // '.' + extension), so the fallback needs no runtime length branch. A preserved
@@ -112,7 +136,11 @@ namespace extractor
         // Owns the session token for the lifetime of one open archive and closes it on
         // destruction. It is only ever constructed with a token the backend has already
         // reported as non-zero, so it always owns a live session.
-        class unity_state final : public storage_state
+        // The catalogue retains only the indices whose preserved path collides with a
+        // directory another entry needs; every valid path is materialised on demand into a
+        // caller-owned buffer. That buffer is owned by the GetItem frame and the returned
+        // path never outlives the call, so the catalogue exposes no retained path storage.
+        class unity_state final : public storage_state, public indexed_catalogue
         {
           public:
             unity_state(const std::uint64_t token, const std::int32_t count) noexcept : token_(token), count_(count)
@@ -129,19 +157,31 @@ namespace extractor
             unity_state(unity_state &&) = delete;
             unity_state &operator=(unity_state &&) = delete;
 
-            [[nodiscard]] std::uint64_t token() const noexcept
+            void prepare() override;
+
+            [[nodiscard]] indexed_catalogue *indexed_files() noexcept override { return this; }
+
+            [[nodiscard]] std::size_t count() const noexcept override
             {
-                return token_;
+                return prepared_ ? static_cast<std::size_t>(count_) : 0;
             }
 
-            [[nodiscard]] std::int32_t count() const noexcept
-            {
-                return count_;
-            }
+            // Lazy materialisation: the retained conflict set plus the backend metadata are
+            // enough to rebuild the exact path and sizes the retained catalogue used to hold.
+            [[nodiscard]] std::optional<column> path_into(std::size_t index, std::span<char> buffer) const override;
+            [[nodiscard]] std::optional<column> wide_path_into(std::size_t index,
+                                                               std::span<wchar_t> buffer) const override;
+
+            void extract(std::size_t index, std::ostream &output,
+                         const std::function<void(std::int64_t)> &progress) const override;
 
           private:
             std::uint64_t token_;
             std::int32_t count_;
+            bool prepared_ = false;
+            // Sorted, so membership is a binary search and the common collision-free
+            // catalogue retains an empty vector instead of a per-entry path table.
+            std::vector<std::int32_t> conflicts_;
         };
 
         // Owns the raw session token from before the backend can produce it, and closes it
@@ -319,45 +359,31 @@ namespace extractor
             return (unit >= L'a' && unit <= L'z') || (unit >= L'0' && unit <= L'9');
         }
 
-        // Reads and validates one entry's dynamic output extension. The getter must
-        // report 1..16 units and the copy must return exactly the queried count; anything
-        // else is corrupt metadata and rejects the entry before the extension is used.
-        [[nodiscard]] std::wstring dynamic_extension(const std::uint64_t token, const std::int32_t index)
+        // Appends a non-negative catalogue index in decimal without a temporary owning
+        // string. The entry bound keeps the value inside ten digits.
+        void append_index(scratch_string &out, std::int32_t index)
         {
-            std::int32_t units = 0;
-            if (::unpackrat_unity_get_entry_extension(token, index, nullptr, 0, &units) != UNITY_OK) {
-                throw read_error();
+            wchar_t digits[10];
+            std::size_t count = 0;
+            do {
+                digits[count++] = static_cast<wchar_t>(L'0' + index % 10);
+                index /= 10;
+            } while (index > 0);
+            while (count > 0) {
+                out.push_back(digits[--count]);
             }
-            if (units < 1 || units > max_extension_units) {
-                throw read_error();
-            }
-            std::vector<std::uint16_t> raw(static_cast<std::size_t>(units));
-            std::int32_t copied = 0;
-            if (::unpackrat_unity_get_entry_extension(token, index, raw.data(), units, &copied) != UNITY_OK ||
-                copied != units) {
-                throw read_error();
-            }
-            std::wstring extension;
-            extension.reserve(raw.size());
-            for (const std::uint16_t unit : raw) {
-                const wchar_t wide = static_cast<wchar_t>(unit);
-                if (!is_extension_unit(wide)) {
-                    throw read_error();
-                }
-                extension.push_back(wide);
-            }
-            return extension;
         }
 
         // One bounded original-path component. It rejects an empty or over-long component, a
         // component that sanitises to nothing, and a reserved device name, so a single bad
         // component falls the whole original path back rather than producing a mangled name.
-        [[nodiscard]] std::optional<std::wstring> sanitise_component(const std::wstring_view raw)
+        [[nodiscard]] std::optional<scratch_string> sanitise_component(const std::wstring_view raw,
+                                                                       std::pmr::memory_resource *const resource)
         {
             if (raw.empty() || raw.size() > max_component_units) {
                 return std::nullopt;
             }
-            std::wstring component;
+            scratch_string component(resource);
             component.reserve(raw.size());
             for (const wchar_t unit : raw) {
                 component.push_back(is_forbidden(unit) ? L'_' : unit);
@@ -376,10 +402,12 @@ namespace extractor
         // this can never become a valid Windows name, so the entry falls back to the braced
         // kind folder instead of the whole archive being rejected. The metadata label is
         // validated separately by the UTF-8 conversion, which still rejects a bad label.
-        [[nodiscard]] bool is_well_formed_utf16(const std::span<const std::uint16_t> units) noexcept
+        template <typename Unit>
+        [[nodiscard]] bool is_well_formed_utf16(const std::span<const Unit> units) noexcept
         {
             bool expecting_low = false;
-            for (const std::uint16_t unit : units) {
+            for (const Unit raw : units) {
+                const auto unit = static_cast<std::uint32_t>(raw);
                 if (expecting_low) {
                     if (unit < 0xDC00U || unit > 0xDFFFU) {
                         return false;
@@ -394,14 +422,19 @@ namespace extractor
             return !expecting_low;
         }
 
+        [[nodiscard]] bool is_well_formed_wide(const std::wstring_view units) noexcept
+        {
+            return is_well_formed_utf16(std::span<const wchar_t>(units.data(), units.size()));
+        }
+
         // Builds the preserved virtual path from an original asset path: the original parent
         // directories, the unique numeric catalogue index, the original base name without its
         // extension, and the entry kind's own extension. Returns nullopt for every rooted,
         // traversal, reserved, unnameable or over-long path so the caller uses the safe braced
         // fallback; it never truncates a component or emits a path over the Observer cap.
-        [[nodiscard]] std::optional<std::wstring> original_virtual_path(const std::span<const std::uint16_t> raw,
-                                                                        const std::int32_t index,
-                                                                        const std::wstring_view extension)
+        [[nodiscard]] std::optional<scratch_string> original_virtual_path(
+            const std::span<const std::uint16_t> raw, const std::int32_t index,
+            const std::wstring_view extension, std::pmr::memory_resource *const resource)
         {
             if (raw.empty()) {
                 return std::nullopt;
@@ -411,13 +444,13 @@ namespace extractor
                 // UTF-8 conversion later rejecting the whole archive.
                 return std::nullopt;
             }
-            const std::wstring original(raw.begin(), raw.end());
+            const scratch_string original(raw.begin(), raw.end(), resource);
             if (original[0] == L'\\' || original[0] == L'/' ||
                 (original.size() >= 2 && original[1] == L':')) {
                 return std::nullopt;
             }
 
-            std::vector<std::wstring_view> components;
+            std::pmr::vector<std::wstring_view> components(resource);
             std::size_t start = 0;
             for (std::size_t position = 0; position <= original.size(); ++position) {
                 if (position == original.size() || original[position] == L'/' || original[position] == L'\\') {
@@ -439,9 +472,10 @@ namespace extractor
             // The output is built from bounded sanitised components only; its capacity must
             // never be reserved from the stripped raw original, or a huge ignored extension
             // would inflate the retained allocation despite the short emitted path.
-            std::wstring path;
+            scratch_string path(resource);
             for (std::size_t component_index = 0; component_index + 1 < components.size(); ++component_index) {
-                const std::optional<std::wstring> directory = sanitise_component(components[component_index]);
+                const std::optional<scratch_string> directory =
+                    sanitise_component(components[component_index], resource);
                 if (!directory) {
                     return std::nullopt;
                 }
@@ -452,11 +486,11 @@ namespace extractor
                 path += *directory;
                 path += L'\\';
             }
-            const std::optional<std::wstring> label = sanitise_component(stem);
+            const std::optional<scratch_string> label = sanitise_component(stem, resource);
             if (!label) {
                 return std::nullopt;
             }
-            path += std::to_wstring(index);
+            append_index(path, index);
             path += L'_';
             path += *label;
             path += L'.';
@@ -471,7 +505,8 @@ namespace extractor
         // Windows path-illegal unit with '_', never splitting a surrogate pair at the cut,
         // trimming trailing dots and spaces, and falling back to "resource" when the
         // result is empty. Unicode is preserved.
-        [[nodiscard]] std::wstring sanitise_label(const std::span<const std::uint16_t> raw)
+        [[nodiscard]] scratch_string sanitise_label(const std::span<const std::uint16_t> raw,
+                                                    std::pmr::memory_resource *const resource)
         {
             std::size_t limit = std::min(raw.size(), max_label_units);
             if (limit < raw.size() && raw[limit - 1] >= 0xD800U && raw[limit - 1] <= 0xDBFFU && raw[limit] >= 0xDC00U &&
@@ -480,7 +515,7 @@ namespace extractor
                 --limit;
             }
 
-            std::wstring label;
+            scratch_string label(resource);
             label.reserve(limit);
             for (std::size_t index = 0; index < limit; ++index) {
                 const wchar_t unit = static_cast<wchar_t>(raw[index]);
@@ -490,7 +525,7 @@ namespace extractor
                 label.pop_back();
             }
             if (label.empty()) {
-                return L"resource";
+                return scratch_string(L"resource", resource);
             }
             return label;
         }
@@ -533,16 +568,46 @@ namespace extractor
             return (value.capacity() + 1) * sizeof(wchar_t);
         }
 
-        // Records every proper ancestor directory of a virtual path and charges each newly
-        // inserted key against the budget, by its retained capacity, before it is stored. One
-        // catalogue-wide pass over these keys tells which file names another entry needs as a
-        // directory, so no pairwise scan of the catalogue is ever required. A deep, fully
-        // distinct tree costs O(depth^2) units of interior-prefix copies, which the budget
-        // bounds explicitly.
-        void record_ancestor_directories(const std::wstring_view path, name_set &dest, std::size_t &retained)
+        // Parses the leading catalogue index of a preserved file-name component of the form
+        // "<digits>_<label>.<ext>". Returns -1 when the component is not a preserved file name
+        // or its index is out of range, so a plain directory never becomes a candidate.
+        // The sole caller invokes this only for a component that already contains '.', so the
+        // digit scan always stops before the end and the index is safe to read.
+        [[nodiscard]] std::int32_t parse_leading_index(const std::wstring_view component, const std::int32_t count)
         {
+            std::int64_t value = 0;
+            std::size_t digits = 0;
+            while (component[digits] >= L'0' && component[digits] <= L'9') {
+                value = value * 10 + (component[digits] - L'0');
+                if (value >= count) {
+                    return -1;
+                }
+                ++digits;
+            }
+            if (digits == 0 || component[digits] != L'_') {
+                return -1;
+            }
+            return static_cast<std::int32_t>(value);
+        }
+
+        // Records every proper ancestor directory of a preserved path and charges each new key
+        // against the budget by its retained capacity. A prefix whose own last component is a
+        // preserved file name is recorded as a conflict candidate: only such a prefix can equal
+        // another entry's preserved path, so the candidate set stays sparse.
+        void record_required_directories(const std::wstring_view path, name_set &dest, std::size_t &retained,
+                                         std::set<std::int32_t> &candidates, const std::int32_t count)
+        {
+            std::size_t component_start = 0;
             for (std::size_t position = path.find(L'\\'); position != std::wstring_view::npos;
                  position = path.find(L'\\', position + 1)) {
+                const std::wstring_view component = path.substr(component_start, position - component_start);
+                if (component.find(L'.') != std::wstring_view::npos) {
+                    const std::int32_t candidate = parse_leading_index(component, count);
+                    if (candidate >= 0) {
+                        candidates.insert(candidate);
+                    }
+                }
+                component_start = position + 1;
                 const std::wstring_view prefix = path.substr(0, position);
                 if (dest.find(prefix) != dest.end()) {
                     continue;
@@ -553,40 +618,214 @@ namespace extractor
             }
         }
 
-        // Builds the virtual path for one entry: the preserved original directory hierarchy
-        // when the backend reports a safe one, otherwise the fixed braced kind folder. A
-        // preserved path is kept unless its file name is a directory another preserved path
-        // needs, in which case this entry falls back so the real directory keeps its hierarchy.
-        // The fallback label was already sanitised and bounded, and a preserved root can never be
-        // the braced folder itself, so the fallback is always unique and the whole catalogue
-        // stays collectively extractable.
-        [[nodiscard]] std::string virtual_path(const std::int32_t index, const int kind,
-                                               const std::wstring_view label,
-                                               const std::optional<std::wstring> &preserved,
-                                               const name_set &required_directories,
-                                               const std::wstring_view extension)
+        // Copies one validated wide path directly into the caller-owned UTF-8 buffer. An
+        // invalid unit and an undersized buffer are the same read error the filesystem
+        // conversion used to report, and no intermediate owning string is created.
+        [[nodiscard]] std::size_t to_utf8_into(const std::wstring_view wide, const std::span<char> buffer)
         {
-            std::wstring wide;
-            if (preserved && !required_directories.contains(*preserved)) {
-                wide = *preserved;
-            } else {
-                wide = fallback_folder(kind);
-                wide += L'\\';
-                wide += std::to_wstring(index);
-                wide += L'_';
-                wide += label;
-                wide += L'.';
-                wide += extension;
-            }
-            try {
-                const std::u8string utf8 = std::filesystem::path(wide).u8string();
-                return std::string(reinterpret_cast<const char *>(utf8.data()), utf8.size());
-            } catch (const std::system_error &) {
-                // std::filesystem::filesystem_error derives from std::system_error, and the
-                // MSVC conversion throws the base type for an unpaired UTF-16 unit: a label
-                // that cannot round-trip to UTF-8 is a corrupt input, not a valid name.
+            if (buffer.empty()) {
                 throw read_error();
             }
+            const std::size_t capacity =
+                std::min(buffer.size(), static_cast<std::size_t>(std::numeric_limits<int>::max()));
+            const int written = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(),
+                                                      static_cast<int>(wide.size()), buffer.data(),
+                                                      static_cast<int>(capacity), nullptr, nullptr);
+            if (written <= 0) {
+                throw read_error();
+            }
+            return static_cast<std::size_t>(written);
+        }
+
+        // The braced fallback virtual path of one entry: the safe kind folder, the unique
+        // numeric index, the bounded label and the output extension.
+        [[nodiscard]] scratch_string fallback_path(const std::int32_t index, const int kind,
+                                                   const std::wstring_view label,
+                                                   const std::wstring_view extension,
+                                                   std::pmr::memory_resource *const resource)
+        {
+            scratch_string wide(fallback_folder(kind), resource);
+            wide += L'\\';
+            append_index(wide, index);
+            wide += L'_';
+            wide += label;
+            wide += L'.';
+            wide += extension;
+            return wide;
+        }
+
+        // One entry's validated, bounded metadata as read from the backend. Nothing here is
+        // retained beyond the call: prepare reuses it to build the conflict set, and path_into
+        // rebuilds the final path from it on demand.
+        struct entry_metadata final
+        {
+            int kind = 0;
+            scratch_string label;
+            scratch_string extension;
+            std::optional<scratch_string> preserved;
+            std::int64_t source_size = 0;
+
+            explicit entry_metadata(std::pmr::memory_resource *const resource)
+                : label(resource), extension(resource)
+            {
+            }
+        };
+
+        // Reads and validates exactly one entry. Every rejection path throws read_error so a
+        // corrupt catalogue tears the session down. The name and original buffers are
+        // caller-owned scratch, reused across entries and never retained. One combined getter
+        // reports the descriptor, the declared source length and all three field lengths, and
+        // copies the name and original path it fits, so a normal entry costs one ABI call.
+        [[nodiscard]] entry_metadata read_entry(const std::uint64_t token, const std::int32_t index,
+                                                scratch_units &name, scratch_units &original,
+                                                std::pmr::memory_resource *const resource)
+        {
+            // Fixed reusable capacity makes the common small entry fit in the first call. A
+            // field longer than this bound is reported by the same call and retried exactly once.
+            if (name.size() < initial_name_units) {
+                name.resize(initial_name_units);
+            }
+            if (original.size() < initial_path_units) {
+                original.resize(initial_path_units);
+            }
+            // The dynamic kind's output extension is a bounded 1..max_extension_units token, so
+            // one fixed staged buffer covers it with no per-entry allocation. The combined call
+            // reports and copies it too, so a Font/VideoClip/AudioClip entry is one call as well.
+            std::uint16_t extension[max_extension_units]{};
+
+            UnityMetadata meta{};
+            meta.struct_size = sizeof(UnityMetadata);
+            const auto read = [&](std::uint16_t *const name_buffer, const std::int32_t name_capacity,
+                                  std::uint16_t *const original_buffer, const std::int32_t original_capacity,
+                                  std::uint16_t *const extension_buffer, const std::int32_t extension_capacity) {
+                return ::unpackrat_unity_get_metadata(token, index, &meta, name_buffer, name_capacity,
+                                                      original_buffer, original_capacity, extension_buffer,
+                                                      extension_capacity);
+            };
+            std::int32_t status = read(name.data(), static_cast<std::int32_t>(name.size()), original.data(),
+                                       static_cast<std::int32_t>(original.size()), extension,
+                                       static_cast<std::int32_t>(max_extension_units));
+
+            if (status != UNITY_OK && status != UNITY_BUFFER_TOO_SMALL) {
+                throw read_error();
+            }
+            if (meta.struct_size != sizeof(UnityMetadata) || meta.reserved != 0 || meta.reserved2 != 0) {
+                throw read_error();
+            }
+            if (meta.name_length < 0 || meta.original_length < 0 || meta.extension_length < 0 ||
+                meta.source_size < 0) {
+                throw read_error();
+            }
+            // Only the eight known resource kinds are listed; an unknown id is corrupt
+            // metadata and tears the session down rather than sliding into a fallback.
+            if (fallback_folder(meta.kind) == nullptr) {
+                throw read_error();
+            }
+            // A name longer than the copy ceiling is never allocated or truncated: it is
+            // corrupt metadata and rejects the entry.
+            if (static_cast<std::uint32_t>(meta.name_length) > max_name_units) {
+                throw read_error();
+            }
+            // A fixed kind takes its output extension from the frozen table and ignores the
+            // reported field; a dynamic kind must report a bounded 1..16 unit token, and
+            // anything else is corrupt metadata that rejects the entry before the extension
+            // can shape a virtual path.
+            const wchar_t *const fixed = fixed_extension(meta.kind);
+            const bool dynamic = fixed == nullptr;
+            if (dynamic && (meta.extension_length < 1 || meta.extension_length > max_extension_units)) {
+                throw read_error();
+            }
+
+            // The original asset path is metadata only and may be absent. An over-long declared
+            // path is never copied or truncated: it is treated as absent so the entry falls back
+            // to the safe braced kind folder, which keeps a hostile catalogue from driving a
+            // large allocation or an over-long Observer path.
+            const bool original_present =
+                meta.original_length > 0 && static_cast<std::uint32_t>(meta.original_length) <= max_name_units;
+
+            if (status == UNITY_BUFFER_TOO_SMALL) {
+                // Every length is reported on a short-buffer call, so the exact buffers are
+                // already known and one sized retry finishes the read. An absent path is passed
+                // as a size query so the retry cannot report the same field too small again; a
+                // fixed kind drops the extension it never uses.
+                //
+                // The retry reports into the same descriptor and must fill the buffers this call
+                // sized from one entry's truth. Remember those immutable fields so a second call
+                // that answers with changed truth is rejected before any of it is used.
+                const std::int32_t first_kind = meta.kind;
+                const std::int32_t first_name_length = meta.name_length;
+                const std::int32_t first_original_length = meta.original_length;
+                const std::int32_t first_extension_length = meta.extension_length;
+                const std::int64_t first_source_size = meta.source_size;
+                name.assign(static_cast<std::size_t>(meta.name_length), 0);
+                original.clear();
+                if (original_present) {
+                    original.assign(static_cast<std::size_t>(meta.original_length), 0);
+                }
+                status = read(name.data(), static_cast<std::int32_t>(name.size()),
+                              original_present ? original.data() : nullptr,
+                              original_present ? static_cast<std::int32_t>(original.size()) : 0,
+                              dynamic ? extension : nullptr,
+                              dynamic ? static_cast<std::int32_t>(max_extension_units) : 0);
+                if (status != UNITY_OK) {
+                    throw read_error();
+                }
+                if (meta.struct_size != sizeof(UnityMetadata) || meta.reserved != 0 || meta.reserved2 != 0) {
+                    throw read_error();
+                }
+                // The retry buffers were sized from the first call, so the second call must report
+                // the same immutable descriptor: a changed kind, length or source size would let it
+                // escape those bounds (a negative length a huge allocation, a wider dynamic
+                // extension a stack read). Unchanged fields keep every copied length within the
+                // exact buffer capacities the retry was handed.
+                if (meta.kind != first_kind || meta.name_length != first_name_length ||
+                    meta.original_length != first_original_length ||
+                    meta.extension_length != first_extension_length ||
+                    meta.source_size != first_source_size) {
+                    throw read_error();
+                }
+            }
+
+            // Trim the reusable buffers to exactly the units the call copied, so the label and
+            // path helpers see the same spans the scalar reads used to produce.
+            name.resize(static_cast<std::size_t>(meta.name_length));
+            if (original_present) {
+                original.resize(static_cast<std::size_t>(meta.original_length));
+            } else {
+                original.clear();
+            }
+
+            entry_metadata result(resource);
+            result.kind = meta.kind;
+            result.label = sanitise_label(name, resource);
+            // The extension is the frozen table value for a fixed kind and the combined getter's
+            // validated dynamic token otherwise, so it is bounded and checked either way.
+            if (!dynamic) {
+                result.extension = scratch_string(fixed, resource);
+            } else {
+                result.extension.reserve(static_cast<std::size_t>(meta.extension_length));
+                for (std::int32_t unit = 0; unit < meta.extension_length; ++unit) {
+                    const wchar_t wide = static_cast<wchar_t>(extension[static_cast<std::size_t>(unit)]);
+                    if (!is_extension_unit(wide)) {
+                        throw read_error();
+                    }
+                    result.extension.push_back(wide);
+                }
+            }
+            result.preserved = original_virtual_path(original, index, result.extension, resource);
+            result.source_size = meta.source_size;
+            return result;
+        }
+
+        [[nodiscard]] const scratch_string &materialise_path(const entry_metadata &entry, const bool conflict,
+                                                             const std::int32_t index, scratch_string &fallback,
+                                                             std::pmr::memory_resource *const resource)
+        {
+            if (entry.preserved && !conflict) {
+                return *entry.preserved;
+            }
+            fallback = fallback_path(index, entry.kind, entry.label, entry.extension, resource);
+            return fallback;
         }
 
         struct export_bridge final
@@ -628,38 +867,36 @@ namespace extractor
             return 0;
         }
 
-        // Builds the custom extract handler for one entry. It borrows the archive's output
+        // Dispatches one entry through the session owner. It borrows the archive's output
         // stream and progress callback for the duration of the call and rethrows any saved
         // failure after the C ABI has returned, preserving the archive's IO, cancel and
-        // allocation semantics. A streaming index keeps the state alive until the archive
-        // destroys its file list.
-        [[nodiscard]] std::function<void(std::istream &, std::ostream &, const std::function<void(std::int64_t)> &)>
-        make_extract(const std::uint64_t token, const std::int32_t index)
+        // allocation semantics. The archive owns this state through every export call.
+        void unity_state::extract(const std::size_t index, std::ostream &output,
+                                  const std::function<void(std::int64_t)> &progress) const
         {
-            return [token, index](std::istream &, std::ostream &output,
-                                  const std::function<void(std::int64_t)> &progress) {
-                export_bridge bridge;
-                bridge.output = &output;
-                bridge.progress = &progress;
-                const std::int32_t result = ::unpackrat_unity_export(token, index, &bridge_write, &bridge);
-                if (bridge.saved) {
-                    std::rethrow_exception(bridge.saved);
-                }
-                if (bridge.protocol_violation) {
-                    throw read_error();
-                }
-                switch (result) {
-                case UNITY_OK:
-                    return;
-                case UNITY_CANCELLED:
-                    throw archive::user_interrupt();
-                case UNITY_WRITE_FAILURE:
-                    throw std::ios_base::failure("unity export write failure");
-                case UNITY_DATA_FAILURE:
-                default:
-                    throw read_error();
-                }
-            };
+            if (index >= count()) throw std::out_of_range("Index out of range");
+            const std::uint64_t token = token_;
+            export_bridge bridge;
+            bridge.output = &output;
+            bridge.progress = &progress;
+            const std::int32_t result = ::unpackrat_unity_export(token, static_cast<std::int32_t>(index), &bridge_write, &bridge);
+            if (bridge.saved) {
+                std::rethrow_exception(bridge.saved);
+            }
+            if (bridge.protocol_violation) {
+                throw read_error();
+            }
+            switch (result) {
+            case UNITY_OK:
+                return;
+            case UNITY_CANCELLED:
+                throw archive::user_interrupt();
+            case UNITY_WRITE_FAILURE:
+                throw std::ios_base::failure("unity export write failure");
+            case UNITY_DATA_FAILURE:
+            default:
+                throw read_error();
+            }
         }
     } // namespace
 
@@ -721,136 +958,127 @@ namespace extractor
         return archive_info{L"Unity", L"", L""};
     }
 
-    std::vector<std::unique_ptr<file>> extractor::list_files([[maybe_unused]] std::istream &stream)
+    void unity_state::prepare()
     {
-        // archive::prepare_files calls this only after a successful get_archive_info, so
-        // the session this adapter installed is always present here.
-        const unity_state &session = static_cast<const unity_state &>(*state_);
-        const std::uint64_t token = session.token();
-        const std::int32_t count = session.count();
+        if (prepared_) return;
+        const std::uint64_t token = token_;
+        const std::int32_t count = count_;
 
-        // Read each entry's metadata once. Fallback paths use reserved braced roots, so they
-        // cannot collide with directories discovered later and can become final files now.
-        // Only preserved paths need retained metadata until the full namespace is known.
-        // Raw buffers remain transient; the cumulative metadata charge is unchanged even
-        // when a fallback entry's bounded metadata is released immediately.
-        struct listed_entry
-        {
-            std::int32_t index = 0;
-            int kind = 0;
-            std::wstring label;
-            std::wstring extension;
-            std::optional<std::wstring> preserved;
-        };
-
-        std::vector<listed_entry> pending;
-        std::vector<std::unique_ptr<file>> files;
-        files.reserve(static_cast<std::size_t>(count));
+        // One metadata pass: validate every entry, build the transient required-directory set
+        // and collect the indices whose preserved path could be one of those directories. The
+        // raw name and original buffers reuse bounded heap capacity across the whole pass;
+        // only the sparse confirmation below can retain an index.
         name_set required_directories;
         std::size_t retained_bytes = 0;
+        std::set<std::int32_t> candidates;
+
+        // The raw ABI buffers stay on the standard heap so their capacity survives every
+        // iteration. Per-entry metadata uses an automatic stack arena constructed inside each
+        // iteration: its destructor runs after the entry and temporary path, reclaiming any
+        // upstream spill, and the next constructor starts again from the caller-owned stack
+        // block. The arena must not live across iterations because release() does not reattach
+        // the initial buffer after an upstream chunk has been allocated on this toolchain.
+        std::pmr::memory_resource *const raw_resource = std::pmr::new_delete_resource();
+        scratch_units name(raw_resource);
+        scratch_units original(raw_resource);
+        alignas(std::max_align_t) std::array<std::byte, prepare_scratch_bytes> prepare_scratch;
+        // The existing Observer cap allows four UTF-8 bytes per usable UTF-16 unit.
+        std::array<char, max_path_units * 4> fallback_utf8{};
+
         for (std::int32_t index = 0; index < count; ++index) {
-            UnityEntry entry{};
-            entry.struct_size = sizeof(UnityEntry);
-            if (::unpackrat_unity_get_entry(token, index, &entry, nullptr, 0) != UNITY_OK) {
-                throw read_error();
-            }
-            if (entry.struct_size != sizeof(UnityEntry) || entry.reserved != 0 || entry.reserved2 != 0) {
-                throw read_error();
-            }
-            // Only the eight known resource kinds are listed; an unknown id is corrupt
-            // metadata and tears the session down rather than sliding into a fallback.
-            if (fallback_folder(entry.kind) == nullptr) {
-                throw read_error();
-            }
-            const std::uint32_t name_units = entry.name_length;
-            if (name_units > max_name_units) {
-                throw read_error();
-            }
-
-            std::vector<std::uint16_t> name(name_units);
-            if (name_units > 0) {
-                UnityEntry copy{};
-                copy.struct_size = sizeof(UnityEntry);
-                if (::unpackrat_unity_get_entry(token, index, &copy, name.data(),
-                                                static_cast<std::int32_t>(name_units)) != UNITY_OK) {
-                    throw read_error();
-                }
-            }
-
-            // The original asset path is metadata only and may be absent. An over-long declared
-            // path is never copied or truncated: it is treated as absent so the entry falls back
-            // to the safe braced kind folder, which keeps a hostile catalogue from driving a
-            // large allocation or an over-long Observer path.
-            std::int32_t path_units = 0;
-            if (::unpackrat_unity_get_entry_path(token, index, nullptr, 0, &path_units) != UNITY_OK ||
-                path_units < 0) {
-                throw read_error();
-            }
-            std::vector<std::uint16_t> original;
-            if (path_units > 0 && static_cast<std::uint32_t>(path_units) <= max_name_units) {
-                original.resize(static_cast<std::size_t>(path_units));
-                std::int32_t copied_units = 0;
-                if (::unpackrat_unity_get_entry_path(token, index, original.data(), path_units, &copied_units) !=
-                        UNITY_OK ||
-                    copied_units != path_units) {
-                    throw read_error();
-                }
-            }
-
-            // The declared source payload length comes from catalogue metadata only, so listing
-            // never reads a resS body or materialises an export. A rejected or negative length is
-            // a corrupt catalogue entry, and the enclosing archive tears the session down.
-            std::int64_t source_size = 0;
-            if (::unpackrat_unity_get_source_size(token, index, &source_size) != UNITY_OK || source_size < 0) {
-                throw read_error();
-            }
-
-            listed_entry current;
-            current.index = index;
-            current.kind = entry.kind;
-            current.label = sanitise_label(name);
-            // The output extension comes from the frozen kind table for the fixed kinds and
-            // from the additive ABI getter for the dynamic ones; either way it is bounded
-            // and validated before it can shape a virtual path.
-            const wchar_t *const fixed = fixed_extension(entry.kind);
-            current.extension = (fixed != nullptr) ? std::wstring(fixed) : dynamic_extension(token, index);
-            current.preserved = original_virtual_path(original, index, current.extension);
-            // Charge the retained capacity of the bounded outputs this entry keeps, before they
-            // are stored, then the ancestor directory keys it needs. The raw name/original
-            // buffers above are transient and released each iteration.
-            std::size_t projected = retained_string_bytes(current.label);
-            projected += retained_string_bytes(current.extension);
-            if (current.preserved) {
-                projected += retained_string_bytes(*current.preserved);
-            }
-            charge_metadata(retained_bytes, projected);
-            if (current.preserved) {
-                record_ancestor_directories(*current.preserved, required_directories, retained_bytes);
-            }
-            auto new_file = std::make_unique<file>();
-            // The Size column shows the original source payload length, exactly the same value
-            // as PackedSize (unknown0); it is never the predicted PNG length and no conversion
-            // runs at listing time.
-            new_file->uncompressed_body_size_in_bytes = source_size;
-            new_file->compressed_body_size_in_bytes = source_size;
-            new_file->extract = make_extract(token, index);
-            if (current.preserved) {
-                // Do not convert an unused fallback label: a valid preserved path can ignore
-                // malformed UTF-16 in that label unless a later directory forces fallback.
-                pending.push_back(std::move(current));
+            std::pmr::monotonic_buffer_resource arena(prepare_scratch.data(), prepare_scratch.size(),
+                                                      std::pmr::new_delete_resource());
+            const entry_metadata entry = read_entry(token, index, name, original, &arena);
+            if (entry.preserved) {
+                record_required_directories(*entry.preserved, required_directories, retained_bytes, candidates,
+                                            count);
             } else {
-                new_file->path = virtual_path(current.index, current.kind, current.label, current.preserved,
-                                              required_directories, current.extension);
+                // A fallback entry's label must convert into a valid UTF-8 path now: an
+                // unusable label is corrupt metadata and fails preparation atomically, exactly
+                // as the retained catalogue did when it materialised the fallback.
+                const scratch_string wide =
+                    fallback_path(index, entry.kind, entry.label, entry.extension, &arena);
+                static_cast<void>(to_utf8_into(wide, std::span<char>(fallback_utf8)));
             }
-            files.push_back(std::move(new_file));
         }
 
-        for (const listed_entry &current : pending) {
-            files[static_cast<std::size_t>(current.index)]->path =
-                virtual_path(current.index, current.kind, current.label, current.preserved,
-                             required_directories, current.extension);
+        // Sparse confirmation: only the candidate indices are re-read, so the collision-free
+        // catalogue pays no extra reads. A candidate is a real conflict exactly when its own
+        // preserved path is one of the required directories.
+        std::vector<std::int32_t> conflicts;
+        for (const std::int32_t candidate : candidates) {
+            std::pmr::monotonic_buffer_resource arena(prepare_scratch.data(), prepare_scratch.size(),
+                                                      std::pmr::new_delete_resource());
+            const entry_metadata entry = read_entry(token, candidate, name, original, &arena);
+            if (entry.preserved && required_directories.contains(*entry.preserved)) {
+                // This entry is forced to its braced fallback, so an unusable label must fail
+                // preparation atomically here, exactly as the retained form did.
+                const scratch_string wide =
+                    fallback_path(candidate, entry.kind, entry.label, entry.extension, &arena);
+                static_cast<void>(to_utf8_into(wide, std::span<char>(fallback_utf8)));
+                conflicts.push_back(candidate);
+            }
         }
-        return files;
+
+        // Commit only a complete index. Every failure above destroys the local conflict set and
+        // leaves the source session open for a clean retry or one final close.
+        conflicts_ = std::move(conflicts);
+        prepared_ = true;
+    }
+
+    std::optional<indexed_catalogue::column> unity_state::path_into(const std::size_t index,
+                                                                    const std::span<char> buffer) const
+    {
+        if (index >= count()) {
+            throw std::out_of_range("Index out of range");
+        }
+        // Re-read the entry through the same validated reader prepare used, so the path and the
+        // two sizes below are byte-for-byte the values the retained catalogue used to store.
+        // The stack arena keeps the healthy short entry off the heap; a field that outgrows it
+        // falls back to the arena's upstream allocator, which keeps the bounded retry intact.
+        alignas(std::max_align_t) std::array<std::byte, get_item_scratch_bytes> scratch;
+        std::pmr::monotonic_buffer_resource arena(scratch.data(), scratch.size(), std::pmr::new_delete_resource());
+        std::pmr::memory_resource *const resource = &arena;
+        scratch_units name(resource);
+        scratch_units original(resource);
+        const entry_metadata entry = read_entry(token_, static_cast<std::int32_t>(index), name, original, resource);
+        const bool conflict = std::binary_search(conflicts_.begin(), conflicts_.end(),
+                                                 static_cast<std::int32_t>(index));
+        scratch_string fallback(resource);
+        const scratch_string &path =
+            materialise_path(entry, conflict, static_cast<std::int32_t>(index), fallback, resource);
+        const std::size_t written = to_utf8_into(path, buffer);
+        return column{written, entry.source_size, entry.source_size};
+    }
+
+    std::optional<indexed_catalogue::column> unity_state::wide_path_into(
+        const std::size_t index, const std::span<wchar_t> buffer) const
+    {
+        if (index >= count()) {
+            throw std::out_of_range("Index out of range");
+        }
+        alignas(std::max_align_t) std::array<std::byte, get_item_scratch_bytes> scratch;
+        std::pmr::monotonic_buffer_resource arena(scratch.data(), scratch.size(), std::pmr::new_delete_resource());
+        std::pmr::memory_resource *const resource = &arena;
+        scratch_units name(resource);
+        scratch_units original(resource);
+        const entry_metadata entry = read_entry(token_, static_cast<std::int32_t>(index), name, original, resource);
+        const bool conflict = std::binary_search(conflicts_.begin(), conflicts_.end(),
+                                                 static_cast<std::int32_t>(index));
+        scratch_string fallback(resource);
+        const scratch_string &path =
+            materialise_path(entry, conflict, static_cast<std::int32_t>(index), fallback, resource);
+        if (!is_well_formed_wide(std::wstring_view(path.data(), path.size())) || buffer.size() < path.size()) {
+            throw read_error();
+        }
+        std::copy(path.begin(), path.end(), buffer.begin());
+        return column{path.size(), entry.source_size, entry.source_size};
+    }
+
+    std::vector<std::unique_ptr<file>> extractor::list_files([[maybe_unused]] std::istream &stream)
+    {
+        // Unity uses the indexed route; accidentally requesting legacy rows is an error.
+        throw read_error();
     }
 
     uint32_t extractor::decrypt([[maybe_unused]] uint32_t magic, [[maybe_unused]] std::vector<char> &data) const
