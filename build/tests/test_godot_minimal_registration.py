@@ -539,9 +539,30 @@ class GodotDocsContract(GuardedCase):
         self.assertEqual(version, GODOT_VERSION)
         self.assertNotIn("licenses/VC-LTL5.txt", readme)
         self.assertIn("| Module | Formats | Release | ChangeLog |", readme)
-        self.assertIn("| Godot | `.pck` | [godot 1.2.0](", readme)
-        self.assertIn("| Zanzarah | `.pak` | [zanzarah 2.3.0](", readme)
-        self.assertIn("https://github.com/refaim/unpackrat/releases?q=godot", readme)
+        release_labels = {
+            match.group(1)
+            for match in re.finditer(
+                r"^\|\s*[^|]+\|\s*[^|]+\|\s*\[([^\]]+)\]\([^)]*\)\s*\|",
+                readme,
+                re.MULTILINE,
+            )
+        }
+        self.assertEqual(
+            release_labels,
+            {"renpy", "rpgmaker", "zanzarah", "godot", "wolfrpg", "unity"},
+        )
+        for module in ("renpy", "rpgmaker", "zanzarah", "godot", "wolfrpg", "unity"):
+            self.assertIn(
+                f"https://github.com/refaim/unpackrat/releases?q={module}", readme
+            )
+        self.assertIn(
+            "| Unity | Unity serialized files and asset bundles "
+            "(e.g. `.assets`, `.bundle`, `.unity3d`) | "
+            "[unity](https://github.com/refaim/unpackrat/releases?q=unity) | "
+            "[RU](https://github.com/refaim/unpackrat/blob/unity/v1.0.0/src/modules/unity/ChangeLog.ru.txt) "
+            "[EN](https://github.com/refaim/unpackrat/blob/unity/v1.0.0/src/modules/unity/ChangeLog.en.txt) |",
+            readme,
+        )
         self.assertNotIn("<<<<<<<", readme)
         self.assertNotIn("planned first release", readme)
         build_system = (REPOSITORY_ROOT / "docs" / "build-system.md").read_text(encoding="utf-8")

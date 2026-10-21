@@ -20,9 +20,10 @@ from the module's release listing below.
 |--------|---------|---------|-----------|
 | Ren'Py | `.rpa` (RPA-1.0 with adjacent `.rpi`, RPA-2.0, RPA-3.0) | [renpy](https://github.com/refaim/unpackrat/releases?q=renpy) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
 | RPG Maker | `.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a` (VX Ace, RGSS3) | [rpgmaker](https://github.com/refaim/unpackrat/releases?q=rpgmaker) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
-| Zanzarah | `.pak` | [zanzarah 2.3.0](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
-| Godot | `.pck` | [godot 1.2.0](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
+| Zanzarah | `.pak` | [zanzarah](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
+| Godot | `.pck` | [godot](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
 | WolfRPG | `.wolf`, `.wolfx` | [wolfrpg](https://github.com/refaim/unpackrat/releases?q=wolfrpg) | [RU](src/modules/wolfrpg/ChangeLog.ru.txt) [EN](src/modules/wolfrpg/ChangeLog.en.txt) |
+| Unity | Unity serialized files and asset bundles (e.g. `.assets`, `.bundle`, `.unity3d`) | [unity](https://github.com/refaim/unpackrat/releases?q=unity) | [RU](https://github.com/refaim/unpackrat/blob/unity/v1.0.0/src/modules/unity/ChangeLog.ru.txt) [EN](https://github.com/refaim/unpackrat/blob/unity/v1.0.0/src/modules/unity/ChangeLog.en.txt) |
 
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
