@@ -19,34 +19,39 @@
 #endif
 #include UNITY_OBSERVER_POLICY_HEADER
 
-namespace {
+namespace
+{
 
-int g_failures = 0;
-int g_checks = 0;
+    int g_failures = 0;
+    int g_checks = 0;
 
-void Check(bool condition, const char* name) {
-    ++g_checks;
-    std::printf("%s %s\n", condition ? "ok  " : "FAIL", name);
-    if (!condition) {
-        ++g_failures;
+    void Check(bool condition, const char *name)
+    {
+        ++g_checks;
+        std::printf("%s %s\n", condition ? "ok  " : "FAIL", name);
+        if (!condition) {
+            ++g_failures;
+        }
     }
-}
 
-// Assert the observable outcome (accepted or rejected, and on acceptance the
-// resource kind the path implies) rather than any helper internals.
-void CheckPath(const wchar_t* path, bool expect_ok, probe::ResourceKind expect_kind, const char* name) {
-    probe::ResourceKind kind = probe::kResourceNone;
-    const bool ok = probe::ClassifyListingPath(path, &kind);
-    Check(ok == expect_ok && (!ok || kind == expect_kind), name);
-}
+    // Assert the observable outcome (accepted or rejected, and on acceptance the
+    // resource kind the path implies) rather than any helper internals.
+    void CheckPath(const wchar_t *path, bool expect_ok, probe::ResourceKind expect_kind, const char *name)
+    {
+        probe::ResourceKind kind = probe::kResourceNone;
+        const bool ok = probe::ClassifyListingPath(path, &kind);
+        Check(ok == expect_ok && (!ok || kind == expect_kind), name);
+    }
 
-void CheckSize(std::int64_t size, std::int64_t packed, bool expect, const char* name) {
-    Check(probe::ListingSizeOk(size, packed) == expect, name);
-}
+    void CheckSize(std::int64_t size, std::int64_t packed, bool expect, const char *name)
+    {
+        Check(probe::ListingSizeOk(size, packed) == expect, name);
+    }
 
-}  // namespace
+} // namespace
 
-int main() {
+int main()
+{
     using namespace probe;
 
     // 1. Cancel bookkeeping: a real cancel callback happened, and no callback
@@ -91,6 +96,16 @@ int main() {
         Check(SelectProbeTarget(only_read, empty) == -1, "candidate: none when nothing non-empty succeeded");
         Check(SelectProbeTarget(std::vector<int>{}, std::vector<std::int64_t>{}) == -1,
               "candidate: none for an empty catalog");
+
+        const std::vector<int> fewer_results = {kSerSuccess, kSerSuccess};
+        const std::vector<std::int64_t> more_bytes = {0, 42, 99};
+        Check(SelectProbeTarget(fewer_results, more_bytes) == 1,
+              "candidate: shorter results select the first matched non-empty success and ignore the unpaired byte");
+
+        const std::vector<int> more_results = {kSerSuccess, kSerSuccess, kSerSuccess};
+        const std::vector<std::int64_t> fewer_bytes = {0, 42};
+        Check(SelectProbeTarget(more_results, fewer_bytes) == 1,
+              "candidate: shorter bytes select the first matched non-empty success and ignore the unpaired result");
     }
 
     // 5. Per-item error policy: only SER_ERROR_READ is tolerated.
@@ -110,12 +125,26 @@ int main() {
     }
 
     // 7. Path classification: the leaf's output extension alone decides the
-    //    kind. A numeric-prefix leaf under any ordinary directory hierarchy or a
-    //    braced fallback folder is accepted; ".png" is the converted image kind,
-    //    ".bin" the raw-bin kind, and every other ABI-safe extension
-    //    (font/video/audio/mesh/movie) the generic transformed binary kind.
+    //    kind. Natural asset names, including literal numeric-leading names, are
+    //    accepted under any ordinary directory hierarchy or braced fallback
+    //    folder; ".png" is the converted image kind, ".bin" the raw-bin kind,
+    //    and every other ABI-safe extension (font/video/audio/mesh/movie) the
+    //    generic transformed binary kind.
     {
-        CheckPath(L"Assets\\Textures\\0_hero.png", true, kResourceTexture, "path: nested original texture accepted");
+        CheckPath(L"Assets\\Textures\\hero.png", true, kResourceTexture, "path: natural nested texture accepted");
+        CheckPath(L"Assets\\Textures\\0_hero.png", true, kResourceTexture,
+                  "path: numeric-leading nested texture accepted");
+        CheckPath(L"{Sprite}\\MistArcher_3.png", true, kResourceTexture,
+                  "path: natural sprite name with a numeric segment accepted");
+        CheckPath(L"{Sprite}\\MistArcher_3_1.png", true, kResourceTexture,
+                  "path: duplicate natural sprite name accepted");
+        CheckPath(L"Assets\\Textures\\hero_idle_01.png", true, kResourceTexture,
+                  "path: natural name with underscores accepted");
+        CheckPath(L"Assets/Textures/\u0433\u0435\u0440\u043e\u0439_idle_01.png", true, kResourceTexture,
+                  "path: Unicode natural name with underscores accepted");
+        CheckPath(L"Assets\\_0.png", true, kResourceTexture, "path: underscore-leading numeric stem accepted");
+        Check(ClassifyListingPath(L"Assets\\Textures\\hero.png", nullptr),
+              "path: natural texture accepted without a kind output");
         CheckPath(L"Assets/Scripts/3_scene.bin", true, kResourceRawBin, "path: nested raw .bin accepted");
         CheckPath(L"{Texture2D}\\0_hero.png", true, kResourceTexture, "path: braced texture fallback accepted");
         CheckPath(L"{TextAsset}\\3_scene.bin", true, kResourceRawBin, "path: braced raw .bin fallback accepted");
@@ -133,12 +162,17 @@ int main() {
     }
 
     // 8. Path rejection: an extension outside the ABI grammar (empty, too long,
-    //    non-alnum, upper-case), a missing extension, and a leaf that is not the
-    //    frozen numeric-prefix shape.
+    //    non-alnum, upper-case), an empty filename stem, a missing extension,
+    //    and an empty trailing extension.
     {
         CheckPath(L"", false, kResourceNone, "path: empty rejected");
         CheckPath(L"Assets\\Textures\\", false, kResourceNone, "path: empty leaf rejected");
+        CheckPath(L"Assets\\Textures\\.png", false, kResourceNone, "path: empty filename stem rejected");
+        CheckPath(L"Assets\\Textures\\hero", false, kResourceNone,
+                  "path: a natural leaf with a missing extension is rejected");
         CheckPath(L"Assets\\Textures\\0_hero", false, kResourceNone, "path: missing extension rejected");
+        CheckPath(L"Assets\\Textures\\hero.", false, kResourceNone,
+                  "path: a natural leaf with an empty trailing extension is rejected");
         CheckPath(L"Assets\\Textures\\0_hero.PNG", false, kResourceNone,
                   "path: an upper-case extension is outside the grammar");
         CheckPath(L"Assets\\Textures\\0_hero.t-t", false, kResourceNone,
@@ -146,8 +180,6 @@ int main() {
         CheckPath(L"Assets\\Textures\\0_hero.", false, kResourceNone, "path: an empty trailing extension is rejected");
         CheckPath(L"Assets\\Textures\\0_hero.abcdefghijklmnopq", false, kResourceNone,
                   "path: a seventeen-unit extension is rejected");
-        CheckPath(L"Assets\\Textures\\hero.png", false, kResourceNone, "path: non-numeric leaf rejected");
-        CheckPath(L"Assets\\_0.png", false, kResourceNone, "path: empty numeric prefix rejected");
     }
 
     // 9. Path rejection: traversal, root, drive, UNC and empty components.
@@ -187,6 +219,11 @@ int main() {
         const std::vector<SourceSize> entry1_changed = {{0, 0}, {512, 512}, {4096, 4096}};
         Check(!CatalogueSourceSizeUnchanged(stable, entry1_changed),
               "catalogue: changed entry 1 rejected while entry 0 stable");
+
+        const std::vector<SourceSize> invalid_listing = {{0, 0}, {2, 9}, {4096, 4096}};
+        const std::vector<SourceSize> valid_current = {{0, 0}, {2, 2}, {4096, 4096}};
+        Check(!CatalogueSourceSizeUnchanged(invalid_listing, valid_current),
+              "catalogue: changed PackedSize rejected when Size is unchanged and the listing pair was invalid");
 
         const std::vector<SourceSize> entry1_invalid = {{0, 0}, {-1, -1}, {4096, 4096}};
         Check(!CatalogueSourceSizeUnchanged(stable, entry1_invalid), "catalogue: invalid entry 1 rejected");
@@ -240,15 +277,15 @@ int main() {
     //     say so; only ".bin" is that category, and the image and transformed
     //     binary kinds are excluded from it.
     {
-        CheckPath(L"{VideoClip}\\3_VideoRaw.bin", true, kResourceRawBin,
-                  "mixed: a video raw .bin fallback is raw-bin");
+        CheckPath(L"{VideoClip}\\3_VideoRaw.bin", true, kResourceRawBin, "mixed: a video raw .bin fallback is raw-bin");
         CheckPath(L"{TextAsset}\\3_TextPayload.bin", true, kResourceRawBin, "mixed: a text payload .bin is raw-bin");
         CheckPath(L"{AudioClip}\\9_Sound.bin", true, kResourceRawBin, "mixed: an audio raw .bin fallback is raw-bin");
         CheckPath(L"Assets\\Media\\7_Clip.bin", true, kResourceRawBin, "mixed: a preserved raw .bin is raw-bin");
         Check(std::string(ResourceKindName(kResourceRawBin)) == "raw-bin",
               "mixed: the raw-bin category reports the name raw-bin");
         Check(std::string(ResourceKindName(kResourceTexture)) != "raw-bin", "mixed: the image kind is not raw-bin");
-        Check(std::string(ResourceKindName(kResourceBinary)) != "raw-bin", "mixed: a transformed binary is not raw-bin");
+        Check(std::string(ResourceKindName(kResourceBinary)) != "raw-bin",
+              "mixed: a transformed binary is not raw-bin");
         CheckPath(L"{Texture2D}\\0_hero.png", true, kResourceTexture, "mixed: .png is excluded from raw-bin");
         CheckPath(L"{Mesh}\\6_mesh.glb", true, kResourceBinary, "mixed: .glb is excluded from raw-bin");
         CheckPath(L"{Font}\\2_font.ttf", true, kResourceBinary, "mixed: .ttf is excluded from raw-bin");

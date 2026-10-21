@@ -114,12 +114,12 @@ namespace extractor
         using scratch_string = std::pmr::wstring;
         using scratch_units = std::pmr::vector<std::uint16_t>;
 
-        // The widest braced fallback folder ({MovieTexture}) fixes the widest fallback
-        // path any bounded entry can produce (folder + separator + index + '_' + label +
-        // '.' + extension), so the fallback needs no runtime length branch. A preserved
-        // original path is checked against the same cap at runtime.
+        // The widest braced fallback folder ({MovieTexture}) fixes the widest fallback path
+        // (folder + separator + sanitised label, which may gain one reserved-device underscore,
+        // + '_' + six suffix digits + '.' + extension), so the fallback needs no runtime length
+        // branch. A preserved original path is checked against the same cap at runtime.
         constexpr std::wstring_view widest_fallback_folder = L"{MovieTexture}";
-        static_assert(widest_fallback_folder.size() + 1 + 6 + 1 + max_label_units + 1 + max_extension_units <=
+        static_assert(widest_fallback_folder.size() + 1 + max_label_units + 1 + 1 + 6 + 1 + max_extension_units <=
                           max_path_units,
                       "widest fallback virtual path fits the Observer path");
 
@@ -136,10 +136,9 @@ namespace extractor
         // Owns the session token for the lifetime of one open archive and closes it on
         // destruction. It is only ever constructed with a token the backend has already
         // reported as non-zero, so it always owns a live session.
-        // The catalogue retains only the indices whose preserved path collides with a
-        // directory another entry needs; every valid path is materialised on demand into a
-        // caller-owned buffer. That buffer is owned by the GetItem frame and the returned
-        // path never outlives the call, so the catalogue exposes no retained path storage.
+        // The catalogue retains only a compact per-entry plan created when a suffix, fallback
+        // or directory conflict exists. Every path is materialised on demand into the GetItem
+        // frame from backend metadata, so no owning path string survives prepare.
         class unity_state final : public storage_state, public indexed_catalogue
         {
           public:
@@ -159,15 +158,18 @@ namespace extractor
 
             void prepare() override;
 
-            [[nodiscard]] indexed_catalogue *indexed_files() noexcept override { return this; }
+            [[nodiscard]] indexed_catalogue *indexed_files() noexcept override
+            {
+                return this;
+            }
 
             [[nodiscard]] std::size_t count() const noexcept override
             {
                 return prepared_ ? static_cast<std::size_t>(count_) : 0;
             }
 
-            // Lazy materialisation: the retained conflict set plus the backend metadata are
-            // enough to rebuild the exact path and sizes the retained catalogue used to hold.
+            // Lazy materialisation: the compact plan plus backend metadata rebuilds the exact
+            // path and sizes without retaining an owning path string.
             [[nodiscard]] std::optional<column> path_into(std::size_t index, std::span<char> buffer) const override;
             [[nodiscard]] std::optional<column> wide_path_into(std::size_t index,
                                                                std::span<wchar_t> buffer) const override;
@@ -179,9 +181,10 @@ namespace extractor
             std::uint64_t token_;
             std::int32_t count_;
             bool prepared_ = false;
-            // Sorted, so membership is a binary search and the common collision-free
-            // catalogue retains an empty vector instead of a per-entry path table.
-            std::vector<std::int32_t> conflicts_;
+            // Dense only when a duplicate or fallback needs recording. Zero means the natural
+            // path exactly as reported; otherwise the low bits carry the suffix and the high bit
+            // selects the braced fallback namespace.
+            std::vector<std::uint32_t> naming_plan_;
         };
 
         // Owns the raw session token from before the backend can produce it, and closes it
@@ -270,14 +273,13 @@ namespace extractor
         [[nodiscard]] bool is_reserved_device_name(const std::wstring_view name) noexcept
         {
             static constexpr std::wstring_view reserved[] = {
-                L"CON",  L"PRN",  L"AUX",  L"NUL",  L"COM1", L"COM2", L"COM3", L"COM4",
-                L"COM5", L"COM6", L"COM7", L"COM8", L"COM9", L"LPT1", L"LPT2", L"LPT3",
-                L"LPT4", L"LPT5", L"LPT6", L"LPT7", L"LPT8", L"LPT9", L"COM\u00B9",
-                L"COM\u00B2", L"COM\u00B3", L"LPT\u00B9", L"LPT\u00B2", L"LPT\u00B3",
+                L"CON",  L"PRN",       L"AUX",       L"NUL",       L"COM1",      L"COM2",      L"COM3",
+                L"COM4", L"COM5",      L"COM6",      L"COM7",      L"COM8",      L"COM9",      L"LPT1",
+                L"LPT2", L"LPT3",      L"LPT4",      L"LPT5",      L"LPT6",      L"LPT7",      L"LPT8",
+                L"LPT9", L"COM\u00B9", L"COM\u00B2", L"COM\u00B3", L"LPT\u00B9", L"LPT\u00B2", L"LPT\u00B3",
             };
             const std::size_t dot = name.find(L'.');
-            const std::wstring_view device =
-                name.substr(0, dot == std::wstring_view::npos ? name.size() : dot);
+            const std::wstring_view device = name.substr(0, dot == std::wstring_view::npos ? name.size() : dot);
             for (const std::wstring_view candidate : reserved) {
                 if (ascii_case_insensitive_equal(device, candidate)) {
                     return true;
@@ -293,7 +295,7 @@ namespace extractor
         [[nodiscard]] bool is_reserved_fallback_root(const std::wstring_view root) noexcept
         {
             static constexpr std::wstring_view reserved[] = {
-                L"{Texture2D}", L"{TextAsset}",  L"{Font}",  L"{VideoClip}",
+                L"{Texture2D}",    L"{TextAsset}", L"{Font}", L"{VideoClip}",
                 L"{MovieTexture}", L"{AudioClip}", L"{Mesh}", L"{Sprite}",
             };
             for (const std::wstring_view candidate : reserved) {
@@ -359,16 +361,17 @@ namespace extractor
             return (unit >= L'a' && unit <= L'z') || (unit >= L'0' && unit <= L'9');
         }
 
-        // Appends a non-negative catalogue index in decimal without a temporary owning
-        // string. The entry bound keeps the value inside ten digits.
-        void append_index(scratch_string &out, std::int32_t index)
+        // Appends a non-negative value in decimal without a temporary owning string. The
+        // entry bound keeps every suffix inside ten digits.
+        void append_decimal(scratch_string &out, const std::uint32_t value)
         {
             wchar_t digits[10];
             std::size_t count = 0;
+            std::uint32_t remaining = value;
             do {
-                digits[count++] = static_cast<wchar_t>(L'0' + index % 10);
-                index /= 10;
-            } while (index > 0);
+                digits[count++] = static_cast<wchar_t>(L'0' + remaining % 10);
+                remaining /= 10;
+            } while (remaining > 0);
             while (count > 0) {
                 out.push_back(digits[--count]);
             }
@@ -402,8 +405,7 @@ namespace extractor
         // this can never become a valid Windows name, so the entry falls back to the braced
         // kind folder instead of the whole archive being rejected. The metadata label is
         // validated separately by the UTF-8 conversion, which still rejects a bad label.
-        template <typename Unit>
-        [[nodiscard]] bool is_well_formed_utf16(const std::span<const Unit> units) noexcept
+        template <typename Unit> [[nodiscard]] bool is_well_formed_utf16(const std::span<const Unit> units) noexcept
         {
             bool expecting_low = false;
             for (const Unit raw : units) {
@@ -428,13 +430,14 @@ namespace extractor
         }
 
         // Builds the preserved virtual path from an original asset path: the original parent
-        // directories, the unique numeric catalogue index, the original base name without its
-        // extension, and the entry kind's own extension. Returns nullopt for every rooted,
-        // traversal, reserved, unnameable or over-long path so the caller uses the safe braced
-        // fallback; it never truncates a component or emits a path over the Observer cap.
-        [[nodiscard]] std::optional<scratch_string> original_virtual_path(
-            const std::span<const std::uint16_t> raw, const std::int32_t index,
-            const std::wstring_view extension, std::pmr::memory_resource *const resource)
+        // directories, the original base name without its extension, and the entry kind's own
+        // extension. A unique name is therefore emitted exactly as authored. Returns nullopt for
+        // every rooted, traversal, reserved, unnameable or over-long path so the caller uses the
+        // safe braced fallback; it never truncates a component or emits a path over the Observer
+        // cap.
+        [[nodiscard]] std::optional<scratch_string> original_virtual_path(const std::span<const std::uint16_t> raw,
+                                                                          const std::wstring_view extension,
+                                                                          std::pmr::memory_resource *const resource)
         {
             if (raw.empty()) {
                 return std::nullopt;
@@ -445,8 +448,7 @@ namespace extractor
                 return std::nullopt;
             }
             const scratch_string original(raw.begin(), raw.end(), resource);
-            if (original[0] == L'\\' || original[0] == L'/' ||
-                (original.size() >= 2 && original[1] == L':')) {
+            if (original[0] == L'\\' || original[0] == L'/' || (original.size() >= 2 && original[1] == L':')) {
                 return std::nullopt;
             }
 
@@ -466,8 +468,7 @@ namespace extractor
 
             const std::wstring_view basename = components.back();
             const std::size_t dot = basename.find_last_of(L'.');
-            const std::wstring_view stem =
-                (dot == std::wstring_view::npos) ? basename : basename.substr(0, dot);
+            const std::wstring_view stem = (dot == std::wstring_view::npos) ? basename : basename.substr(0, dot);
 
             // The output is built from bounded sanitised components only; its capacity must
             // never be reserved from the stripped raw original, or a huge ignored extension
@@ -490,8 +491,6 @@ namespace extractor
             if (!label) {
                 return std::nullopt;
             }
-            append_index(path, index);
-            path += L'_';
             path += *label;
             path += L'.';
             path += extension;
@@ -511,7 +510,6 @@ namespace extractor
             std::size_t limit = std::min(raw.size(), max_label_units);
             if (limit < raw.size() && raw[limit - 1] >= 0xD800U && raw[limit - 1] <= 0xDBFFU && raw[limit] >= 0xDC00U &&
                 raw[limit] <= 0xDFFFU) {
-                // The cut would orphan the high surrogate; drop it so the pair stays whole.
                 --limit;
             }
 
@@ -527,30 +525,69 @@ namespace extractor
             if (label.empty()) {
                 return scratch_string(L"resource", resource);
             }
+            if (is_reserved_device_name(label)) {
+                label.insert(0, 1, L'_');
+            }
             return label;
         }
 
-        // Case-insensitive ordinal key for the catalogue-wide virtual namespace. Windows
-        // resolves a file name case-insensitively with a Unicode ordinal fold, and
-        // CompareStringOrdinal is the documented primitive for exactly that, so two names the
-        // file system cannot tell apart collapse to a single key here. The key is transparent so
-        // an ancestor prefix can be looked up without first allocating an owning string.
+        // Windows resolves a file name case-insensitively with a Unicode ordinal fold, and
+        // CompareStringOrdinal is the documented primitive for exactly that. All ordering and
+        // membership in the transient catalogue index uses this one policy.
+        [[nodiscard]] int ordinal_compare(const std::wstring_view lhs, const std::wstring_view rhs) noexcept
+        {
+            const int result = ::CompareStringOrdinal(lhs.data(), static_cast<int>(lhs.size()), rhs.data(),
+                                                      static_cast<int>(rhs.size()), TRUE);
+            if (result == CSTR_LESS_THAN) {
+                return -1;
+            }
+            if (result == CSTR_GREATER_THAN) {
+                return 1;
+            }
+            return 0;
+        }
+
         struct caseless_less
         {
             using is_transparent = void;
 
             [[nodiscard]] bool operator()(const std::wstring_view lhs, const std::wstring_view rhs) const noexcept
             {
-                return ::CompareStringOrdinal(lhs.data(), static_cast<int>(lhs.size()), rhs.data(),
-                                              static_cast<int>(rhs.size()), TRUE) == CSTR_LESS_THAN;
+                return ordinal_compare(lhs, rhs) < 0;
             }
         };
 
-        using name_set = std::set<std::wstring, caseless_less>;
+        using name_view_set = std::pmr::set<std::wstring_view, caseless_less>;
 
-        // Charges `bytes` of retained catalogue metadata against the cumulative budget before the
-        // matching allocation happens, so a catalogue with many long or deeply distinct original
-        // paths fails with a bounded read error instead of growing without bound.
+        // A compact reference to a transient path owned by the prepare arena. The stem length
+        // locates the extension separator, so suffixing never searches or allocates per member.
+        struct path_ref final
+        {
+            std::wstring_view path;
+            std::uint32_t stem_units = 0;
+            std::int32_t index = 0;
+        };
+
+        struct path_ref_less final
+        {
+            [[nodiscard]] bool operator()(const path_ref &lhs, const path_ref &rhs) const noexcept
+            {
+                const int order = ordinal_compare(lhs.path, rhs.path);
+                if (order != 0) {
+                    return order < 0;
+                }
+                return lhs.index < rhs.index;
+            }
+        };
+
+        // Plan bits: the high bit selects the braced fallback namespace, the low 31 bits carry
+        // the duplicate suffix. Zero is the untouched natural path.
+        constexpr std::uint32_t fallback_plan = 0x80000000U;
+        constexpr std::uint32_t suffix_mask = 0x7FFFFFFFU;
+        static_assert(max_entries <= 999999, "a fallback duplicate suffix fits six decimal digits");
+
+        // Charges transient catalogue characters and ancestor keys against the cumulative
+        // budget before the matching arena allocation happens.
         void charge_metadata(std::size_t &retained, const std::size_t bytes)
         {
             if (retained + bytes > max_catalogue_metadata_bytes) {
@@ -559,62 +596,83 @@ namespace extractor
             retained += bytes;
         }
 
-        // The bytes an owned string keeps alive: its allocation is its capacity plus the
-        // terminator slot, so a retained string is charged by capacity rather than by its
-        // logical length. This is the character payload; the small fixed per-entry and per-node
-        // container overhead is separately bounded by the entry cap and the key count.
-        [[nodiscard]] std::size_t retained_string_bytes(const std::wstring &value) noexcept
+        // Interns one path or directory key in the single prepare arena. Ordinal matching reuses
+        // the stored copy, while each entry still emits its own preserved casing when it
+        // materialises a path.
+        [[nodiscard]] std::wstring_view intern_name(std::pmr::monotonic_buffer_resource &arena, name_view_set &names,
+                                                    const std::wstring_view value, std::size_t &retained)
         {
-            return (value.capacity() + 1) * sizeof(wchar_t);
+            const auto existing = names.find(value);
+            if (existing != names.end()) {
+                return *existing;
+            }
+            const std::size_t units = value.size() + 1;
+            charge_metadata(retained, units * sizeof(wchar_t));
+            auto *const copy = static_cast<wchar_t *>(arena.allocate(units * sizeof(wchar_t), alignof(wchar_t)));
+            for (std::size_t index = 0; index < value.size(); ++index) {
+                copy[index] = value[index];
+            }
+            copy[value.size()] = wchar_t{};
+            const std::wstring_view stored(copy, value.size());
+            names.emplace(stored);
+            return stored;
         }
 
-        // Parses the leading catalogue index of a preserved file-name component of the form
-        // "<digits>_<label>.<ext>". Returns -1 when the component is not a preserved file name
-        // or its index is out of range, so a plain directory never becomes a candidate.
-        // The sole caller invokes this only for a component that already contains '.', so the
-        // digit scan always stops before the end and the index is safe to read.
-        [[nodiscard]] std::int32_t parse_leading_index(const std::wstring_view component, const std::int32_t count)
+        // Records every proper ancestor directory in the same arena and occupancy namespace as
+        // the natural file paths. A conflicting file therefore remains a reserved name while
+        // its containing tree is known before any suffix is assigned.
+        void record_required_directories(const std::wstring_view path, std::pmr::monotonic_buffer_resource &arena,
+                                         name_view_set &occupancy, name_view_set &directories, std::size_t &retained)
         {
-            std::int64_t value = 0;
-            std::size_t digits = 0;
-            while (component[digits] >= L'0' && component[digits] <= L'9') {
-                value = value * 10 + (component[digits] - L'0');
-                if (value >= count) {
-                    return -1;
-                }
-                ++digits;
-            }
-            if (digits == 0 || component[digits] != L'_') {
-                return -1;
-            }
-            return static_cast<std::int32_t>(value);
-        }
-
-        // Records every proper ancestor directory of a preserved path and charges each new key
-        // against the budget by its retained capacity. A prefix whose own last component is a
-        // preserved file name is recorded as a conflict candidate: only such a prefix can equal
-        // another entry's preserved path, so the candidate set stays sparse.
-        void record_required_directories(const std::wstring_view path, name_set &dest, std::size_t &retained,
-                                         std::set<std::int32_t> &candidates, const std::int32_t count)
-        {
-            std::size_t component_start = 0;
             for (std::size_t position = path.find(L'\\'); position != std::wstring_view::npos;
                  position = path.find(L'\\', position + 1)) {
-                const std::wstring_view component = path.substr(component_start, position - component_start);
-                if (component.find(L'.') != std::wstring_view::npos) {
-                    const std::int32_t candidate = parse_leading_index(component, count);
-                    if (candidate >= 0) {
-                        candidates.insert(candidate);
-                    }
-                }
-                component_start = position + 1;
                 const std::wstring_view prefix = path.substr(0, position);
-                if (dest.find(prefix) != dest.end()) {
-                    continue;
-                }
-                std::wstring key(prefix);
-                charge_metadata(retained, retained_string_bytes(key));
-                dest.emplace(std::move(key));
+                const std::wstring_view stored = intern_name(arena, occupancy, prefix, retained);
+                directories.emplace(stored);
+            }
+        }
+
+        [[nodiscard]] std::size_t decimal_units(const std::uint32_t value) noexcept
+        {
+            std::size_t units = 1;
+            std::uint32_t remaining = value;
+            while (remaining >= 10) {
+                remaining /= 10;
+                ++units;
+            }
+            return units;
+        }
+
+        // Writes `_<suffix>` immediately before the extension. The caller has already checked
+        // the path cap and supplies a buffer able to hold any candidate up to that cap.
+        [[nodiscard]] std::wstring_view suffix_view(const std::wstring_view base, const std::size_t stem_units,
+                                                    const std::uint32_t suffix,
+                                                    const std::span<wchar_t> buffer) noexcept
+        {
+            wchar_t digits[10];
+            std::size_t digit_count = 0;
+            std::uint32_t remaining = suffix;
+            do {
+                digits[digit_count++] = static_cast<wchar_t>(L'0' + remaining % 10);
+                remaining /= 10;
+            } while (remaining > 0);
+            for (std::size_t index = 0; index < stem_units; ++index) {
+                buffer[index] = base[index];
+            }
+            buffer[stem_units] = L'_';
+            for (std::size_t index = 0; index < digit_count; ++index) {
+                buffer[stem_units + 1 + index] = digits[digit_count - 1 - index];
+            }
+            for (std::size_t index = stem_units; index < base.size(); ++index) {
+                buffer[index + 1 + digit_count] = base[index];
+            }
+            return std::wstring_view(buffer.data(), base.size() + 1 + digit_count);
+        }
+
+        void ensure_plan(std::vector<std::uint32_t> &plan, const std::size_t count)
+        {
+            if (plan.empty()) {
+                plan.assign(count, 0);
             }
         }
 
@@ -628,34 +686,36 @@ namespace extractor
             }
             const std::size_t capacity =
                 std::min(buffer.size(), static_cast<std::size_t>(std::numeric_limits<int>::max()));
-            const int written = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(),
-                                                      static_cast<int>(wide.size()), buffer.data(),
-                                                      static_cast<int>(capacity), nullptr, nullptr);
+            const int written =
+                ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(), static_cast<int>(wide.size()),
+                                      buffer.data(), static_cast<int>(capacity), nullptr, nullptr);
             if (written <= 0) {
                 throw read_error();
             }
             return static_cast<std::size_t>(written);
         }
 
-        // The braced fallback virtual path of one entry: the safe kind folder, the unique
-        // numeric index, the bounded label and the output extension.
-        [[nodiscard]] scratch_string fallback_path(const std::int32_t index, const int kind,
-                                                   const std::wstring_view label,
-                                                   const std::wstring_view extension,
+        // The braced fallback virtual path of one entry: the safe kind folder, the bounded
+        // label, an optional duplicate suffix and the output extension. A directory-conflict
+        // entry lands here without an index-derived prefix.
+        [[nodiscard]] scratch_string fallback_path(const int kind, const std::wstring_view label,
+                                                   const std::wstring_view extension, const std::uint32_t suffix,
                                                    std::pmr::memory_resource *const resource)
         {
             scratch_string wide(fallback_folder(kind), resource);
             wide += L'\\';
-            append_index(wide, index);
-            wide += L'_';
             wide += label;
+            if (suffix != 0) {
+                wide += L'_';
+                append_decimal(wide, suffix);
+            }
             wide += L'.';
             wide += extension;
             return wide;
         }
 
         // One entry's validated, bounded metadata as read from the backend. Nothing here is
-        // retained beyond the call: prepare reuses it to build the conflict set, and path_into
+        // retained beyond the call: prepare uses it to build the compact plan, and path_into
         // rebuilds the final path from it on demand.
         struct entry_metadata final
         {
@@ -665,8 +725,7 @@ namespace extractor
             std::optional<scratch_string> preserved;
             std::int64_t source_size = 0;
 
-            explicit entry_metadata(std::pmr::memory_resource *const resource)
-                : label(resource), extension(resource)
+            explicit entry_metadata(std::pmr::memory_resource *const resource) : label(resource), extension(resource)
             {
             }
         };
@@ -698,9 +757,8 @@ namespace extractor
             const auto read = [&](std::uint16_t *const name_buffer, const std::int32_t name_capacity,
                                   std::uint16_t *const original_buffer, const std::int32_t original_capacity,
                                   std::uint16_t *const extension_buffer, const std::int32_t extension_capacity) {
-                return ::unpackrat_unity_get_metadata(token, index, &meta, name_buffer, name_capacity,
-                                                      original_buffer, original_capacity, extension_buffer,
-                                                      extension_capacity);
+                return ::unpackrat_unity_get_metadata(token, index, &meta, name_buffer, name_capacity, original_buffer,
+                                                      original_capacity, extension_buffer, extension_capacity);
             };
             std::int32_t status = read(name.data(), static_cast<std::int32_t>(name.size()), original.data(),
                                        static_cast<std::int32_t>(original.size()), extension,
@@ -712,8 +770,7 @@ namespace extractor
             if (meta.struct_size != sizeof(UnityMetadata) || meta.reserved != 0 || meta.reserved2 != 0) {
                 throw read_error();
             }
-            if (meta.name_length < 0 || meta.original_length < 0 || meta.extension_length < 0 ||
-                meta.source_size < 0) {
+            if (meta.name_length < 0 || meta.original_length < 0 || meta.extension_length < 0 || meta.source_size < 0) {
                 throw read_error();
             }
             // Only the eight known resource kinds are listed; an unknown id is corrupt
@@ -762,11 +819,10 @@ namespace extractor
                 if (original_present) {
                     original.assign(static_cast<std::size_t>(meta.original_length), 0);
                 }
-                status = read(name.data(), static_cast<std::int32_t>(name.size()),
-                              original_present ? original.data() : nullptr,
-                              original_present ? static_cast<std::int32_t>(original.size()) : 0,
-                              dynamic ? extension : nullptr,
-                              dynamic ? static_cast<std::int32_t>(max_extension_units) : 0);
+                status = read(
+                    name.data(), static_cast<std::int32_t>(name.size()), original_present ? original.data() : nullptr,
+                    original_present ? static_cast<std::int32_t>(original.size()) : 0, dynamic ? extension : nullptr,
+                    dynamic ? static_cast<std::int32_t>(max_extension_units) : 0);
                 if (status != UNITY_OK) {
                     throw read_error();
                 }
@@ -779,8 +835,7 @@ namespace extractor
                 // extension a stack read). Unchanged fields keep every copied length within the
                 // exact buffer capacities the retry was handed.
                 if (meta.kind != first_kind || meta.name_length != first_name_length ||
-                    meta.original_length != first_original_length ||
-                    meta.extension_length != first_extension_length ||
+                    meta.original_length != first_original_length || meta.extension_length != first_extension_length ||
                     meta.source_size != first_source_size) {
                     throw read_error();
                 }
@@ -812,19 +867,28 @@ namespace extractor
                     result.extension.push_back(wide);
                 }
             }
-            result.preserved = original_virtual_path(original, index, result.extension, resource);
+            result.preserved = original_virtual_path(original, result.extension, resource);
             result.source_size = meta.source_size;
             return result;
         }
 
-        [[nodiscard]] const scratch_string &materialise_path(const entry_metadata &entry, const bool conflict,
-                                                             const std::int32_t index, scratch_string &fallback,
-                                                             std::pmr::memory_resource *const resource)
+        [[nodiscard]] std::wstring_view materialise_path(const entry_metadata &entry, const std::uint32_t plan,
+                                                         scratch_string &fallback,
+                                                         const std::span<wchar_t> suffix_buffer,
+                                                         std::pmr::memory_resource *const resource)
         {
-            if (entry.preserved && !conflict) {
-                return *entry.preserved;
+            const std::uint32_t suffix = plan & suffix_mask;
+            if (entry.preserved && (plan & fallback_plan) == 0) {
+                if (suffix == 0) {
+                    return *entry.preserved;
+                }
+                if (entry.preserved->size() + 1 + decimal_units(suffix) > max_path_units) {
+                    throw read_error();
+                }
+                const std::size_t stem_units = entry.preserved->size() - entry.extension.size() - 1;
+                return suffix_view(*entry.preserved, stem_units, suffix, suffix_buffer);
             }
-            fallback = fallback_path(index, entry.kind, entry.label, entry.extension, resource);
+            fallback = fallback_path(entry.kind, entry.label, entry.extension, suffix, resource);
             return fallback;
         }
 
@@ -874,12 +938,14 @@ namespace extractor
         void unity_state::extract(const std::size_t index, std::ostream &output,
                                   const std::function<void(std::int64_t)> &progress) const
         {
-            if (index >= count()) throw std::out_of_range("Index out of range");
+            if (index >= count())
+                throw std::out_of_range("Index out of range");
             const std::uint64_t token = token_;
             export_bridge bridge;
             bridge.output = &output;
             bridge.progress = &progress;
-            const std::int32_t result = ::unpackrat_unity_export(token, static_cast<std::int32_t>(index), &bridge_write, &bridge);
+            const std::int32_t result =
+                ::unpackrat_unity_export(token, static_cast<std::int32_t>(index), &bridge_write, &bridge);
             if (bridge.saved) {
                 std::rethrow_exception(bridge.saved);
             }
@@ -960,69 +1026,146 @@ namespace extractor
 
     void unity_state::prepare()
     {
-        if (prepared_) return;
+        if (prepared_)
+            return;
         const std::uint64_t token = token_;
         const std::int32_t count = count_;
+        const std::size_t entry_count = static_cast<std::size_t>(count);
 
-        // One metadata pass: validate every entry, build the transient required-directory set
-        // and collect the indices whose preserved path could be one of those directories. The
-        // raw name and original buffers reuse bounded heap capacity across the whole pass;
-        // only the sparse confirmation below can retain an index.
-        name_set required_directories;
+        alignas(std::max_align_t) std::array<std::byte, prepare_scratch_bytes> path_scratch;
+        std::pmr::monotonic_buffer_resource path_arena(path_scratch.data(), path_scratch.size(),
+                                                       std::pmr::new_delete_resource());
+        name_view_set occupancy{std::pmr::polymorphic_allocator<std::wstring_view>(&path_arena)};
+        name_view_set directories{std::pmr::polymorphic_allocator<std::wstring_view>(&path_arena)};
+        std::vector<path_ref> natural;
+        std::vector<std::int32_t> forced_fallbacks;
+        std::vector<path_ref> fallbackrefs;
         std::size_t retained_bytes = 0;
-        std::set<std::int32_t> candidates;
 
-        // The raw ABI buffers stay on the standard heap so their capacity survives every
-        // iteration. Per-entry metadata uses an automatic stack arena constructed inside each
-        // iteration: its destructor runs after the entry and temporary path, reclaiming any
-        // upstream spill, and the next constructor starts again from the caller-owned stack
-        // block. The arena must not live across iterations because release() does not reattach
-        // the initial buffer after an upstream chunk has been allocated on this toolchain.
         std::pmr::memory_resource *const raw_resource = std::pmr::new_delete_resource();
         scratch_units name(raw_resource);
         scratch_units original(raw_resource);
         alignas(std::max_align_t) std::array<std::byte, prepare_scratch_bytes> prepare_scratch;
-        // The existing Observer cap allows four UTF-8 bytes per usable UTF-16 unit.
         std::array<char, max_path_units * 4> fallback_utf8{};
 
         for (std::int32_t index = 0; index < count; ++index) {
             std::pmr::monotonic_buffer_resource arena(prepare_scratch.data(), prepare_scratch.size(),
                                                       std::pmr::new_delete_resource());
             const entry_metadata entry = read_entry(token, index, name, original, &arena);
-            if (entry.preserved) {
-                record_required_directories(*entry.preserved, required_directories, retained_bytes, candidates,
-                                            count);
-            } else {
-                // A fallback entry's label must convert into a valid UTF-8 path now: an
-                // unusable label is corrupt metadata and fails preparation atomically, exactly
-                // as the retained catalogue did when it materialised the fallback.
-                const scratch_string wide =
-                    fallback_path(index, entry.kind, entry.label, entry.extension, &arena);
-                static_cast<void>(to_utf8_into(wide, std::span<char>(fallback_utf8)));
+            if (!entry.preserved) {
+                const scratch_string base = fallback_path(entry.kind, entry.label, entry.extension, 0, &arena);
+                static_cast<void>(to_utf8_into(base, std::span<char>(fallback_utf8)));
+                const std::wstring_view stored = intern_name(path_arena, occupancy, base, retained_bytes);
+                fallbackrefs.push_back(
+                    path_ref{stored, static_cast<std::uint32_t>(base.size() - entry.extension.size() - 1), index});
+                continue;
+            }
+            const std::wstring_view stored = intern_name(path_arena, occupancy, *entry.preserved, retained_bytes);
+            natural.push_back(path_ref{
+                stored, static_cast<std::uint32_t>(entry.preserved->size() - entry.extension.size() - 1), index});
+            record_required_directories(stored, path_arena, occupancy, directories, retained_bytes);
+        }
+
+        std::sort(natural.begin(), natural.end(), path_ref_less{});
+        std::vector<std::uint32_t> naming_plan;
+        std::array<wchar_t, max_path_units + 8> candidate{};
+
+        for (const path_ref &ref : natural) {
+            if (directories.find(ref.path) != directories.end()) {
+                ensure_plan(naming_plan, entry_count);
+                naming_plan[static_cast<std::size_t>(ref.index)] = fallback_plan;
+                forced_fallbacks.push_back(ref.index);
             }
         }
 
-        // Sparse confirmation: only the candidate indices are re-read, so the collision-free
-        // catalogue pays no extra reads. A candidate is a real conflict exactly when its own
-        // preserved path is one of the required directories.
-        std::vector<std::int32_t> conflicts;
-        for (const std::int32_t candidate : candidates) {
-            std::pmr::monotonic_buffer_resource arena(prepare_scratch.data(), prepare_scratch.size(),
-                                                      std::pmr::new_delete_resource());
-            const entry_metadata entry = read_entry(token, candidate, name, original, &arena);
-            if (entry.preserved && required_directories.contains(*entry.preserved)) {
-                // This entry is forced to its braced fallback, so an unusable label must fail
-                // preparation atomically here, exactly as the retained form did.
-                const scratch_string wide =
-                    fallback_path(candidate, entry.kind, entry.label, entry.extension, &arena);
-                static_cast<void>(to_utf8_into(wide, std::span<char>(fallback_utf8)));
-                conflicts.push_back(candidate);
+        for (std::size_t begin = 0; begin < natural.size();) {
+            std::size_t end = begin + 1;
+            while (end < natural.size() && ordinal_compare(natural[begin].path, natural[end].path) == 0) {
+                ++end;
+            }
+            if (directories.find(natural[begin].path) == directories.end() && end - begin > 1) {
+                std::uint32_t cursor = 1;
+                bool moved = false;
+                for (std::size_t position = begin; position < end; ++position) {
+                    for (;;) {
+                        if (natural[begin].path.size() + 1 + decimal_units(cursor) > max_path_units) {
+                            moved = true;
+                            break;
+                        }
+                        const std::wstring_view candidate_path = suffix_view(
+                            natural[begin].path, natural[begin].stem_units, cursor, std::span<wchar_t>(candidate));
+                        if (occupancy.find(candidate_path) == occupancy.end()) {
+                            ensure_plan(naming_plan, entry_count);
+                            naming_plan[static_cast<std::size_t>(natural[position].index)] = cursor;
+                            ++cursor;
+                            break;
+                        }
+                        ++cursor;
+                    }
+                    if (moved)
+                        break;
+                }
+                if (moved) {
+                    ensure_plan(naming_plan, entry_count);
+                    for (std::size_t position = begin; position < end; ++position) {
+                        const std::int32_t index = natural[position].index;
+                        naming_plan[static_cast<std::size_t>(index)] = fallback_plan;
+                        forced_fallbacks.push_back(index);
+                    }
+                }
+            }
+            begin = end;
+        }
+
+        if (!forced_fallbacks.empty()) {
+            for (const std::int32_t index : forced_fallbacks) {
+                std::pmr::monotonic_buffer_resource arena(prepare_scratch.data(), prepare_scratch.size(),
+                                                          std::pmr::new_delete_resource());
+                const entry_metadata entry = read_entry(token, index, name, original, &arena);
+                const scratch_string base = fallback_path(entry.kind, entry.label, entry.extension, 0, &arena);
+                static_cast<void>(to_utf8_into(base, std::span<char>(fallback_utf8)));
+                const std::wstring_view stored = intern_name(path_arena, occupancy, base, retained_bytes);
+                naming_plan[static_cast<std::size_t>(index)] = fallback_plan;
+                fallbackrefs.push_back(
+                    path_ref{stored, static_cast<std::uint32_t>(base.size() - entry.extension.size() - 1), index});
             }
         }
 
-        // Commit only a complete index. Every failure above destroys the local conflict set and
-        // leaves the source session open for a clean retry or one final close.
-        conflicts_ = std::move(conflicts);
+        if (!fallbackrefs.empty()) {
+            ensure_plan(naming_plan, entry_count);
+            for (const path_ref &ref : fallbackrefs) {
+                naming_plan[static_cast<std::size_t>(ref.index)] = fallback_plan;
+            }
+
+            std::sort(fallbackrefs.begin(), fallbackrefs.end(), path_ref_less{});
+            for (std::size_t begin = 0; begin < fallbackrefs.size();) {
+                std::size_t end = begin + 1;
+                while (end < fallbackrefs.size() &&
+                       ordinal_compare(fallbackrefs[begin].path, fallbackrefs[end].path) == 0) {
+                    ++end;
+                }
+                if (end - begin > 1) {
+                    std::uint32_t cursor = 1;
+                    for (std::size_t position = begin; position < end; ++position) {
+                        for (;;) {
+                            const std::wstring_view candidate_path =
+                                suffix_view(fallbackrefs[begin].path, fallbackrefs[begin].stem_units, cursor,
+                                            std::span<wchar_t>(candidate));
+                            if (occupancy.find(candidate_path) == occupancy.end()) {
+                                naming_plan[static_cast<std::size_t>(fallbackrefs[position].index)] =
+                                    fallback_plan | cursor;
+                                ++cursor;
+                                break;
+                            }
+                            ++cursor;
+                        }
+                    }
+                }
+                begin = end;
+            }
+        }
+
+        naming_plan_ = std::move(naming_plan);
         prepared_ = true;
     }
 
@@ -1032,27 +1175,23 @@ namespace extractor
         if (index >= count()) {
             throw std::out_of_range("Index out of range");
         }
-        // Re-read the entry through the same validated reader prepare used, so the path and the
-        // two sizes below are byte-for-byte the values the retained catalogue used to store.
-        // The stack arena keeps the healthy short entry off the heap; a field that outgrows it
-        // falls back to the arena's upstream allocator, which keeps the bounded retry intact.
         alignas(std::max_align_t) std::array<std::byte, get_item_scratch_bytes> scratch;
         std::pmr::monotonic_buffer_resource arena(scratch.data(), scratch.size(), std::pmr::new_delete_resource());
         std::pmr::memory_resource *const resource = &arena;
         scratch_units name(resource);
         scratch_units original(resource);
         const entry_metadata entry = read_entry(token_, static_cast<std::int32_t>(index), name, original, resource);
-        const bool conflict = std::binary_search(conflicts_.begin(), conflicts_.end(),
-                                                 static_cast<std::int32_t>(index));
+        const std::uint32_t entry_plan = naming_plan_.empty() ? 0U : naming_plan_[index];
+        std::array<wchar_t, max_path_units + 8> suffix_buffer{};
         scratch_string fallback(resource);
-        const scratch_string &path =
-            materialise_path(entry, conflict, static_cast<std::int32_t>(index), fallback, resource);
+        const std::wstring_view path =
+            materialise_path(entry, entry_plan, fallback, std::span<wchar_t>(suffix_buffer), resource);
         const std::size_t written = to_utf8_into(path, buffer);
         return column{written, entry.source_size, entry.source_size};
     }
 
-    std::optional<indexed_catalogue::column> unity_state::wide_path_into(
-        const std::size_t index, const std::span<wchar_t> buffer) const
+    std::optional<indexed_catalogue::column> unity_state::wide_path_into(const std::size_t index,
+                                                                         const std::span<wchar_t> buffer) const
     {
         if (index >= count()) {
             throw std::out_of_range("Index out of range");
@@ -1063,12 +1202,12 @@ namespace extractor
         scratch_units name(resource);
         scratch_units original(resource);
         const entry_metadata entry = read_entry(token_, static_cast<std::int32_t>(index), name, original, resource);
-        const bool conflict = std::binary_search(conflicts_.begin(), conflicts_.end(),
-                                                 static_cast<std::int32_t>(index));
+        const std::uint32_t entry_plan = naming_plan_.empty() ? 0U : naming_plan_[index];
+        std::array<wchar_t, max_path_units + 8> suffix_buffer{};
         scratch_string fallback(resource);
-        const scratch_string &path =
-            materialise_path(entry, conflict, static_cast<std::int32_t>(index), fallback, resource);
-        if (!is_well_formed_wide(std::wstring_view(path.data(), path.size())) || buffer.size() < path.size()) {
+        const std::wstring_view path =
+            materialise_path(entry, entry_plan, fallback, std::span<wchar_t>(suffix_buffer), resource);
+        if (!is_well_formed_wide(path) || buffer.size() < path.size()) {
             throw read_error();
         }
         std::copy(path.begin(), path.end(), buffer.begin());
