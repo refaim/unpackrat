@@ -1417,7 +1417,7 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.cs b/Source/Ass
 +++ b/Source/AssetRipper.Import/Structure/GameInitializer.cs
 @@ -1,7 +1,10 @@
 -﻿using AssetRipper.Assets.Bundles;
-+﻿using AssetRipper.Assets;
++using AssetRipper.Assets;
 +using AssetRipper.Assets.Bundles;
  using AssetRipper.Assets.IO;
 +using AssetRipper.Assets.Metadata;
@@ -1427,22 +1427,30 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.cs b/Source/Ass
  
  namespace AssetRipper.Import.Structure;
  
-@@ -9,22 +12,31 @@
+@@ -9,22 +12,39 @@
  {
  	public UnityVersion TargetVersion { get; }
  
 +	private readonly Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback;
++	private readonly Action<IUnityObjectBase, IUnityObjectBase> fieldConversionCallback;
 +
  	public GameInitializer(PlatformGameStructure? platformStructure, PlatformGameStructure? mixedStructure, FileSystem fileSystem, UnityVersion defaultVersion, UnityVersion targetVersion)
-+		: this(platformStructure, mixedStructure, fileSystem, defaultVersion, targetVersion, AssetFactory.Create)
++		: this(platformStructure, mixedStructure, fileSystem, defaultVersion, targetVersion, AssetFactory.Create, VersionChanger.HandleDifferingFields)
 +	{
 +	}
 +
 +	public GameInitializer(PlatformGameStructure? platformStructure, PlatformGameStructure? mixedStructure, FileSystem fileSystem, UnityVersion defaultVersion, UnityVersion targetVersion, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
++		: this(platformStructure, mixedStructure, fileSystem, defaultVersion, targetVersion, constructionCallback, VersionChanger.HandleResourceDifferingFields)
++	{
++	}
++
++	private GameInitializer(PlatformGameStructure? platformStructure, PlatformGameStructure? mixedStructure, FileSystem fileSystem, UnityVersion defaultVersion, UnityVersion targetVersion, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback, Action<IUnityObjectBase, IUnityObjectBase> fieldConversionCallback)
  		: base(new StructureDependencyProvider(platformStructure, mixedStructure, fileSystem), new CustomResourceProvider(platformStructure, mixedStructure, fileSystem), defaultVersion)
  	{
 +		ArgumentNullException.ThrowIfNull(constructionCallback);
++		ArgumentNullException.ThrowIfNull(fieldConversionCallback);
 +		this.constructionCallback = constructionCallback;
++		this.fieldConversionCallback = fieldConversionCallback;
  		TargetVersion = targetVersion;
  	}
  
@@ -1457,7 +1465,7 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.cs b/Source/Ass
  		if (TargetVersion != default)
  		{
 -			VersionChanger.ChangeVersions(gameBundle.FetchAssetCollections(), TargetVersion);
-+			VersionChanger.ChangeVersions(gameBundle.FetchAssetCollections(), TargetVersion, constructionCallback);
++			VersionChanger.ChangeVersions(gameBundle.FetchAssetCollections(), TargetVersion, constructionCallback, fieldConversionCallback);
  		}
  	}
  }
@@ -1514,7 +1522,9 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceI
 diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs b/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
 --- a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
 +++ b/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
-@@ -2,6 +2,7 @@
+@@ -1,7 +1,8 @@
+-﻿using AssetRipper.Assets;
++using AssetRipper.Assets;
  using AssetRipper.Assets.Cloning;
  using AssetRipper.Assets.Collections;
  using AssetRipper.Assets.Generics;
@@ -1527,11 +1537,11 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.
  	private static class VersionChanger
  	{
 -		public static void ChangeVersions(IEnumerable<AssetCollection> collections, UnityVersion targetVersion)
-+		public static void ChangeVersions(IEnumerable<AssetCollection> collections, UnityVersion targetVersion, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback)
++		public static void ChangeVersions(IEnumerable<AssetCollection> collections, UnityVersion targetVersion, Func<AssetInfo, UnityVersion, IUnityObjectBase?> constructionCallback, Action<IUnityObjectBase, IUnityObjectBase> fieldConversionCallback)
  		{
  			List<IUnityObjectBase> list = new();
  
-@@ -40,7 +41,12 @@
+@@ -40,14 +41,19 @@
  						continue;
  					}
  
@@ -1545,6 +1555,121 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.
  					if (original.GetType() == replacement.GetType())
  					{
  						continue;
+ 					}
+ 
+ 					replacement.CopyValues(original);
+-					HandleDifferingFields(original, replacement);
++					fieldConversionCallback(original, replacement);
+ 					collection.ReplaceAsset(replacement);
+ 				}
+ 
+@@ -55,7 +61,7 @@
+ 			}
+ 		}
+ 
+-		private static void HandleDifferingFields(IUnityObjectBase original, IUnityObjectBase replacement)
++		public static void HandleDifferingFields(IUnityObjectBase original, IUnityObjectBase replacement)
+ 		{
+ 			if (original is IRenderer renderer)
+ 			{
+@@ -129,47 +135,59 @@
+ 			}
+ 			else if (original is ITexture2D texture)
+ 			{
+-				ITexture2D newTexture = (ITexture2D)replacement;
+-				if (newTexture.TextureSettings_C28.Has_WrapU() && texture.TextureSettings_C28.Has_WrapMode())
++				HandleTextureDifferingFields(texture, (ITexture2D)replacement);
++			}
++		}
++
++		public static void HandleResourceDifferingFields(IUnityObjectBase original, IUnityObjectBase replacement)
++		{
++			if (original is ITexture2D texture)
++			{
++				HandleTextureDifferingFields(texture, (ITexture2D)replacement);
++			}
++		}
++
++		private static void HandleTextureDifferingFields(ITexture2D original, ITexture2D replacement)
++		{
++			if (replacement.TextureSettings_C28.Has_WrapU() && original.TextureSettings_C28.Has_WrapMode())
++			{
++				replacement.TextureSettings_C28.WrapU = original.TextureSettings_C28.WrapMode;
++			}
++			else if (replacement.TextureSettings_C28.Has_WrapMode() && original.TextureSettings_C28.Has_WrapU())
++			{
++				replacement.TextureSettings_C28.WrapMode = original.TextureSettings_C28.WrapU;
++			}
++
++			if (replacement.Has_CompleteImageSize_C28_UInt32() && original.Has_CompleteImageSize_C28_Int32() && original.CompleteImageSize_C28_Int32 > 0)
++			{
++				replacement.CompleteImageSize_C28_UInt32 = (uint)original.CompleteImageSize_C28_Int32;
++			}
++			else if (replacement.Has_CompleteImageSize_C28_Int32() && original.Has_CompleteImageSize_C28_UInt32() && original.CompleteImageSize_C28_UInt32 < int.MaxValue)
++			{
++				replacement.CompleteImageSize_C28_Int32 = (int)original.CompleteImageSize_C28_UInt32;
++			}
++
++			if (replacement.Has_MipMap_C28() && original.Has_MipCount_C28())
++			{
++				replacement.MipMap_C28 = original.MipCount_C28 > 1;
++			}
++			else if (replacement.Has_MipCount_C28() && original.Has_MipMap_C28())
++			{
++				if (original.MipMap_C28)
+ 				{
+-					newTexture.TextureSettings_C28.WrapU = texture.TextureSettings_C28.WrapMode;
++					// Calculate mip count from max dimension
++					int size = int.Max(original.Width_C28, original.Height_C28);
++					int mipCount = 1;
++					while (size > 1)
++					{
++						mipCount++;
++						size >>= 1;
++					}
++					replacement.MipCount_C28 = mipCount;
+ 				}
+-				else if (newTexture.TextureSettings_C28.Has_WrapMode() && texture.TextureSettings_C28.Has_WrapU())
++				else
+ 				{
+-					newTexture.TextureSettings_C28.WrapMode = texture.TextureSettings_C28.WrapU;
+-				}
+-
+-				if (newTexture.Has_CompleteImageSize_C28_UInt32() && texture.Has_CompleteImageSize_C28_Int32() && texture.CompleteImageSize_C28_Int32 > 0)
+-				{
+-					newTexture.CompleteImageSize_C28_UInt32 = (uint)texture.CompleteImageSize_C28_Int32;
+-				}
+-				else if (newTexture.Has_CompleteImageSize_C28_Int32() && texture.Has_CompleteImageSize_C28_UInt32() && texture.CompleteImageSize_C28_UInt32 < int.MaxValue)
+-				{
+-					newTexture.CompleteImageSize_C28_Int32 = (int)texture.CompleteImageSize_C28_UInt32;
+-				}
+-
+-				if (newTexture.Has_MipMap_C28() && texture.Has_MipCount_C28())
+-				{
+-					newTexture.MipMap_C28 = texture.MipCount_C28 > 1;
+-				}
+-				else if (newTexture.Has_MipCount_C28() && texture.Has_MipMap_C28())
+-				{
+-					if (texture.MipMap_C28)
+-					{
+-						// Calculate mip count from max dimension
+-						int size = int.Max(texture.Width_C28, texture.Height_C28);
+-						int mipCount = 1;
+-						while (size > 1)
+-						{
+-							mipCount++;
+-							size >>= 1;
+-						}
+-						newTexture.MipCount_C28 = mipCount;
+-					}
+-					else
+-					{
+-						newTexture.MipCount_C28 = 1;
+-					}
++					replacement.MipCount_C28 = 1;
+ 				}
+ 			}
+ 		}
 diff --git a/Source/AssetRipper.Import/Structure/GameStructure.cs b/Source/AssetRipper.Import/Structure/GameStructure.cs
 --- a/Source/AssetRipper.Import/Structure/GameStructure.cs
 +++ b/Source/AssetRipper.Import/Structure/GameStructure.cs
@@ -1595,3 +1720,56 @@ diff --git a/Source/AssetRipper.Import/Structure/GameStructure.cs b/Source/Asset
  	[MemberNotNull(nameof(FileCollection))]
  	private void InitializeGameCollection(UnityVersion defaultVersion, UnityVersion targetVersion)
  	{
+
+diff --git a/Source/AssetRipper.Import/Logging/Logger.cs b/Source/AssetRipper.Import/Logging/Logger.cs
+--- a/Source/AssetRipper.Import/Logging/Logger.cs
++++ b/Source/AssetRipper.Import/Logging/Logger.cs
+@@ -9,19 +9,6 @@
+ 	public static bool AllowVerbose { get; set; }
+ 
+ 	public static event Action<string, object?> OnStatusChanged = (_, _) => { };
+-
+-	static Logger()
+-	{
+-		Cpp2IL.Core.Logging.Logger.InfoLog += (message, source) => LogCpp2IL(LogType.Info, message);
+-		Cpp2IL.Core.Logging.Logger.WarningLog += (message, source) => LogCpp2IL(LogType.Verbose, message);
+-		Cpp2IL.Core.Logging.Logger.ErrorLog += (message, source) => LogCpp2IL(LogType.Error, message);
+-		Cpp2IL.Core.Logging.Logger.VerboseLog += (message, source) => LogCpp2IL(LogType.Verbose, message);
+-	}
+-
+-	private static void LogCpp2IL(LogType logType, string message)
+-	{
+-		Log(logType, LogCategory.Cpp2IL, message.Trim());
+-	}
+ 
+ 	public static void Log(LogType type, LogCategory category, string message)
+ 	{
+
+diff --git a/Source/AssetRipper.Import/Structure/Assembly/Managers/IL2CppManager.cs b/Source/AssetRipper.Import/Structure/Assembly/Managers/IL2CppManager.cs
+--- a/Source/AssetRipper.Import/Structure/Assembly/Managers/IL2CppManager.cs
++++ b/Source/AssetRipper.Import/Structure/Assembly/Managers/IL2CppManager.cs
+@@ -15,6 +15,12 @@
+ {
+ 	static IL2CppManager()
+ 	{
++		// Keep the Cpp2IL hook with the backend so ordinary Logger use does not create a resource-only AOT dependency.
++		Cpp2IL.Core.Logging.Logger.InfoLog += (message, source) => LogCpp2IL(LogType.Info, message);
++		Cpp2IL.Core.Logging.Logger.WarningLog += (message, source) => LogCpp2IL(LogType.Verbose, message);
++		Cpp2IL.Core.Logging.Logger.ErrorLog += (message, source) => LogCpp2IL(LogType.Error, message);
++		Cpp2IL.Core.Logging.Logger.VerboseLog += (message, source) => LogCpp2IL(LogType.Verbose, message);
++
+ 		InstructionSetRegistry.RegisterInstructionSet<X86InstructionSet>(DefaultInstructionSets.X86_32);
+ 		InstructionSetRegistry.RegisterInstructionSet<X86InstructionSet>(DefaultInstructionSets.X86_64);
+ 		InstructionSetRegistry.RegisterInstructionSet<WasmInstructionSet>(DefaultInstructionSets.WASM);
+@@ -30,6 +36,11 @@
+ 		}
+ 
+ 		LibCpp2IlBinaryRegistry.RegisterBuiltInBinarySupport();
++	}
++
++	private static void LogCpp2IL(LogType logType, string message)
++	{
++		Logger.Log(logType, LogCategory.Cpp2IL, message.Trim());
+ 	}
+ 
+ 	public static List<Cpp2IlProcessingLayer> DefaultProcessingLayers { get; } =

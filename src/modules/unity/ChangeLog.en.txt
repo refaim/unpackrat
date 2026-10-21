@@ -1,3 +1,12 @@
+Version 0.3.6
+-------------
+ * Removes the remaining Cpp2IL and script-conversion dependencies from the
+   resource-only loading path, shrinking the DLL from 28.8 MiB to 16.7 MiB on
+   x64 and from 27.2 MiB to 15.9 MiB on x86.
+ * Preserves supported resource exports, texture conversion, version handling
+   and the existing full SDK path; the DLL remains self-contained and requires
+   no .NET installation.
+
 Version 0.3.5
 -------------
  * Creates Unity objects through resource-specific callbacks; the universal

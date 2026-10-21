@@ -122,3 +122,11 @@ SDK не менялся; XP/FAR, ветка master, commit и push не затр
 - В карте остаётся ZSTD-компрессор: выяснить, почему он удерживается; поддерживаемые кодеки и версии не удалять.
   Позже — опциональный runtime-dependent второй flavour.
 - Артефакты задачи: `out/unity-size-closure-step`.
+
+## 0.3.6: остаточные скриптовые зависимости закрыты
+
+Прежняя гипотеза о том, что достаточно отдельного пути `VersionChanger`, заменяется: остаточный корень — регистрация событий Cpp2IL в `Import.Logger.cctor` вместе со встроенным дескриптором Cpp2IL с `preserve=all`. Четыре подписки и helper перенесены в существующий `IL2CppManager.cctor`, поэтому обычный resource logger больше не загружает Cpp2IL.
+
+Размер DLL: x64: 17 515 520 байт (16,7041 MiB) против 30 152 192 байт (28,7554 MiB); x86: 16 680 448 байт (15,9077 MiB) против 28 562 944 байт (27,2397 MiB), на 42% меньше. `IlcDehydrate=true`, `Size` и `StackTrace=false` не изменены; DLL остаётся self-contained, установка .NET не нужна. В картах обеих архитектур нет `MethodCode` для Cpp2IL, LibCpp2IL, AsmResolver, Iced и UnloadedStructure; `AssetFactory/Create` и `BaseManager/ReadMonoBehaviour` отсутствуют. Код этих анализаторов отсутствует в итоговой DLL; PackageReference и зависимости сборки полного SDK сохранены. Ресурсные экспорты и версии сохранены.
+
+Проверки: logger TDD RED 1 FAIL/2 PASS -> GREEN 3 PASS; четыре случая миграции текстур 3.5.0f1↔2022.3.10f1 (mip on/off); full managed 1351 PASS, 0 skip; 100% строк, ветвей и методов собственной сборки UnityProbe; SDK в этот coverage не входит; native-ревью Sol исходников/тестов: 0 замечаний; x64 exact-pin: 39 каталогов/6 игр, 64 выбранных экспорта на каждую роль (контроль/кандидат), суммарно на 7 входах/6 играх, 48 golden-циклов/2 игры/2 роли по 12. Обе архитектуры: 9 resource fixtures/8 семейств + 2 Mono identity входа; PE: 50 одинаковых имён экспорта, 4 системные DLL. Ограничения: XP/FAR не проверялись, свежих замеров скорости/памяти нет, raw pass-through шрифтов/видео не квалифицирует кодеки/игровые payloads, внешние `.resS`/`.resource` в 39 входах не независимо хеш-связаны. Артефакты: `out/unity-script-closure-step`, `out/unity-size-step/exercise-script-closure-036`. Следующий возможный корень: ZSTD compressor; второй runtime-зависимый flavour отложен.

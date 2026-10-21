@@ -98,6 +98,83 @@ internal static class UnityFixtureBuilder
 		return Serialize(builder.Build());
 	}
 
+    public static byte[] SerializedVersionedTexture(string name, UnityVersion version, bool mipmapped)
+    {
+        ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
+        ITexture2D texture = Texture2D.Create(
+            new AssetRipper.Assets.Metadata.AssetInfo(collection, 1, Texture2DClassId),
+            version);
+        ((AssetRipper.Assets.INamed)texture).Name = new Utf8String(name);
+        texture.Width_C28 = 8;
+        texture.Height_C28 = 4;
+        texture.ImageCount_C28 = 1;
+        texture.Format_C28E = TextureFormat.RGBA32;
+
+        int mipCount = mipmapped ? 4 : 1;
+        int imageLength = 0;
+        int mipWidth = 8;
+        int mipHeight = 4;
+        for (int level = 0; level < mipCount; level++)
+        {
+            imageLength = checked(imageLength + (mipWidth * mipHeight * 4));
+            mipWidth = Math.Max(1, mipWidth / 2);
+            mipHeight = Math.Max(1, mipHeight / 2);
+        }
+
+        byte[] imageData = new byte[imageLength];
+        Array.Fill(imageData, (byte)0xA5);
+        texture.ImageData_C28 = imageData;
+
+        if (texture.Has_CompleteImageSize_C28_UInt32())
+        {
+            texture.CompleteImageSize_C28_UInt32 = (uint)imageData.Length;
+        }
+        else if (texture.Has_CompleteImageSize_C28_Int32())
+        {
+            texture.CompleteImageSize_C28_Int32 = imageData.Length;
+        }
+
+        if (texture.Has_MipCount_C28())
+        {
+            texture.MipCount_C28 = mipCount;
+        }
+        else if (texture.Has_MipMap_C28())
+        {
+            texture.MipMap_C28 = mipmapped;
+        }
+        else
+        {
+            throw new NotSupportedException(
+                $"Texture2D version {version} exposes neither mip count nor mip map state.");
+        }
+
+        if (texture.TextureSettings_C28.Has_WrapU())
+        {
+            texture.TextureSettings_C28.WrapU = 2;
+        }
+        else if (texture.TextureSettings_C28.Has_WrapMode())
+        {
+            texture.TextureSettings_C28.WrapMode = 2;
+        }
+        else
+        {
+            throw new NotSupportedException(
+                $"Texture2D version {version} exposes neither WrapU nor WrapMode.");
+        }
+
+        SerializedFileBuilder builder = NewBuilder(version, Texture2DClassId);
+        builder.Objects.Add(new ObjectInfo
+        {
+            FileID = 1,
+            TypeID = Texture2DClassId,
+            ClassID = unchecked((short)Texture2DClassId),
+            SerializedTypeIndex = 0,
+            Type = builder.Types[0],
+            ObjectData = WriteAssetBytes(collection, texture),
+        });
+        return Serialize(builder.Build());
+    }
+
 	public static byte[] SerializedRepeatedSprites(int count, bool malformedLast = false)
 	{
 		byte[] pixel = [10, 20, 30, 255];
