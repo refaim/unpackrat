@@ -25,25 +25,32 @@
 
 namespace unpackrat::godot
 {
-    // The caller has structurally recognised that the physical entry at ``source_index``
-    // currently holds a directly viewable stream of ``extension`` (one of
-    // ``.png``/``.webp``/``.wav``/``.mp3``/``.ogg`` and supported font extensions). The tree never inspects the bytes;
-    // it only trusts the caller's already completed recognition.
+    // The caller has recognised from the stored name (or from an exact conventional import match)
+    // that the physical entry at ``source_index`` presents as ``extension`` (one of
+    // ``.png``/``.webp``/``.wav``/``.mp3``/``.ogg`` and supported font extensions). The tree never
+    // inspects or converts bytes. ``source_path`` is the reconstructed original name for an
+    // unmapped conventional compiled filename; when empty the physical path is presented. ``variant``
+    // is a conventional feature token and is rendered before the extension.
     struct conversion_hint final
     {
         std::size_t source_index = 0;
         std::string extension;
+        std::string source_path{};
+        std::string variant{};
     };
 
     // One presented listing row. ``source_index`` binds the row to a physical PCK entry
     // (index 0 is a real file, never a sentinel). It is absent only for a generated
     // path-mapping metadata file, whose prepared bytes live in ``generated_text``.
+    // ``extension`` is the selected output encoding for a converted row and is empty for raw
+    // rows, so two aliases of one physical entry can carry different extraction descriptors.
     struct virtual_entry final
     {
         std::string path;
         std::optional<std::size_t> source_index;
         bool converted = false;
         std::string generated_text;
+        std::string extension{};
     };
 
     struct virtual_tree final

@@ -20,5 +20,11 @@ namespace unpackrat::codecs
     void encode_png_rows(std::uint32_t width, std::uint32_t height,
                          const std::function<void(std::uint32_t, std::span<std::byte>)> &read_row,
                          const std::function<void(std::span<const std::byte>)> &sink, const image_limits &limits = {});
+
+    // Decodes a complete 8-bit PNG stream into RGBA8. The encoded length is checked against
+    // max_input_bytes and the IHDR geometry against max_pixels/max_output_bytes before the decoded
+    // buffer is allocated. A malformed stream, a breached limit or an unsupported colour layout
+    // throws image_error.
+    [[nodiscard]] rgba_image decode_png(std::span<const std::byte> encoded, const image_limits &limits = {});
 } // namespace unpackrat::codecs
 #endif

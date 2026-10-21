@@ -6,8 +6,8 @@ The behaviour it pins is the *observable* integration contract:
 
 * Godot is a default module of the selection that drives the native audit
   and packaging routes (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
-* the default packaging route ships ``godot-1.1.1-bin-x64.zip``,
-  ``godot-1.1.1-bin-x86.zip`` and ``godot-1.1.1-pdb.zip`` with the shipped
+* the default packaging route ships ``godot-1.2.0-bin-x64.zip``,
+  ``godot-1.2.0-bin-x86.zip`` and ``godot-1.2.0-pdb.zip`` with the shipped
   payload, registration and notices;
 * ``build/projects/tests.vcxproj`` references ``godot.vcxproj`` with the fixed
   project GUID and ``LinkLibraryDependencies=false``;
@@ -44,7 +44,7 @@ PROJECTS = REPOSITORY_ROOT / "build" / "projects"
 NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 
 GODOT = "godot"
-GODOT_VERSION = "1.1.1"
+GODOT_VERSION = "1.2.0"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
 BASELINE = "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
 WOLFRPG = "wolfrpg"
@@ -69,6 +69,7 @@ REQUIRED_GODOT_NOTICES = (
     "GPL-3.0.txt",
     "godot.txt",
     "libspng.txt",
+    "libwebp.txt",
     "libogg.txt",
     "brotli.txt",
     "zstd.txt",
@@ -84,7 +85,7 @@ VENDORED_NOTICE_FRAGMENTS = {
 FIXTURE_LICENSE_NAMES = (
     "VC-LTL5.txt", "YY-Thunks.txt",
     "Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt",
-    "rgssad.txt", "godot.txt", "libspng.txt", "libogg.txt", "brotli.txt", "zstd.txt",
+    "rgssad.txt", "godot.txt", "libspng.txt", "libwebp.txt", "libogg.txt", "brotli.txt", "zstd.txt",
     "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt", "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt",
     "uberwolf.txt", "json.txt",
 )
@@ -418,6 +419,18 @@ class GodotAuditContract(GuardedCase):
                 self.assertIsNone(re.search(main.COVERAGE_IGNORED, path))
 
 
+class GodotSharpYuvLinkContract(GuardedCase):
+    def test_debug_and_release_link_the_static_webp_and_sharpyuv_artifacts(self) -> None:
+        for project in ("godot.vcxproj", "tests.vcxproj"):
+            dependencies = _link_dependencies(PROJECTS / project)
+            self.assertTrue(dependencies, project)
+            for configuration in dependencies:
+                with self.subTest(project=project, configuration=configuration):
+                    self.assertIn("libwebp.lib", configuration)
+                    self.assertIn("libsharpyuv.lib", configuration)
+                    self.assertNotIn("libwebp.dll", configuration.lower())
+
+
 class GodotSourceDiscoveryContract(GuardedCase):
     """Formatter discovery must skip the pinned top-level vendor tree, not first-party code."""
 
@@ -464,7 +477,7 @@ class GodotManifestContract(GuardedCase):
             entry["name"] if isinstance(entry, dict) else entry
             for entry in manifest.get("dependencies", [])
         }
-        required = {"libspng", "libogg", "brotli", "zstd", "fastlz"}
+        required = {"libspng", "libwebp", "libogg", "brotli", "zstd", "fastlz"}
         self.assertTrue(
             required <= names,
             f"the manifest must declare the Godot dependencies; missing: {sorted(required - names)}",
@@ -526,7 +539,8 @@ class GodotDocsContract(GuardedCase):
         self.assertEqual(version, GODOT_VERSION)
         self.assertNotIn("licenses/VC-LTL5.txt", readme)
         self.assertIn("| Module | Formats | Release | ChangeLog |", readme)
-        self.assertIn("| Godot | `.pck` | [godot](", readme)
+        self.assertIn("| Godot | `.pck` | [godot 1.2.0](", readme)
+        self.assertIn("| Zanzarah | `.pak` | [zanzarah 2.3.0](", readme)
         self.assertIn("https://github.com/refaim/unpackrat/releases?q=godot", readme)
         self.assertNotIn("<<<<<<<", readme)
         self.assertNotIn("planned first release", readme)
@@ -550,7 +564,7 @@ class GodotDocsContract(GuardedCase):
             with self.subTest(language=language):
                 notes = (REPOSITORY_ROOT / f"src/modules/godot/ChangeLog.{language}.txt").read_text(encoding="utf-8")
                 versions = re.findall(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE)
-                self.assertEqual(versions, ["1.1.1", "1.1.0", "1.0.1", "1.0.0"])
+                self.assertEqual(versions, ["1.2.0", "1.1.1", "1.1.0", "1.0.1", "1.0.0"])
 
 
 if __name__ == "__main__":  # pragma: no cover

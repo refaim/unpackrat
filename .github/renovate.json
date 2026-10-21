@@ -83,6 +83,16 @@
     {
       "customType": "regex",
       "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"libwebp\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "libwebp",
+      "packageNameTemplate": "webmproject/libwebp",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
       "matchStrings": ["\"name\"\\s*:\\s*\"libogg\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
       "depNameTemplate": "libogg",
       "packageNameTemplate": "xiph/ogg",

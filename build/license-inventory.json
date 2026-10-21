@@ -37,6 +37,7 @@
       "GPL-3.0.txt",
       "godot.txt",
       "libspng.txt",
+      "libwebp.txt",
       "libogg.txt",
       "brotli.txt",
       "zstd.txt",
@@ -302,6 +303,33 @@
       ],
       "notes": "Combined license: root BSD-2-Clause grant plus the libpng-2.0 grant for embedded libpng-derived code in spng.c. The AND is preserved verbatim and is never reduced; no OR choice exists for this component.",
       "features": []
+    },
+    {
+      "name": "libwebp",
+      "kind": "vcpkg-package",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "BSD-3-Clause",
+      "version": "1.6.0",
+      "vcpkgName": "libwebp",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/libwebp/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/webmproject/libwebp/archive/v1.6.0.tar.gz",
+        "identity": "github.com/webmproject/libwebp"
+      },
+      "notices": [
+        "licenses/libwebp.txt"
+      ],
+      "notes": "Core libwebp codec only (default features disabled; the Windows port's Unicode feature is retained). The static import libraries are libwebp.lib and its matching libsharpyuv.lib. The adapter uses WebPGetInfo, WebPDecodeRGBAInto, WebPEncodeLosslessRGBA and WebPFree; no mux/demux or runtime DLL is linked.",
+      "features": [
+        "unicode"
+      ]
     },
     {
       "name": "libogg",
@@ -1201,6 +1229,48 @@
       ]
     },
     {
+      "name": "unpackrat-build-tests-webp-license-review",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are the reviewed patent-exception assertion and the negative-match example this file exercises, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_webp_license_review.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-firstparty-license-curations",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifier is the reviewed patent-exception assertion this file documents, not a grant; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_firstparty_license_curations.py"
+      ]
+    },
+    {
       "name": "unpackrat-build-licenses",
       "kind": "adopted-source",
       "scope": "build",
@@ -1308,7 +1378,7 @@
         "src/tests/data/godot/texture-media-manifest.json",
         "src/tests/data/godot/texture-media-repro.txt"
       ],
-      "notes": "Every remaining tracked first-party source file is gathered here deterministically from Git metadata (git ls-files), so a new GPL/LGPL/unknown file anywhere under src/ or build/ reaches the source scanner and fails closed instead of hiding behind the PACKAGE-only root. The conclusion stays NOASSERTION so the source scanner is never masked. Untracked working files never enter the artifact, src/api.h is owned by observer-api, and the vendored catch2 overlay recipe is owned by vcpkg-catch2-recipe. The thirteen reference-heavy first-party build/test Python files are owned by their own reviewed unpackrat-build-* components, where each stays scanned in full and bound to the exact bytes it was reviewed at. Membership excludes only reviewed non-source data, never whole filename extensions: the repository-root metadata and documentation (AGENTS.md, README.md, codecov.yml, .ort.yml, vcpkg.json and vcpkg-configuration.json), the policy-reference inventory, the port-declaration manifests under build/vcpkg/ports/*/vcpkg.json and the port overview build/vcpkg/ports/README.md, and the documented godot/renpy test-fixture prose and archive-manifest metadata under src/tests/data/. Any other tracked source file - including a new src/<vendor>/LICENSE.txt, CMakeLists.txt, LICENSE.md, LICENSE.json or LICENSE.yml, the module ChangeLog*.txt notes, the build/ubsan-ignorelist.txt build configuration, a new CMakeLists.txt under build/vcpkg/ports/ and the project root LICENSE.txt grant - stays in the scanned artifact or fails accounting until it is reviewed. licenses/, .ort/, docs/ and .github/ carry standalone notice texts and configuration data and are excluded as non-code, and only the deliberate poison/data fixtures under build/tests/fixtures/ (the ort-smoke license-identifier payloads and the recorded vcpkg/ORT samples) are excluded as documented data."
+      "notes": "Every remaining tracked first-party source file is gathered here deterministically from Git metadata (git ls-files), so a new GPL/LGPL/unknown file anywhere under src/ or build/ reaches the source scanner and fails closed instead of hiding behind the PACKAGE-only root. The conclusion stays NOASSERTION so the source scanner is never masked. Untracked working files never enter the artifact, src/api.h is owned by observer-api, and the vendored catch2 overlay recipe is owned by vcpkg-catch2-recipe. The seventeen reference-heavy first-party build/test Python files are owned by their own reviewed unpackrat-build-* components, where each stays scanned in full and bound to the exact bytes it was reviewed at. Membership excludes only reviewed non-source data, never whole filename extensions: the repository-root metadata and documentation (AGENTS.md, README.md, codecov.yml, .ort.yml, vcpkg.json and vcpkg-configuration.json), the policy-reference inventory, the port-declaration manifests under build/vcpkg/ports/*/vcpkg.json and the port overview build/vcpkg/ports/README.md, and the documented godot/renpy test-fixture prose and archive-manifest metadata under src/tests/data/. Any other tracked source file - including a new src/<vendor>/LICENSE.txt, CMakeLists.txt, LICENSE.md, LICENSE.json or LICENSE.yml, the module ChangeLog*.txt notes, the build/ubsan-ignorelist.txt build configuration, a new CMakeLists.txt under build/vcpkg/ports/ and the project root LICENSE.txt grant - stays in the scanned artifact or fails accounting until it is reviewed. licenses/, .ort/, docs/ and .github/ carry standalone notice texts and configuration data and are excluded as non-code, and only the deliberate poison/data fixtures under build/tests/fixtures/ (the ort-smoke license-identifier payloads and the recorded vcpkg/ORT samples) are excluded as documented data."
     }
   ]
 }

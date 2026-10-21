@@ -1,6 +1,6 @@
 {
-  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-license-policy-data:a0584357f25dd4b3cf196c63eff6ea64f9c4cf120af4efe10ca4b203cb8585f7",
-  "source_artifact_url": "http://127.0.0.1:8765/sources/a0584357f25dd4b3cf196c63eff6ea64f9c4cf120af4efe10ca4b203cb8585f7.tar",
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-license-policy-data:463d726bbf744cd64aeb77c9dfa97058c3bf2aa7d1f7790a84b98790b924fc15",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/463d726bbf744cd64aeb77c9dfa97058c3bf2aa7d1f7790a84b98790b924fc15.tar",
   "license_finding_curations": [
     {
       "path": "build/tests/test_license_policy_data.py",
@@ -73,6 +73,15 @@
       "reason": "INCORRECT",
       "concluded_license": "NONE",
       "comment": "Lines 50,379 share the identifier MIT OR GPL-1.0-or-later; line 50 is, for example, `\"and-mit-gpl\": (\"MIT AND GPL-3.0-only\", \"fail\"),`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "115,120",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 115,120 carry the reviewed base-configuration comment and the exact PATENT_GRANT_EXCEPTION assertion. This first-party MIT build/test file holds those words only as policy-data text, not a grant; ScanCode reported LicenseRef-scancode-unknown as a false positive, so the finding is removed."
     }
   ]
 }

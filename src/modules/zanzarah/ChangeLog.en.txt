@@ -1,3 +1,8 @@
+Version 2.3.0
+-------------
+ + Opening now reads only the archive table of contents; the archive-wide framing layout is determined at the first extraction.
+ * Displayed sizes now use the stored block size without its four framing bytes. Canonical framed files can therefore show four extra bytes in the list, while extraction remains exact.
+
 Version 2.2.1
 -------------
  * Framing-marker checks now use bounded cached reads in physical order while preserving the existing listing order and archive compatibility.

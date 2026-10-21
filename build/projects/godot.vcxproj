@@ -27,7 +27,7 @@
   <ItemDefinitionGroup>
     <Link>
       <ModuleDefinitionFile>$(RepositoryRoot)src\modules\godot\godot.def</ModuleDefinitionFile>
-      <AdditionalDependencies>bcdec.lib;drlibs.lib;qoa.lib;spng_static.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;zstd.lib;fastlz.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>bcdec.lib;drlibs.lib;qoa.lib;spng_static.lib;libwebp.lib;libsharpyuv.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;zstd.lib;fastlz.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -50,6 +50,7 @@
     <ClCompile Include="$(RepositoryRoot)src\core\godot\font_resource.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\audio_preflight.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\png_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\webp_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\bc_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\ogg_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\resource_compression.cpp" />
@@ -77,6 +78,7 @@
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\audio_types.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\audio_preflight.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\png_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\webp_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\bc_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\ogg_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\qoa_codec.h" />

@@ -16,6 +16,7 @@ UPSTREAMS = {
     "xxhash": "Cyan4973/xxHash",
     "zlib": "zlib-ng/zlib-ng",
     "libspng": "randy408/libspng",
+    "libwebp": "webmproject/libwebp",
     "libogg": "xiph/ogg",
     "brotli": "google/brotli",
     "zstd": "facebook/zstd",

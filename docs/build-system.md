@@ -431,8 +431,12 @@ that exists, so a scan or evaluator violation still produces the CycloneDX, SPDX
 taken as proof of success, and a stage that exits zero without its expected result fails closed.
 
 Policy is repository data, never a first-party engine. The tracked `.ort.yml` is JSON (a valid YAML
-subset) so a generated choice file merges trivially; the tracked base carries no resolutions and no
-package choices of its own. `license-prepare` generates the prepared `.ort.yml` by merging that base
+subset) so a generated choice file merges trivially. The tracked base carries one owner-approved
+`PATENT_GRANT_EXCEPTION` for the exact libwebp 1.6.0#3 Google WebM patent-license message, and no
+package choices of its own. The source is bound by its pinned artifact and package configuration;
+the violation message contains no archive hash. Full upstream COPYING and PATENTS remain retained,
+and PATENTS and source findings remain scanned. `license-prepare` generates the prepared `.ort.yml`
+by merging that base
 with the exact per-package license choices and the scoped Observer LGPL API-header resolution, whose
 message matches the real violation form for the exact approved, content-bound component and the
 accepted license alone. `.ort/config/config.yml` is our data: it enables
@@ -453,13 +457,13 @@ a source payload: allowed MIT, a dependency whose metadata is unchanged but whos
 GPL file, one that gained an unknown file, an OR Apache/GPL choice that passes, and an AND MIT/GPL
 case that fails.
 
-First-party build and test tooling. The fifteen reference-heavy first-party Python build and test files
+First-party build and test tooling. The seventeen reference-heavy first-party Python build and test files
 that embed license-identifier reference tables, example literals and retained-notice names are still
 read as real bytes and scanned in full; each is a content-addressed component whose version is the
 exact tar digest of the file it was reviewed at, so nothing is path-excluded and the diff still sees
 it. A native curation applies only to the reviewed path, the exact reviewed line set and the full
 detected expression, and only for that exact artifact id, version and source artifact URL. Editing any
-one of the fifteen changes the deterministic archive id, so every approval keyed to the old bytes stops
+one of the seventeen changes the deterministic archive id, so every approval keyed to the old bytes stops
 matching: re-review the real native ScanCode findings and update the package-configuration id, the
 artifact URL and the line and full-expression data to the new content. A blanket exclusion is never
 the fix: an ordinary source change that carries no such finding needs no exemption, and a genuinely

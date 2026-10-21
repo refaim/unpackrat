@@ -125,8 +125,8 @@ class PackageConfigurationTests(unittest.TestCase):
         cls.library_prefixes = cls.native["prefixes"]
         cls.prefixes = {**cls.library_prefixes, **{name: "" for name in cls.firstparty}}
 
-    def test_fixture_covers_all_seventeen_library_dependencies(self):
-        self.assertEqual(17, len(self.library))
+    def test_fixture_covers_all_eighteen_library_dependencies(self):
+        self.assertEqual(18, len(self.library))
         self.assertEqual(
             {
                 "bcdec",
@@ -134,7 +134,7 @@ class PackageConfigurationTests(unittest.TestCase):
                 "catch2",
                 "drlibs",
                 "fastlz",
-                "libogg",
+                "libogg", "libwebp",
                 "zlib",
                 "libspng",
                 "mbedtls",
@@ -152,9 +152,9 @@ class PackageConfigurationTests(unittest.TestCase):
         self.assertEqual(set(self.library), set(self.library_prefixes))
 
     def test_firstparty_fixture_covers_the_isolated_first_party_files(self):
-        # The fifteen reference-heavy first-party Python files are isolated as reviewed,
+        # The seventeen reference-heavy first-party Python files are isolated as reviewed,
         # byte-addressed components; each gets exactly one reviewed package configuration.
-        self.assertEqual(15, len(self.firstparty))
+        self.assertEqual(17, len(self.firstparty))
         configured = {
             ID_RE.match(config["id"]).group(1) for config in self.configs.values()
         }

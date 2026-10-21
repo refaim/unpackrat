@@ -87,5 +87,62 @@
       "score": 100.0,
       "rule": "unknown-license-reference_see-license_1.RULE"
     }
-  ]
+  ],
+  "webp_review": {
+    "package_id": "SpdxDocumentFile:vcpkg:libwebp:1.6.0#3",
+    "source_sha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+    "source_sha512": "298e0ad4c09392213baf5abb69d330c6203b618800073fe2df91d01d35034197c5d3e29a74573b06971473c52c74514f0e6e0f6c8162f923e2dd15cb1a692aef",
+    "source_artifact_url": "http://127.0.0.1:8765/sources/93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136.tar.gz",
+    "scanner": {
+      "name": "ScanCode",
+      "version": "32.5.0",
+      "configuration": "--copyright --license --info --strip-root --timeout 300 --json"
+    },
+    "findings": [
+      {
+        "license": "BSD-3-Clause AND LicenseRef-scancode-google-patent-license-webm",
+        "location": {
+          "path": "libwebp-1.6.0/src/enc/vp8l_enc.c",
+          "start_line": 3,
+          "end_line": 7
+        },
+        "score": 90.0
+      },
+      {
+        "license": "GPL-3.0-or-later WITH Autoconf-exception-macro",
+        "location": {
+          "path": "libwebp-1.6.0/m4/ax_pthread.m4",
+          "start_line": 59,
+          "end_line": 83
+        },
+        "score": 100.0
+      },
+      {
+        "license": "LicenseRef-scancode-google-patent-license-webm",
+        "location": {
+          "path": "libwebp-1.6.0/PATENTS",
+          "start_line": 1,
+          "end_line": 23
+        },
+        "score": 100.0
+      },
+      {
+        "license": "NOASSERTION",
+        "location": {
+          "path": "libwebp-1.6.0/CONTRIBUTING.md",
+          "start_line": 6,
+          "end_line": 16
+        },
+        "score": 100.0
+      }
+    ],
+    "upstream_lf_sha256": {
+      "COPYING": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "PATENTS": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
+    },
+    "upstream_lf_sizes": {
+      "COPYING": 1496,
+      "PATENTS": 1436
+    }
+  }
 }

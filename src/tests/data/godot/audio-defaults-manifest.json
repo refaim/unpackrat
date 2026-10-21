@@ -1,6 +1,6 @@
 {
   "fixture": "audio-defaults.pck",
-  "provenance": "Every byte is synthetic: generic paths, locally constructed canonical QOA one-frame streams and RSRC/PCK headers. No game data or keys.",
+  "provenance": "Every byte is synthetic: conventional imported paths, locally constructed canonical QOA one-frame streams and RSRC/PCK headers. No game data or keys.",
   "observed_fact": "Canonical Godot saver omits default mix_rate=44100 and stereo=false; the three descriptor shapes reproduce omissions observed independently in REC, After Hours and Beguiled.",
   "canonical_defaults": {
     "format": 0,
@@ -17,13 +17,13 @@
     5,
     0
   ],
-  "file_base": 320,
-  "file_size": 1196,
-  "sha256": "8d06155632460b9ee7ae575c35ab2a88877b0822fe890e990f15d4aa730b91aa",
+  "file_base": 512,
+  "file_size": 1388,
+  "sha256": "a9860c001fef12a79f19b2fdec8f97da3d5a034efe88f9a5545920c608f4a190",
   "entries": [
     {
-      "path": "res://audio/mono-default.sample",
-      "converted_path": "audio/mono-default.wav",
+      "path": ".godot/imported/mono-default.wav-a937090b909cd8e5f8d5a80f1b0bb22d.sample",
+      "converted_path": ".godot/imported/mono-default.wav",
       "channels": 1,
       "sample_rate": 44100,
       "qoa_hex": "716f6166000000010100ac4400010020000000000000000000000000000000000000000000000000",
@@ -37,11 +37,12 @@
       "expected_pcm16": [
         1
       ],
-      "expected_output_size": 46
+      "expected_output_size": 46,
+      "stored_offset": 0
     },
     {
-      "path": "res://audio/mono-low.sample",
-      "converted_path": "audio/mono-low.wav",
+      "path": ".godot/imported/mono-low.wav-640c90e21985675c685b63a30d614dc9.sample",
+      "converted_path": ".godot/imported/mono-low.wav",
       "channels": 1,
       "sample_rate": 22050,
       "qoa_hex": "716f6166000000010100562200010020000000000000000000000000000000000000000000000000",
@@ -54,11 +55,12 @@
       "expected_pcm16": [
         1
       ],
-      "expected_output_size": 46
+      "expected_output_size": 46,
+      "stored_offset": 276
     },
     {
-      "path": "res://audio/stereo-default.sample",
-      "converted_path": "audio/stereo-default.wav",
+      "path": ".godot/imported/stereo-default.wav-1fe9acd2271dbff0a0050fa7716487bd.sample",
+      "converted_path": ".godot/imported/stereo-default.wav",
       "channels": 2,
       "sample_rate": 44100,
       "qoa_hex": "716f6166000000010200ac4400010038000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
@@ -72,7 +74,8 @@
         1,
         1
       ],
-      "expected_output_size": 48
+      "expected_output_size": 48,
+      "stored_offset": 564
     }
   ]
 }

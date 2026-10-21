@@ -296,7 +296,12 @@ TEST_CASE("godot virtual tree: rejects invalid conversion hints")
 
     CHECK_THROWS_AS(build(index, {}, {{1, ".png"}}), tree_error);
     CHECK_THROWS_AS(build(index, {}, {{0, ".bmp"}}), tree_error);
+    CHECK_THROWS_AS(build(index, {}, {{0, ""}}), tree_error);
+    CHECK_THROWS_AS(build(index, {}, {{0, "."}}), tree_error);
+    CHECK_THROWS_AS(build(index, {}, {{0, "png"}}), tree_error);
     CHECK_THROWS_AS(build(index, {}, {{0, ".png"}, {0, ".webp"}}), tree_error);
+    CHECK_THROWS_AS(build(index, {}, {{0, ".png", "source-a"}, {0, ".png", "source-b"}}), tree_error);
+    CHECK_THROWS_AS(build(index, {}, {{0, ".png", "same", ""}, {0, ".png", "same", "variant"}}), tree_error);
 
     const virtual_tree tree = build(index, {}, {{0, ".png"}, {0, ".png"}});
     CHECK(find(tree, "a.png") != nullptr);
@@ -397,8 +402,9 @@ TEST_CASE("godot virtual tree: alias stems handle missing, dotted and leading-do
     CHECK(find(tree, "art/thing.ctex") != nullptr);
     CHECK(find(tree, "x.y/name.ctex") != nullptr);
     CHECK(find(tree, ".hidden.ctex") != nullptr);
-    CHECK(find(tree, "d.b/e.ctex") == nullptr);
+    CHECK(find(tree, "d.b/e.ctex") != nullptr);
     CHECK(find(tree, "art/thing.ctex")->source_index == 0U);
+    CHECK(find(tree, "d.b/e.ctex")->source_index == 0U);
 }
 
 TEST_CASE("godot virtual tree: duplicate physical and logical names are suffixed, never dropped")
@@ -896,6 +902,21 @@ TEST_CASE("godot virtual tree: a long logical alias falls back under the default
     const virtual_entry *fallback = find(tree, "0");
     REQUIRE(fallback != nullptr);
     CHECK(fallback->source_index == 0U);
+}
+
+TEST_CASE("godot virtual tree: extra long aliases share the source-index fallback without collision")
+{
+    const std::string long_stem(300, 'q');
+    const pck_index index = make_index({".godot/x.ctex"});
+    const std::vector<import_mapping> mappings = {{long_stem + "/a.png", ".godot/x.ctex", ""},
+                                                  {long_stem + "/b.png", ".godot/x.ctex", ""}};
+
+    const virtual_tree tree = build(index, mappings);
+
+    REQUIRE(find(tree, "0") != nullptr);
+    CHECK(find(tree, "0")->source_index == 0U);
+    REQUIRE(find(tree, "0~1") != nullptr);
+    CHECK(find(tree, "0~1")->source_index == 0U);
 }
 
 // U+4E2D: three UTF-8 bytes, one UTF-16 code unit. A component of N copies is N UTF-16 code

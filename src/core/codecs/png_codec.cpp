@@ -153,4 +153,42 @@ namespace unpackrat::codecs
             }
         }
     }
+
+    rgba_image decode_png(const std::span<const std::byte> encoded, const image_limits &limits)
+    {
+        if (encoded.size() > limits.max_input_bytes) {
+            throw image_error("PNG input exceeds the configured byte budget");
+        }
+        png_context context(spng_ctx_new(0), &spng_ctx_free);
+        if (context == nullptr) {
+            throw image_error("failed to create the PNG decoder context");
+        }
+        int result = spng_set_png_buffer(context.get(), encoded.data(), encoded.size());
+        if (result != SPNG_OK) {
+            throw image_error(std::string("PNG decoding failed: ").append(spng_strerror(result)));
+        }
+        spng_ihdr header{};
+        result = spng_get_ihdr(context.get(), &header);
+        if (result != SPNG_OK) {
+            throw image_error(std::string("PNG decoding failed: ").append(spng_strerror(result)));
+        }
+        const std::uint64_t raw_bytes = validate_geometry(header.width, header.height, limits);
+        if (raw_bytes > limits.max_output_bytes) {
+            throw image_error("PNG decoded image exceeds the configured byte budget");
+        }
+#if SIZE_MAX < UINT64_MAX
+        if (raw_bytes > static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)())) {
+            throw image_error("PNG decoded byte count is not addressable");
+        }
+#endif
+        rgba_image image;
+        image.width = header.width;
+        image.height = header.height;
+        image.pixels.resize(static_cast<std::size_t>(raw_bytes));
+        result = spng_decode_image(context.get(), image.pixels.data(), image.pixels.size(), SPNG_FMT_RGBA8, 0);
+        if (result != SPNG_OK) {
+            throw image_error(std::string("PNG decoding failed: ").append(spng_strerror(result)));
+        }
+        return image;
+    }
 } // namespace unpackrat::codecs

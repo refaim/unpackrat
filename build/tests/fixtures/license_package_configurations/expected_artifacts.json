@@ -15,6 +15,13 @@
   ],
   "components": [
     {
+      "name": "libwebp",
+      "version": "1.6.0#3",
+      "sha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+      "artifact_filename": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
       "name": "bcdec",
       "version": "0.985",
       "sha256": "fb9426d3bd10f600d561c7ccd7bba92418f1a3151c029dde8e3e6f76809dec5a",

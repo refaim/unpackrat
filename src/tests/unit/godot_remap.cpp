@@ -954,3 +954,224 @@ TEST_CASE("godot remap: rejects malformed config structure")
     SECTION("empty variant suffix") reject("[remap]\npath.=\"res://a\"\n");
     SECTION("bare value with no content") reject("[params]\nx=;\n");
 }
+
+TEST_CASE("godot imported names: classify the source suffix and conventional hash")
+{
+    using unpackrat::godot::classify_imported_name;
+    using unpackrat::godot::conventional_import_basename;
+    using unpackrat::godot::conventional_import_source_path;
+    using unpackrat::godot::output_extension_for_source;
+
+    const std::string hash = "00112233445566778899aabbccddeeff";
+
+    SECTION("a Godot 4 name preserves the source spelling and exposes the variant")
+    {
+        // classify_imported_name borrows its input, so keep the concatenation alive.
+        const std::string path = ".godot/imported/picture.PNG-" + hash + ".s3tc.ctex";
+        const auto name = classify_imported_name(path);
+        REQUIRE(name.has_value());
+        if (!name.has_value()) {
+            FAIL("expected a classified Godot 4 import name");
+            return;
+        }
+        const auto &parsed = name.value();
+        CHECK(parsed.key == ".godot/imported/picture.PNG-" + hash);
+        CHECK(parsed.source_path == ".godot/imported/picture.PNG");
+        CHECK(parsed.output_extension == ".PNG");
+        CHECK(parsed.variant == "s3tc");
+    }
+    SECTION("a Godot 3 directory is accepted")
+    {
+        const std::string path = ".import/picture.png-" + hash + ".ctex";
+        const auto name = classify_imported_name(path);
+        REQUIRE(name.has_value());
+        if (!name.has_value()) {
+            FAIL("expected a classified Godot 3 import name");
+            return;
+        }
+        CHECK(name.value().source_path == ".import/picture.png");
+    }
+    SECTION("JPEG and SVG sources select PNG")
+    {
+        for (const std::string_view suffix : {".jpg", ".JPEG", ".svg"}) {
+            const std::string path = ".godot/imported/photo" + std::string(suffix) + "-" + hash + ".ctex";
+            const auto name = classify_imported_name(path);
+            REQUIRE(name.has_value());
+            if (!name.has_value()) {
+                FAIL("expected a classified JPEG or SVG import name");
+                return;
+            }
+            const auto &parsed = name.value();
+            CHECK(parsed.output_extension == ".png");
+            CHECK(parsed.variant.empty());
+        }
+    }
+    SECTION("an underscore feature token is accepted")
+    {
+        const std::string path = ".godot/imported/picture.png-" + hash + ".texture_2d.ctex";
+        const auto name = classify_imported_name(path);
+        REQUIRE(name.has_value());
+        if (!name.has_value()) {
+            FAIL("expected a classified feature-token import name");
+            return;
+        }
+        CHECK(name.value().variant == "texture_2d");
+    }
+    SECTION("non-imported directories stay raw")
+    {
+        CHECK(!classify_imported_name("art/picture.png-" + hash + ".ctex").has_value());
+        CHECK(!classify_imported_name(".godot/importedx/picture.png-" + hash + ".ctex").has_value());
+    }
+    SECTION("a compiled extension is required")
+    {
+        CHECK(!classify_imported_name(".godot/imported/picture.png-" + hash + ".bin").has_value());
+        CHECK(!classify_imported_name(".godot/imported/x.y/ctex").has_value());
+    }
+    SECTION("the source suffix must immediately precede a complete hash")
+    {
+        CHECK(!classify_imported_name(".godot/imported/picture.png-" + hash.substr(1) + ".ctex").has_value());
+        CHECK(!classify_imported_name(".godot/imported/picture.png-zz112233445566778899aabbccddeeff.ctex").has_value());
+        CHECK(!classify_imported_name(".godot/imported/picture.png.ctex").has_value());
+        CHECK(!classify_imported_name(".godot/imported/-" + hash + ".ctex").has_value());
+        CHECK(!classify_imported_name(".godot/imported/-x/y" + hash + ".ctex").has_value());
+        CHECK(!classify_imported_name(".godot/imported/x-" + hash + ".ctex").has_value());
+    }
+    SECTION("the optional feature token is one non-empty alphanumeric value")
+    {
+        CHECK(!classify_imported_name(".godot/imported/picture.png-" + hash + "..ctex").has_value());
+        CHECK(!classify_imported_name(".godot/imported/picture.png-" + hash + ".s3tc-x.ctex").has_value());
+        CHECK(!classify_imported_name(".godot/imported/picture.png-" + hash + "a.ctex").has_value());
+    }
+    SECTION("an unsupported source suffix leaves the name raw")
+    {
+        CHECK(!classify_imported_name(".godot/imported/file.bin-" + hash + ".ctex").has_value());
+    }
+    SECTION("source extensions map deterministically")
+    {
+        for (const std::string_view suffix :
+             {".png", ".webp", ".wav", ".ogg", ".mp3", ".ttf", ".otf", ".ttc", ".woff", ".woff2"}) {
+            const auto extension = output_extension_for_source(suffix);
+            REQUIRE(extension.has_value());
+            if (!extension.has_value()) {
+                FAIL("expected a mapped output extension");
+                return;
+            }
+            CHECK(extension.value() == suffix);
+        }
+        for (const std::string_view suffix : {".jpg", ".jpeg", ".svg"}) {
+            CHECK(output_extension_for_source(suffix).value_or("") == ".png");
+        }
+        CHECK(!output_extension_for_source("").has_value());
+        CHECK(!output_extension_for_source("png").has_value());
+        CHECK(!output_extension_for_source(".gif").has_value());
+    }
+    SECTION("conventional metadata names yield their original source path")
+    {
+        CHECK(conventional_import_source_path("res://art/picture.png.import").value_or("") == "art/picture.png");
+        CHECK(conventional_import_source_path("art/picture.PNG.IMPORT").value_or("") == "art/picture.PNG");
+        CHECK(!conventional_import_source_path("art/picture.png.remap").has_value());
+        CHECK(!conventional_import_source_path("x").has_value());
+        CHECK(!conventional_import_source_path(".import").has_value());
+        CHECK(!conventional_import_source_path("art/.import").has_value());
+        CHECK(!conventional_import_source_path("a.b/c.import").has_value());
+        CHECK(!conventional_import_source_path("art/picture.gif.import").has_value());
+    }
+    SECTION("the conventional basename hashes the canonical res:// path")
+    {
+        CHECK(conventional_import_basename("art/picture.png") == "picture.png-1fd2c5e75fbfa46aab0448cc77a8c043");
+        CHECK(conventional_import_basename("picture.png") == "picture.png-ac5921b9d138415f553171c57babf362");
+    }
+}
+
+TEST_CASE("godot imported names: accept every conventional compiled extension")
+{
+    using unpackrat::godot::classify_imported_name;
+
+    const std::string hash = "0123456789abcdef0123456789abcdef";
+    const std::string prefix = ".godot/imported/picture.png-" + hash;
+
+    const std::string_view accepted_extensions[] = {".ctex",      ".CTEX",      ".stex", ".STEX", ".tex",    ".TeX",
+                                                    ".scaledtex", ".SCALEDTEX", ".res",  ".RES",  ".sample", ".SAMPLE",
+                                                    ".fontdata",  ".FONTDATA",  ".scn",  ".SCN"};
+    for (const std::string_view extension : accepted_extensions) {
+        const std::string path = prefix + std::string(extension);
+        const auto name = classify_imported_name(path);
+        REQUIRE(name.has_value());
+        if (!name.has_value()) {
+            FAIL("expected every conventional compiled extension to classify");
+            return;
+        }
+        const auto &parsed = name.value();
+        CHECK(parsed.key == prefix);
+        CHECK(parsed.source_path == ".godot/imported/picture.png");
+        CHECK(parsed.output_extension == ".png");
+        CHECK(parsed.variant.empty());
+    }
+
+    const std::string_view rejected_extensions[] = {".bin", ".cte", ".ctexx", ".importer", ""};
+    for (const std::string_view extension : rejected_extensions) {
+        CHECK(!classify_imported_name(prefix + std::string(extension)).has_value());
+    }
+}
+
+TEST_CASE("godot imported names: classify hash and feature character classes")
+{
+    using unpackrat::godot::classify_imported_name;
+
+    const std::string prefix = ".godot/imported/picture.png-";
+    const std::string lower_hash = "0123456789abcdef0123456789abcdef";
+    const std::string upper_hash = "0123456789ABCDEF0123456789ABCDEF";
+
+    struct accepted_name final
+    {
+        std::string path;
+        std::string key;
+        std::string source;
+        std::string variant;
+    };
+
+    const accepted_name accepted[] = {
+        {prefix + upper_hash + ".ctex", prefix + upper_hash, ".godot/imported/picture.png", ""},
+        {prefix + lower_hash + ".S3TC.ctex", prefix + lower_hash, ".godot/imported/picture.png", "S3TC"},
+        {prefix + lower_hash + ".123.ctex", prefix + lower_hash, ".godot/imported/picture.png", "123"},
+        {prefix + lower_hash + ".ETC2_FAST.ctex", prefix + lower_hash, ".godot/imported/picture.png", "ETC2_FAST"},
+        {".import/picture.png-" + lower_hash + ".s3tc.ctex", ".import/picture.png-" + lower_hash, ".import/picture.png",
+         "s3tc"},
+    };
+    for (const accepted_name &test : accepted) {
+        const auto name = classify_imported_name(test.path);
+        REQUIRE(name.has_value());
+        if (!name.has_value()) {
+            FAIL("expected every accepted import name to classify");
+            return;
+        }
+        const auto &parsed = name.value();
+        CHECK(parsed.key == test.key);
+        CHECK(parsed.source_path == test.source);
+        CHECK(parsed.output_extension == ".png");
+        CHECK(parsed.variant == test.variant);
+    }
+
+    for (const std::string_view feature : {std::string_view{"!"}, std::string_view{":"}, std::string_view{"["},
+                                           std::string_view{"`"}, std::string_view{"{"}, std::string_view{"\x7f"}}) {
+        const std::string path = prefix + lower_hash + "." + std::string(feature) + ".ctex";
+        CHECK(!classify_imported_name(path).has_value());
+    }
+
+    const std::string invalid_hashes[] = {
+        std::string("!") + std::string(31, '0'), std::string(":") + std::string(31, '0'),
+        std::string("_") + std::string(31, '0'), std::string("G") + std::string(31, '0'),
+        std::string("g") + std::string(31, '0'),
+    };
+    for (const std::string &hash : invalid_hashes) {
+        CHECK(!classify_imported_name(prefix + hash + ".ctex").has_value());
+    }
+
+    CHECK(!classify_imported_name(".godot/imported/").has_value());
+    CHECK(!classify_imported_name(".import/").has_value());
+    CHECK(!classify_imported_name(".godot/imported/picture").has_value());
+    CHECK(!classify_imported_name(".import/picture").has_value());
+    CHECK(!classify_imported_name(".godot/imported/picture-" + lower_hash + ".ctex").has_value());
+    CHECK(!classify_imported_name(prefix + lower_hash).has_value());
+    CHECK(!classify_imported_name(prefix + lower_hash + "..ctex").has_value());
+}

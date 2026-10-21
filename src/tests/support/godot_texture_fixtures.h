@@ -123,6 +123,12 @@ namespace test::support
     // field matches its length, i.e. total - 8.
     [[nodiscard]] godot_bytes webp_riff_payload();
 
+    // A complete, independently verified 1x1 RGBA red PNG (70 bytes) and a complete lossless
+    // 1x1 RGBA red WebP stream (36 bytes). Both are repository-generated; the WebP is the exact
+    // payload recorded by texture-media-manifest.json.
+    [[nodiscard]] godot_bytes red_pixel_png();
+    [[nodiscard]] godot_bytes red_pixel_webp();
+
     // --- Expected-size helper ---------------------------------------------------------------
     // Bytes occupied by one stored level of the given Image::Format at width x height, using the
     // official pixel/block geometry (0 when the format is outside the supported set).

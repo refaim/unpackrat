@@ -1,0 +1,15 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-firstparty-license-curations:61d3800a4c658d26015f58e5b3d3ecd10482b47f683ccfe0b3d701b4538387dc",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/61d3800a4c658d26015f58e5b3d3ecd10482b47f683ccfe0b3d701b4538387dc.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_firstparty_license_curations.py",
+      "start_lines": "297",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 297 carries the documentation assertion naming the owner-approved PATENT_GRANT_EXCEPTION. This first-party MIT test file holds those words only as policy-data text, not a grant; ScanCode reported LicenseRef-scancode-unknown as a false positive, so the finding is removed."
+    }
+  ]
+}

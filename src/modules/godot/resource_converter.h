@@ -41,6 +41,9 @@ namespace unpackrat::godot
         image,
         audio,
         font,
+        // The stored name selected the output extension, but the body class is not known until
+        // extraction. ``write_resource`` recognises the actual container and converts it.
+        auto_detect,
     };
 
     // The descriptor ``probe_resource`` returns: the class and the leading-dot extension of the

@@ -87,9 +87,21 @@ namespace unpackrat::godot
     void write_raw_image_streaming(const io::byte_source &top_mip, std::uint32_t engine_major,
                                    std::uint32_t wire_format, std::uint32_t width, std::uint32_t height,
                                    const io::byte_sink &sink, const codecs::image_limits &limits = {});
+    // Decodes the base mip to a bounded RGBA8 image, reusing the same row decoder as the streaming
+    // writer. The pixel budget is checked before the buffer is allocated.
+    [[nodiscard]] codecs::rgba_image decode_raw_image(const io::byte_source &top_mip, std::uint32_t engine_major,
+                                                      std::uint32_t wire_format, std::uint32_t width,
+                                                      std::uint32_t height, const codecs::image_limits &limits = {});
     // Resolves metadata byte offsets in logical and streams the base mip or preserved image.
     // Media extents are checked before any output; source/sink exceptions propagate unchanged.
     void write_image_resource_streaming(const binary_resource &metadata, const io::byte_source &logical,
                                         const io::byte_sink &sink, const codecs::image_limits &limits = {});
+    // As above, but the caller selected the output encoding from the original stored name. A
+    // preserved PNG/WebP stream is transcoded when the requested target differs, and a raw payload
+    // is encoded as PNG or lossless WebP. Any other target, or a target that cannot carry the
+    // resource's pixels, throws image_error.
+    void write_image_resource_as_streaming(const binary_resource &metadata, const io::byte_source &logical,
+                                           std::string_view target_extension, const io::byte_sink &sink,
+                                           const codecs::image_limits &limits = {});
 } // namespace unpackrat::godot
 #endif

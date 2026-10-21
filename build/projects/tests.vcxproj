@@ -31,8 +31,8 @@
            vcpkg.props omits the auto-link library dirs for the ClangCL toolset that the
            Coverage and UBSan stages use, so the suite must name uberwolf.lib explicitly in
            both the Debug and the Release link list. -->
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">uberwolf.lib;Catch2d.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">uberwolf.lib;Catch2.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">uberwolf.lib;Catch2d.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;libwebp.lib;libsharpyuv.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">uberwolf.lib;Catch2.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;libwebp.lib;libsharpyuv.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -64,6 +64,7 @@
       <ObjectFileName>$(IntDir)bounded_stream_core.obj</ObjectFileName>
     </ClCompile>
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\png_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\webp_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\bc_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\image_codecs.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\ogg_codec.cpp" />
@@ -145,6 +146,7 @@
     <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\image_types.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\png_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\webp_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\bc_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\ogg_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\godot\binary_resource.h" />

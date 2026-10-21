@@ -1,6 +1,6 @@
 """Reviewed first-party build/test tooling is isolated as content-addressed components.
 
-The fifteen reference-heavy first-party Python build/test files are scanned in full, but
+The seventeen reference-heavy first-party Python build/test files are scanned in full, but
 each is bound to a reviewed, byte-addressed component so that any later edit changes the
 component version and every curation keyed to the old bytes stops applying (fail closed).
 
@@ -108,11 +108,11 @@ class FirstPartyInventory(unittest.TestCase):
         self.entries = _entries()
         self.inventory = _inventory_components()
 
-    def test_the_fixture_covers_exactly_the_fifteen_first_party_files(self) -> None:
-        self.assertEqual(len(self.entries), 15)
+    def test_the_fixture_covers_exactly_the_seventeen_first_party_files(self) -> None:
+        self.assertEqual(len(self.entries), 17)
         members = {entry["member"] for entry in self.entries}
-        self.assertEqual(len(members), 15)
-        self.assertEqual(len({entry["name"] for entry in self.entries}), 15)
+        self.assertEqual(len(members), 17)
+        self.assertEqual(len({entry["name"] for entry in self.entries}), 17)
         # The adopted build-tooling and WolfRPG registration sources must be present.
         for member in (
             "build/licenses.py",
@@ -203,7 +203,7 @@ class FirstPartyPackageConfiguration(unittest.TestCase):
         self.configs = _configs()
 
     def test_one_configuration_per_first_party_component(self) -> None:
-        self.assertEqual(len(self.configs), 15)
+        self.assertEqual(len(self.configs), 17)
         self.assertEqual(
             sorted(self.configs), sorted(entry["name"] for entry in self.entries)
         )
@@ -290,11 +290,12 @@ class LicenseAuditDocumentation(unittest.TestCase):
     def setUp(self) -> None:
         self.docs = _normalized_documentation()
 
-    def test_the_tracked_base_ort_yml_is_documented_as_carrying_no_resolution(self) -> None:
-        # The tracked base file is an empty resolution skeleton; the scoped acceptance is
-        # generated at prepare time, so the docs must not claim the base already carries it.
+    def test_the_tracked_base_ort_yml_documents_only_the_approved_webp_patent_exception(self) -> None:
+        # The tracked base carries the owner-approved WebP patent exception; Observer acceptance
+        # and package choices are generated at prepare time and stay separately documented.
         self.assertIn(
-            "the tracked base carries no resolutions and no package choices of its own",
+            "The tracked base carries one owner-approved `PATENT_GRANT_EXCEPTION` for the exact "
+            "libwebp 1.6.0#3 Google WebM patent-license message, and no package choices of its own",
             self.docs,
         )
 
@@ -315,7 +316,7 @@ class LicenseAuditDocumentation(unittest.TestCase):
             self.docs,
         )
         self.assertIn(
-            "Editing any one of the fifteen changes the deterministic archive id",
+            "Editing any one of the seventeen changes the deterministic archive id",
             self.docs,
         )
 
@@ -341,6 +342,61 @@ class LicenseAuditDocumentation(unittest.TestCase):
         self.assertIn(".ort/package-configurations/*.yml", self.docs)
         self.assertIn("build/license-inventory.json", self.docs)
         self.assertIn("build/tests/test_firstparty_license_curations.py", self.docs)
+
+
+OBSERVED_FINDINGS = FIXTURE.parent / "firstparty_observed_findings.json"
+
+
+def _curation_applies(curation: dict, finding: dict) -> bool:
+    return (
+        curation["path"] == finding["path"]
+        and finding["start_lines"] in _start_lines(curation["start_lines"])
+        and curation["line_count"] == finding["line_count"]
+        and curation["detected_license"] == finding["detected_license"]
+    )
+
+
+class ObservedFindingCoverage(unittest.TestCase):
+    """The new public-head findings are covered only by their exact reviewed rows."""
+
+    def setUp(self) -> None:
+        self.evidence = _load(OBSERVED_FINDINGS)
+        self.entries = {entry["member"]: entry for entry in _entries()}
+        self.configs = _configs()
+
+    def test_every_observed_finding_has_one_exact_reviewed_curation(self) -> None:
+        for finding in self.evidence["curated"]:
+            with self.subTest(path=finding["path"], line=finding["start_lines"]):
+                entry = self.entries[finding["path"]]
+                config = self.configs[entry["name"]]
+                matches = [
+                    curation
+                    for curation in config["license_finding_curations"]
+                    if _curation_applies(curation, finding)
+                ]
+                self.assertEqual(1, len(matches))
+                reviewed = matches[0]
+                self.assertEqual(1, reviewed["line_count"])
+                observed_lines = {
+                    other["start_lines"]
+                    for other in self.evidence["curated"]
+                    if other["path"] == finding["path"]
+                    and other["detected_license"] == finding["detected_license"]
+                }
+                self.assertEqual(observed_lines, set(_start_lines(reviewed["start_lines"])))
+                self.assertIn(reviewed, entry["curations"])
+                self.assertEqual(_expected_conclusion(), reviewed["concluded_license"])
+
+    def test_an_unobserved_control_finding_stays_unresolved(self) -> None:
+        for finding in self.evidence["unresolved_control"]:
+            with self.subTest(path=finding["path"], line=finding["start_lines"]):
+                for config in self.configs.values():
+                    self.assertFalse(
+                        any(
+                            _curation_applies(curation, finding)
+                            for curation in config["license_finding_curations"]
+                        )
+                    )
 
 
 if __name__ == "__main__":  # pragma: no cover

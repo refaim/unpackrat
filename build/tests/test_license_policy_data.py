@@ -1,6 +1,6 @@
 """The ORT license policy is repository data, not a first-party license engine.
 
-The reviewed policy lives in ``.ort.yml`` (currently no waivers), in the ORT global configuration,
+The reviewed policy lives in ``.ort.yml`` (one reviewed patent exception), in the ORT global configuration,
 and in the pinned, unmodified upstream rules and classifications that CI fetches at run time.  The
 smoke fixtures are project-style SPDX 2.3 documents (an index project plus a dependency) and
 configuration data the primary will run through the real container; these tests pin the data, not a
@@ -96,7 +96,7 @@ UNKNOWN_IDENTITY_MAPPINGS = (
 
 
 class RepositoryConfigurationTests(unittest.TestCase):
-    """``.ort.yml`` is JSON (a valid YAML subset) with no blanket or component waiver."""
+    """``.ort.yml`` is JSON (a valid YAML subset) with one exact reviewed patent exception."""
 
     def setUp(self) -> None:
         self.text = (REPOSITORY / ".ort.yml").read_text(encoding="utf-8")
@@ -111,13 +111,13 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertNotIn("license_choices", self.config)
         self.assertNotIn("license_choices:", self.text)
 
-    def test_the_base_configuration_waives_no_rule_violation(self) -> None:
-        # The Observer API-header acceptance is still pending the primary's real identity/provenance
-        # and content decision, so the base carries no resolution at all.  A fabricated waiver (for
-        # example a dynamic-linkage exception for a copied header) must never exist, and no pattern
-        # may match a detected copyleft, limited-copyleft or unknown finding.
+    def test_the_base_configuration_carries_only_the_reviewed_patent_exception(self) -> None:
+        # Roma approved the exact WebP patent grant on 2026-10-21; no other rule is resolved.
+        # The source artifact remains pinned and the complete upstream notices are retained.
+        # A fabricated dynamic-linkage exception for a copied header must never exist, and no
+        # pattern may match a detected copyleft, limited-copyleft or unknown finding.
         resolutions = self.config.get("resolutions", {})
-        self.assertEqual(resolutions.get("rule_violations", []), [])
+        self.assertEqual([entry["reason"] for entry in resolutions.get("rule_violations", [])], ["PATENT_GRANT_EXCEPTION"])
 
         entries = resolutions.get("rule_violations", [])
         for message in (COPYLEFT_MESSAGE, COPYLEFT_LIMITED_MESSAGE, UNKNOWN_MESSAGE):

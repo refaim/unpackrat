@@ -39,6 +39,15 @@ def value_dict(entries):
     )
 
 
+def imported(source_path, compiled_extension):
+    source = source_path.rsplit("/", 1)[-1]
+    digest = hashlib.md5(f"res://{source_path}".encode()).hexdigest()
+    return (
+        f".godot/imported/{source}-{digest}{compiled_extension}",
+        f".godot/imported/{source}",
+    )
+
+
 def resource(main_type, major, minor, version, names, properties, main_path="local://1"):
     modern = major >= 4
     body = bytearray(b"RSRC" + struct.pack("<5I", 0, 0, major, minor, version))
@@ -77,11 +86,13 @@ sample = resource("Sample", 3, 0, 2, ["mix_rate", "data"], [
 font_payload = b"OTTO" + bytes(12)
 font = resource("FontFile", 4, 5, 6, ["data"], [("data", value_bytes(font_payload))])
 
+padded_path, padded_converted = imported("audio/padded-sample.wav", ".res")
+font_path, font_converted = imported("fonts/generated-font.otf", ".res")
 entries = [
-    ("res://audio/padded-sample.res", sample, "audio/padded-sample.wav", 52),
-    ("res://fonts/generated-font.res", font, "fonts/generated-font.otf", len(font_payload)),
+    (padded_path, sample, padded_converted, 52),
+    (font_path, font, font_converted, len(font_payload)),
 ]
-file_base = 256
+file_base = 512
 packed = bytearray(struct.pack("<6IQ", 0x43504447, 2, 4, 5, 0, 0, file_base) + bytes(64))
 packed += u32(len(entries))
 offset = 0
@@ -117,11 +128,13 @@ manifest = {
             "md5": hashlib.md5(body).hexdigest(),
             "sha256": hashlib.sha256(body).hexdigest(),
             "expected_output_size": output_size,
-            "output_sha256": hashlib.sha256(font_payload).hexdigest() if name.endswith("generated-font.res") else None,
+            "output_sha256": hashlib.sha256(font_payload).hexdigest() if name == font_path else None,
         }
         for name, body, converted, output_size in entries
     ],
 }
+font_entry = next(entry for entry in manifest["entries"] if entry["path"] == font_path)
+assert font_entry["output_sha256"] == hashlib.sha256(font_payload).hexdigest()
 (destination / "audio-font-minimal-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 print(manifest["file_size"], manifest["sha256"])
 
@@ -137,11 +150,11 @@ mp3_payload = b"\x89\x06" + frame * 4
 prefixed_mp3 = resource("AudioStreamMP3", 4, 5, 6, ["data"], [
     ("data", value_bytes(mp3_payload)),
 ])
+legacy_path, legacy_converted = imported("audio/legacy-negative-main.wav", ".sample")
+mp3_path, mp3_converted = imported("audio/prefixed.mp3", ".res")
 compat_entries = [
-    ("res://audio/legacy-negative-main.sample", legacy_sample,
-     "audio/legacy-negative-main.wav", 52),
-    ("res://audio/prefixed.mp3", prefixed_mp3,
-     "audio/prefixed.mp3", len(mp3_payload)),
+    (legacy_path, legacy_sample, legacy_converted, 52),
+    (mp3_path, prefixed_mp3, mp3_converted, len(mp3_payload)),
 ]
 compat = bytearray(struct.pack("<6IQ", 0x43504447, 2, 4, 5, 0, 0, file_base) + bytes(64))
 compat += u32(len(compat_entries))
@@ -177,7 +190,7 @@ compat_manifest = {
             "sha256": hashlib.sha256(body).hexdigest(),
             "expected_output_size": output_size,
             "output_sha256": hashlib.sha256(mp3_payload).hexdigest()
-            if name.endswith("prefixed.mp3") else None,
+            if name == mp3_path else None,
         }
         for name, body, converted, output_size in compat_entries
     ],

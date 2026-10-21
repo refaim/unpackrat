@@ -56,7 +56,7 @@ LICENSES = {
     "rpgmaker": ("Observer.txt", "GPL-3.0.txt", "rgssad.txt", "YY-Thunks.txt"),
     "zanzarah": ("Observer.txt", "GPL-3.0.txt", "YY-Thunks.txt"),
     "godot": (
-        "Observer.txt", "GPL-3.0.txt", "godot.txt", "libspng.txt", "libogg.txt",
+        "Observer.txt", "GPL-3.0.txt", "godot.txt", "libspng.txt", "libwebp.txt", "libogg.txt",
         "brotli.txt", "zstd.txt", "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt",
         "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt", "YY-Thunks.txt",
     ),
