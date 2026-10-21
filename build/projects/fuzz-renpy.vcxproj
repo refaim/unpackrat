@@ -30,12 +30,14 @@
     <ClCompile Include="$(RepositoryRoot)src\core\compression\zlib_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\modules\renpy\renpy.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\modules\renpy\pickle.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\renpy\rpa1_index.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\compression\zlib_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\renpy\pickle.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\renpy\rpa1_index.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

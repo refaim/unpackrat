@@ -9,6 +9,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+TEST_CASE("archives: hermetic RenPy RPA 1.0 sidecar", "[integration][hermetic][rpa1]")
+{
+    const auto archive = std::filesystem::path(__FILE__).parent_path().parent_path() / "data/renpy/rpa1-split.rpa";
+    test::test_archive(archive, {{L"dir\\hello.txt", "first:second:third"}, {L"empty.txt", ""}});
+}
+
 TEST_CASE("archives: hermetic RenPy RPA 2.0", "[integration][hermetic]")
 {
     const auto contents = test::support::make_renpy_archive("dir/hello.txt", "renpy payload");

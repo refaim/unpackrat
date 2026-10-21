@@ -3,9 +3,11 @@
 #include "../../core/archive_limits.h"
 #include "../../core/godot/pck.h"
 #include "../support/archive_fixtures.h"
+#include "../support/archive_lazy_fixtures.h"
 #include "../support/godot_crypto_fixtures.h"
 #include "../support/godot_fixtures.h"
 #include "../support/godot_texture_fixtures.h"
+#include "../support/zlib_fixture.h"
 
 #include <algorithm>
 #include <array>
@@ -708,6 +710,245 @@ namespace test
 
         std::error_code error;
         std::filesystem::remove(invalid_archive_path, error);
+    }
+
+    namespace
+    {
+        class rpa1_pair final
+        {
+          public:
+            rpa1_pair()
+            {
+                const auto fixtures = std::filesystem::path(__FILE__).parent_path().parent_path() / "data/renpy";
+                std::filesystem::copy_file(fixtures / "rpa1-split.rpa", data);
+                std::filesystem::copy_file(fixtures / "rpa1-split.rpi", index);
+            }
+
+            support::temporary_directory directory{"rpa1"};
+            std::filesystem::path data = directory.path() / L"архив.extra.rpa";
+            std::filesystem::path index = directory.path() / L"архив.extra.rpi";
+        };
+
+        void write_rpa1_bytes(const std::filesystem::path &path, const std::span<const std::byte> bytes)
+        {
+            std::ofstream output(path, std::ios::binary);
+            REQUIRE(output.is_open());
+            output.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+            REQUIRE(output.good());
+        }
+
+        void write_rpa1_pickle(const std::filesystem::path &path, const std::string_view pickle)
+        {
+            write_rpa1_bytes(path, support::compress_zlib_fixture(std::as_bytes(std::span(pickle))));
+        }
+    } // namespace
+
+    TEST_CASE("module ABI: RPA1 requires the exact adjacent index and data extension", "[contract][rpa1]")
+    {
+        const auto scenario = GENERATE(0, 1, 2, 3);
+        CAPTURE(scenario);
+        rpa1_pair pair;
+        if (scenario == 0) {
+            REQUIRE(std::filesystem::remove(pair.index));
+        } else if (scenario == 1) {
+            std::filesystem::rename(pair.index, pair.directory.path() / "other.rpi");
+        } else if (scenario == 2) {
+            auto renamed = pair.data;
+            renamed.replace_extension(".bin");
+            std::filesystem::rename(pair.data, renamed);
+            pair.data = renamed;
+        } else {
+            pair.data = pair.index;
+        }
+        c_module loaded("renpy.so");
+        CHECK(loaded.open(pair.data) == false);
+    }
+
+    TEST_CASE("module ABI: RPA1 rejects unreadable and corrupt sidecars while opening", "[contract][rpa1]")
+    {
+        const auto scenario = GENERATE(0, 1, 2, 3, 4, 5, 6);
+        CAPTURE(scenario);
+        rpa1_pair pair;
+        if (scenario == 0) {
+            write_rpa1_bytes(pair.index, {});
+        } else if (scenario == 1) {
+            std::filesystem::resize_file(pair.index, 5);
+        } else if (scenario == 2) {
+            write_rpa1_pickle(pair.index, "N.");
+        } else if (scenario == 3) {
+            std::filesystem::resize_file(pair.index, 64ULL * 1024 * 1024 + 1);
+        } else if (scenario == 4) {
+            REQUIRE(std::filesystem::remove(pair.index));
+            REQUIRE(std::filesystem::create_directory(pair.index));
+        } else {
+            write_rpa1_pickle(pair.index, scenario == 5 ? "Ibad\n." : "I999999999999999999999999999999\n.");
+        }
+        c_module loaded("renpy.so");
+        CHECK(loaded.open(pair.data) == false);
+    }
+
+    TEST_CASE("module ABI: RPA1 snapshots its index and accepts uppercase data suffixes", "[contract][rpa1]")
+    {
+        rpa1_pair pair;
+        auto renamed = pair.data;
+        renamed.replace_extension(".RPA");
+        std::filesystem::rename(pair.data, renamed);
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(renamed));
+        REQUIRE(std::filesystem::remove(pair.index));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == 2);
+        const auto entry = std::ranges::find_if(files, [](const file &item) { return item.path == L"dir\\hello.txt"; });
+        REQUIRE(entry != files.end());
+        const temporary_output_file output(pair.directory.path() / "output.txt");
+        entry->extract(output.path());
+        std::ifstream input(output.path(), std::ios::binary);
+        const std::string contents{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        CHECK(contents == "first:second:third");
+        CHECK(entry->uncompressed_size == 18);
+        CHECK(entry->compressed_size == 18);
+    }
+
+    TEST_CASE("module ABI: RPA1 permits an empty archive and zero byte data", "[contract][rpa1]")
+    {
+        rpa1_pair pair;
+        write_rpa1_bytes(pair.data, {});
+        write_rpa1_pickle(pair.index, "}.");
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        CHECK(loaded.list_files().empty());
+    }
+
+    TEST_CASE("module ABI: RPA1 streams large fragments and reports exact progress", "[contract][rpa1]")
+    {
+        rpa1_pair pair;
+        const std::string contents(128 * 1024 + 7, 'x');
+        write_rpa1_bytes(pair.data, std::as_bytes(std::span(contents)));
+        std::string pickle = "}U";
+        pickle.push_back(12);
+        pickle.append("файл.txt]I0\nI131079\n")
+            .append("\x86"
+                    "as.");
+        write_rpa1_pickle(pair.index, pickle);
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == 1);
+        CHECK(files.front().path == L"файл.txt");
+        std::int64_t progress = 0;
+        const temporary_output_file output(pair.directory.path() / "output.txt");
+        const auto callback = [](void *context, const int64_t amount) -> int {
+            *static_cast<std::int64_t *>(context) += amount;
+            return TRUE;
+        };
+        CHECK(loaded.extract_file_status(0, output.path(), callback, &progress) == SER_SUCCESS);
+        CHECK(progress == static_cast<std::int64_t>(contents.size()));
+        std::ifstream input(output.path(), std::ios::binary);
+        const std::string actual{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        CHECK(actual == contents);
+    }
+
+    TEST_CASE("module ABI: RPA1 extraction cleans partial output on source and callback failures", "[contract][rpa1]")
+    {
+        const auto scenario = GENERATE(0, 1, 2);
+        CAPTURE(scenario);
+        rpa1_pair pair;
+        if (scenario == 0) {
+            const std::string body(std::size_t{256} * 1024, 'x');
+            write_rpa1_bytes(pair.data, std::as_bytes(std::span(body)));
+            std::string pickle = "}U";
+            pickle.push_back(13);
+            pickle.append("dir/hello.txt]I131072\nI6\n")
+                .append("\x86"
+                        "as.");
+            write_rpa1_pickle(pair.index, pickle);
+        }
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        const auto files = loaded.list_files();
+        const auto entry = std::ranges::find_if(files, [](const file &item) { return item.path == L"dir\\hello.txt"; });
+        REQUIRE(entry != files.end());
+        const auto item_index = static_cast<int>(std::distance(files.begin(), entry));
+        const temporary_output_file output(pair.directory.path() / "output.txt");
+        const auto callback = [](void *context, int64_t) -> int {
+            if (*static_cast<const int *>(context) == 2) {
+                throw std::runtime_error("RPA1 callback failure");
+            }
+            return *static_cast<const int *>(context) == 0 ? TRUE : FALSE;
+        };
+        if (scenario == 0) {
+            const locked_source_range locked(pair.data, 128ULL * 1024, 6);
+            CHECK(loaded.extract_file_status(item_index, output.path(), callback, const_cast<int *>(&scenario)) ==
+                  SER_ERROR_READ);
+        } else {
+            const auto expected = scenario == 1 ? SER_USERABORT : SER_ERROR_SYSTEM;
+            CHECK(loaded.extract_file_status(item_index, output.path(), callback, const_cast<int *>(&scenario)) ==
+                  expected);
+        }
+        CHECK(std::filesystem::exists(output.path()) == false);
+    }
+
+    TEST_CASE("module ABI: modern RPA ignores an adjacent RPA1 index", "[contract][rpa1]")
+    {
+        const auto sidecar = GENERATE(false, true);
+        rpa1_pair pair;
+        const auto contents = support::make_renpy_archive("modern.txt", "modern payload");
+        write_rpa1_bytes(pair.data, std::as_bytes(std::span(contents)));
+        if (sidecar) {
+            write_rpa1_bytes(pair.index, {});
+        } else {
+            REQUIRE(std::filesystem::remove(pair.index));
+        }
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == 1);
+        CHECK(files.front().path == L"modern.txt");
+    }
+
+    TEST_CASE("module ABI: RPA1 payload may begin with a modern signature", "[contract][rpa1][rpa1-collision]")
+    {
+        rpa1_pair pair;
+        const auto contents =
+            GENERATE(std::string("RPA-payload"), std::string("RPA-2.0 0000000000000000\n"),
+                     std::string("RPA-2.0 0000000000000020\n"), [] {
+                         const auto bytes = support::make_renpy_archive_with_index(
+                             support::byte_buffer{'I', 'b', 'a', 'd', '\n', '.'});
+                         return std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+                     }());
+        write_rpa1_bytes(pair.data, std::as_bytes(std::span(contents)));
+        std::string pickle = "}U";
+        pickle.push_back(1);
+        pickle.append("x]I0\nI")
+            .append(std::to_string(contents.size()))
+            .append("\n\x86"
+                    "as.");
+        write_rpa1_pickle(pair.index, pickle);
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == 1);
+        const temporary_output_file output(pair.directory.path() / "output.txt");
+        files.front().extract(output.path());
+        std::ifstream input(output.path(), std::ios::binary);
+        const std::string actual{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        CHECK(actual == contents);
+    }
+
+    TEST_CASE("module ABI: modern RPA rejects a truncated supplied signature", "[contract][rpa1]")
+    {
+        const support::temporary_archive archive("modern-short-hint", support::make_renpy_archive("x", "body"));
+        c_module loaded("renpy.so");
+        const char prefix = 'R';
+        const StorageOpenParams params{.StructSize = sizeof(StorageOpenParams),
+                                       .FilePath = archive.path().c_str(),
+                                       .Password = nullptr,
+                                       .Data = &prefix,
+                                       .DataSize = 1};
+        HANDLE storage = nullptr;
+        StorageGeneralInfo info{};
+        CHECK(loaded.api().OpenStorage(params, &storage, &info) == SOR_INVALID_FILE);
+        CHECK(storage == nullptr);
     }
 
     TEST_CASE("module ABI: malformed RenPy index shapes are rejected", "[contract]")

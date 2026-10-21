@@ -2,7 +2,12 @@
 #include "../../core/io/bounded_stream.h"
 #include "../extractor.h"
 #include "pickle.h"
+#include "rpa1_index.h"
 
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <cwctype>
 #include <fstream>
 #include <functional>
 #include <limits>
@@ -12,6 +17,56 @@
 
 namespace extractor
 {
+    namespace
+    {
+        constexpr std::string_view rpa_signature = "RPA-";
+
+        struct rpa1_storage final : storage_state
+        {
+            std::vector<unpackrat::renpy::rpa1_entry> entries;
+        };
+
+        bool valid_modern_index(extractor &parser, std::istream &stream)
+        {
+            try {
+                static_cast<void>(parser.list_files(stream));
+                return true;
+            } catch (const std::runtime_error &) {
+                return false;
+            } catch (const std::out_of_range &) {
+                return false;
+            } catch (const std::invalid_argument &) {
+                return false;
+            }
+        }
+
+        void extract_fragments(std::istream &source, std::ostream &output,
+                               const std::vector<unpackrat::renpy::rpa1_fragment> &fragments,
+                               const std::function<void(int64_t)> &report_progress)
+        {
+            constexpr std::int64_t chunk_bytes = 128LL * 1024;
+            std::vector<char> buffer(static_cast<std::size_t>(chunk_bytes));
+            for (const auto &fragment : fragments) {
+                auto position = fragment.offset;
+                auto remaining = fragment.size;
+                while (remaining > 0) {
+                    const auto count = std::min(remaining, chunk_bytes);
+                    try {
+                        source.clear();
+                        source.seekg(position);
+                        source.read(buffer.data(), static_cast<std::streamsize>(count));
+                    } catch (const std::ios_base::failure &) {
+                        throw read_error();
+                    }
+                    output.write(buffer.data(), static_cast<std::streamsize>(count));
+                    report_progress(count);
+                    position += count;
+                    remaining -= count;
+                }
+            }
+        }
+    } // namespace
+
     void configure([[maybe_unused]] const wchar_t *settings) noexcept
     {
     }
@@ -30,18 +85,55 @@ namespace extractor
 
     std::vector<std::byte> extractor::get_signature()
     {
-        const std::string str = "RPA-";
-        std::vector<std::byte> signature(str.size());
-        std::memcpy(signature.data(), str.data(), str.size());
-        return signature;
+        // RPA 1.0 data has no signature. Recognition below requires its exact adjacent index.
+        return {};
     }
 
-    archive_info extractor::get_archive_info(
-        [[maybe_unused]] std::istream &stream, const std::span<const std::byte> &data,
-        [[maybe_unused]] const std::filesystem::path &path,
-        [[maybe_unused]] const std::string_view password) // NOLINT(*-convert-member-functions-to-static)
+    archive_info extractor::get_archive_info(std::istream &stream, const std::span<const std::byte> &data,
+                                             const std::filesystem::path &path,
+                                             [[maybe_unused]] const std::string_view password)
     {
-        static_cast<void>(data);
+        unpackrat::io::bounded_stream input(stream);
+        std::array<char, rpa_signature.size()> prefix{};
+        const auto prefix_size =
+            static_cast<std::size_t>(std::min(input.size(), static_cast<std::streamoff>(rpa_signature.size())));
+        input.seek_absolute(0);
+        input.read_exact(prefix.data(), prefix_size);
+        const bool has_modern_signature = std::string_view(prefix.data(), prefix_size) == rpa_signature;
+        auto extension = path.extension().wstring();
+        std::ranges::transform(extension, extension.begin(), [](const wchar_t value) { return std::towlower(value); });
+        auto index_path = path;
+        index_path.replace_extension(L".rpi");
+
+        // A headerless RPA1 body may contain any bytes, including a modern header. If both
+        // representations are present, a valid modern archive wins; otherwise try its sidecar.
+        if (has_modern_signature &&
+            (extension != L".rpa" || !std::filesystem::exists(index_path) || valid_modern_index(*this, stream))) {
+            if (!data.empty() && (data.size() < rpa_signature.size() ||
+                                  std::memcmp(data.data(), rpa_signature.data(), rpa_signature.size()) != 0)) {
+                throw std::runtime_error("Signature mismatch");
+            }
+            return archive_info{L"RenPy", L"", L""};
+        }
+
+        if (extension != L".rpa") {
+            throw std::runtime_error("RPA 1.0 requires a .rpa data file");
+        }
+        std::ifstream index(index_path, std::ios::binary);
+        if (!index.is_open()) {
+            throw std::runtime_error("RPA 1.0 index is missing or unreadable");
+        }
+        unpackrat::io::bounded_stream index_input(index);
+        const auto index_size = static_cast<std::uint64_t>(index_input.size());
+        if (index_size > unpackrat::renpy::rpa1_limits{}.max_compressed_index_bytes) {
+            throw std::runtime_error("RPA compressed index exceeds the metadata budget");
+        }
+        std::vector<std::byte> compressed_index(static_cast<std::size_t>(index_size));
+        index_input.seek_absolute(0);
+        index_input.read_exact(reinterpret_cast<char *>(compressed_index.data()), compressed_index.size());
+        auto state = std::make_unique<rpa1_storage>();
+        state->entries = unpackrat::renpy::parse_rpa1_index(compressed_index, input.size());
+        state_ = std::move(state);
         return archive_info{L"RenPy", L"", L""};
     }
 
@@ -64,7 +156,7 @@ namespace extractor
         unpackrat::io::bounded_stream &stream)
     {
         std::string version_check(3, '\0');
-        stream.seek_absolute(static_cast<std::streamoff>(extractor::get_signature().size()));
+        stream.seek_absolute(static_cast<std::streamoff>(rpa_signature.size()));
         stream.read_exact(version_check.data(), version_check.size());
 
         if (version_check == "2.0") {
@@ -87,9 +179,26 @@ namespace extractor
         throw std::runtime_error("Unsupported RPA version");
     }
 
-    std::vector<std::unique_ptr<file>> extractor::list_files(
-        std::istream &stream) // NOLINT(*-convert-member-functions-to-static)
+    std::vector<std::unique_ptr<file>> extractor::list_files(std::istream &stream)
     {
+        if (state_) {
+            const auto &state = static_cast<const rpa1_storage &>(*state_);
+            std::vector<std::unique_ptr<file>> files;
+            files.reserve(state.entries.size());
+            for (const auto &entry : state.entries) {
+                auto item = std::make_unique<file>();
+                item->path = entry.path;
+                item->compressed_body_size_in_bytes = entry.size;
+                item->uncompressed_body_size_in_bytes = entry.size;
+                item->extract = [fragments = entry.fragments](std::istream &source, std::ostream &output,
+                                                              const std::function<void(int64_t)> &report_progress) {
+                    extract_fragments(source, output, fragments, report_progress);
+                };
+                files.push_back(std::move(item));
+            }
+            return files;
+        }
+
         unpackrat::io::bounded_stream input(stream);
         const auto [index_offset, decoder] = parse_header(input);
         const auto archive_size = input.size();
