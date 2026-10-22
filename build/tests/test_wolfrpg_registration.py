@@ -7,8 +7,8 @@ current tree.  The behaviour it pins is the *observable* integration contract:
 * WolfRPG is the fifth and last module of the default selection that drives the
   native audit, coverage enumeration and packaging routes
   (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
-* the default packaging route ships ``wolfrpg-1.0.0-bin-x64.zip``,
-  ``wolfrpg-1.0.0-bin-x86.zip`` and ``wolfrpg-1.0.0-pdb.zip`` with the shipped
+* the default packaging route ships ``wolfrpg-1.0.1-bin-x64.zip``,
+  ``wolfrpg-1.0.1-bin-x86.zip`` and ``wolfrpg-1.0.1-pdb.zip`` with the shipped
   payload, registration and notices;
 * ``build/projects/tests.vcxproj`` references ``wolfrpg.vcxproj`` with the fixed
   project GUID and ``LinkLibraryDependencies=false``;
@@ -45,7 +45,7 @@ PROJECTS = REPOSITORY_ROOT / "build" / "projects"
 NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 
 WOLFRPG = "wolfrpg"
-WOLFRPG_VERSION = "1.0.0"
+WOLFRPG_VERSION = "1.0.1"
 WOLFRPG_GUID = "{709C4932-B3B2-47D3-B035-B5AFE7AB7A34}"
 WOLFRPG_FUZZ_MAX_LENGTH = 1048576
 
@@ -199,9 +199,9 @@ class WolfRpgRegistration(GuardedCase):
         created = main.package(repository=repository, output=repository / "out" / "packages")
         names = {Path(path).name for path in created}
         expected = {
-            "wolfrpg-1.0.0-bin-x64.zip",
-            "wolfrpg-1.0.0-bin-x86.zip",
-            "wolfrpg-1.0.0-pdb.zip",
+            "wolfrpg-1.0.1-bin-x64.zip",
+            "wolfrpg-1.0.1-bin-x86.zip",
+            "wolfrpg-1.0.1-pdb.zip",
         }
         self.assertTrue(
             expected <= names,
@@ -526,7 +526,7 @@ class WolfRpgDocsContract(GuardedCase):
         build_system = (REPOSITORY_ROOT / "docs" / "build-system.md").read_text(encoding="utf-8")
         self.assertIn(WOLFRPG, build_system.lower())
 
-    def test_wolfrpg_initial_release_keeps_version_1_0_0(self) -> None:
+    def test_wolfrpg_current_release_keeps_the_reviewed_patch(self) -> None:
         self.assertEqual(main.read_version(REPOSITORY_ROOT, WOLFRPG), WOLFRPG_VERSION)
 
     def test_readme_defers_uberwolf_attribution_to_packaged_notices(self) -> None:

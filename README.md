@@ -23,7 +23,30 @@ from the module's release listing below.
 | Zanzarah | `.pak` | [zanzarah](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
 | Godot | `.pck` | [godot](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
 | WolfRPG | `.wolf`, `.wolfx` | [wolfrpg](https://github.com/refaim/unpackrat/releases?q=wolfrpg) | [RU](src/modules/wolfrpg/ChangeLog.ru.txt) [EN](src/modules/wolfrpg/ChangeLog.en.txt) |
-| Unity | Unity serialized files and asset bundles (e.g. `.assets`, `.bundle`, `.unity3d`) | [unity](https://github.com/refaim/unpackrat/releases?q=unity) | [RU](https://github.com/refaim/unpackrat/blob/unity/v1.0.0/src/modules/unity/ChangeLog.ru.txt) [EN](https://github.com/refaim/unpackrat/blob/unity/v1.0.0/src/modules/unity/ChangeLog.en.txt) |
+| Unity | Unity serialized files and asset bundles (e.g. `.assets`, `.bundle`, `.unity3d`) | [unity](https://github.com/refaim/unpackrat/releases?q=unity) | [RU](src/modules/unity/ChangeLog.ru.txt) [EN](src/modules/unity/ChangeLog.en.txt) |
+
+Unity support is a published module. Open one selected Unity `.assets`, `.bundle`
+or `data.unity3d` file; UnityFS internal bundles are handled automatically. Sibling `resS` and
+resource files, and the other dependencies the selected file references, are resolved for that
+selected file, while resources owned by unrelated dependencies are not added, so keep the sidecar
+files next to the selected file. Whole-game catalogues and code decompilation are not offered.
+
+Each entry converts on demand to its own output file. `Texture2D` and `Sprite` become PNG; `Sprite`
+crops its atlas region and handles packing, flips, 90-degree rectangles, a transparent canvas and a
+tight mask. `TextAsset` keeps its original bytes as `.bin`, which does not mean plain text only.
+`AudioClip` uses the mature Fmod5Sharp decoder: FSB5 single-sample PCM and ADPCM export to WAV and
+Vorbis to Ogg, legacy stored sound bytes are preserved, and unsupported FSB5 banks or codecs keep
+their raw `.fsb`. Embedded fonts export to TTF/OTF/TTC, `VideoClip` and `MovieTexture` keep their
+stored container (OGV for `MovieTexture`), and `Mesh` geometry becomes GLB, without a reconstructed
+scene, materials or animations.
+
+Original hierarchy paths are kept when present, with literal `{Type}` folders as a fallback.
+DisplayedSize and PackedSize report the original source payload length (0 means unknown); converted
+output may differ. An unsupported downscale value beyond 0 or 1, a tight mask that cannot be read,
+or a source geometry budget refusal fails that one entry's export, so not every variant or Unity
+version is guaranteed. External code, `MonoBehaviour`, `ScriptableObject`, `Material` and
+`AnimationClip` are outside this resource feature. The Unity module is a single DLL with no
+separate .NET runtime to install.
 
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
@@ -40,6 +63,7 @@ extract from with the usual FAR commands.
 ## License
 
 unpackrat's own source is released under the [MIT License](LICENSE.txt).
+
 
 ## Building
 

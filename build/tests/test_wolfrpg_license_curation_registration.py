@@ -29,8 +29,8 @@ LOOPBACK_PREFIX = "http://127.0.0.1:8765/sources/"
 OWN_NOTICE = "LICENSE.txt"
 MAIN_COMPONENT = "unpackrat-build-main"
 MAIN_MEMBER = "build/main.py"
-MAIN_REVIEW_ANCHORS = {51, 59}
-MAIN_WOLFRPG_LINE = 63
+MAIN_REVIEW_ANCHORS = {78, 81, 83, 84, 86}
+MAIN_WOLFRPG_LINE = 90
 CURATION_KEYS = (
     "path",
     "start_lines",

@@ -137,6 +137,16 @@ message rather than being skipped.
   and Godot-fork QOA static-library overlays. vcpkg verifies downloaded header hashes before building;
   the decoder implementations no longer expand inside first-party adapter translation units.
 
+`build.ps1 build -Module unity -Arch x86,x64 -Config Release` is an opt-in experimental route: the
+driver prepares the pinned AssetRipper source through the `gh` CLI, applies the reviewed patch,
+builds the MSVC Observer static library, runs the ordinary SDK NativeAOT publish with the vcpkg
+YY-Thunks XP object and drops one `unity.so` with its `unity.pdb` into `out/native/bin/<arch>/Release`.
+The selection is optional and Release-only, its vendored tree carries a revision/patch receipt so a
+stale copy fails instead of silently drifting, and the default build still folds exactly the four
+native modules with no CI stage change. Unity packaging is opt-in as well: only a `package` run that
+selects `-Module unity` emits its archives, and the default package selection stays the four native
+modules.
+
 ## Dependency monitoring
 
 `.github/dependabot.yml` enables weekly vcpkg version updates on Monday at 09:00
@@ -457,13 +467,13 @@ a source payload: allowed MIT, a dependency whose metadata is unchanged but whos
 GPL file, one that gained an unknown file, an OR Apache/GPL choice that passes, and an AND MIT/GPL
 case that fails.
 
-First-party build and test tooling. The seventeen reference-heavy first-party Python build and test files
+First-party build and test tooling. The nineteen reference-heavy first-party Python build and test files
 that embed license-identifier reference tables, example literals and retained-notice names are still
 read as real bytes and scanned in full; each is a content-addressed component whose version is the
 exact tar digest of the file it was reviewed at, so nothing is path-excluded and the diff still sees
 it. A native curation applies only to the reviewed path, the exact reviewed line set and the full
 detected expression, and only for that exact artifact id, version and source artifact URL. Editing any
-one of the seventeen changes the deterministic archive id, so every approval keyed to the old bytes stops
+one of the nineteen changes the deterministic archive id, so every approval keyed to the old bytes stops
 matching: re-review the real native ScanCode findings and update the package-configuration id, the
 artifact URL and the line and full-expression data to the new content. A blanket exclusion is never
 the fix: an ordinary source change that carries no such finding needs no exemption, and a genuinely

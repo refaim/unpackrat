@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,13 +34,39 @@ ARCHITECTURES = ("x86", "x64")
 PLATFORMS = {"x86": "Win32", "x64": "x64"}
 CONFIGURATIONS = ("Debug", "Release")
 MODULES = ("renpy", "rpgmaker", "zanzarah", "godot", "wolfrpg")
+# ``unity`` is an opt-in module that stages a real ``unity.so`` through the ordinary SDK NativeAOT
+# publish and ships through the same packaging route, but it stays out of ``MODULES`` so the native
+# coverage, analyzer and leak gates keep the five shipped native modules.
+PACKAGE_MODULES = (*MODULES, "unity")
 MODULE_BINARIES = {
     "renpy": "renpy.so",
     "rpgmaker": "rpgmaker.so",
     "zanzarah": "zanzarah.so",
     "godot": "godot.so",
     "wolfrpg": "wolfrpg.so",
+    "unity": "unity.so",
 }
+# The opt-in Unity route is an experimental Release-only module built by the ordinary SDK NativeAOT
+# publish.  Its ``-Module unity`` build selection keeps its own names so ``MODULES`` (the native
+# suite and its gate set) stays at the five shipped native modules, while ``PACKAGE_MODULES`` above
+# still offers the staged module to the packaging route.
+UNITY_MODULE = "unity"
+UNITY_BINARY = "unity.so"
+UNITY_SYMBOLS = "unity.pdb"
+UNITY_ASSEMBLY = "unpackrat-unity-probe"
+UNITY_UPSTREAM = "experiments/unity-nativeaot/upstream.json"
+UNITY_PATCH = "experiments/unity-nativeaot/patches/assetripper-stream-ownership.patch"
+UNITY_OBSERVER_PROJECT = "experiments/unity-nativeaot/observer/UnityObserver.vcxproj"
+UNITY_PROBE_PROJECT = "experiments/unity-nativeaot/UnityProbe/UnityProbe.csproj"
+# The prepared AssetRipper tree and its receipt sit under the existing ignored out/ tree; the
+# receipt pins the exact repository revision and patch hash so a stale tree fails instead of
+# silently reusing a different upstream snapshot.
+UNITY_VENDOR = "out/unity-nativeaot/vendor/AssetRipper"
+UNITY_VENDOR_RECEIPT = ".unpackrat-vendor.json"
+UNITY_VENDOR_PREFIX = "unpackrat-unity-vendor-"
+UNITY_VENDOR_SOURCE = "Source"
+UNITY_OBSERVER_ROOT = "out/unity-observer-adapter/native"
+UNITY_PUBLISH_ROOT = "out/unity-nativeaot/publish"
 OUT_NATIVE = "out/native"
 OUT_PACKAGES = "out/packages"
 OUT_LICENSE_INPUTS = "out/license-inputs"
@@ -61,7 +88,26 @@ LICENSES = {
         "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt", "YY-Thunks.txt",
     ),
     "wolfrpg": ("Observer.txt", "GPL-3.0.txt", "uberwolf.txt", "json.txt", "YY-Thunks.txt"),
+    # The unity module statically links GPL-3.0 AssetRipper code, so it ships the shared LGPLv3 and
+    # GPLv3 texts plus its own GPL-3.0 and .NET runtime notices.
+    "unity": ("Observer.txt", "GPL-3.0.txt", "YY-Thunks.txt", "Unity.txt"),
 }
+# A module's own binaries are MIT-only, so the default preamble states that directly. The unity
+# module carries GPL-3.0 code, so its document must present the binary as a GPL-3.0 combined work.
+_DEFAULT_LICENSE_PREAMBLE = (
+    "This file accompanies the unpackrat plugin {module}.so and describes the\n"
+    "licenses that apply to it. unpackrat is published under the MIT license; the\n"
+    "sections below reproduce its own grant, the Observer API header's LGPLv3 notice\n"
+    "with the full GPLv3 text, and the third-party notices relevant to this module.\n"
+)
+_UNITY_LICENSE_PREAMBLE = (
+    "This file accompanies the unpackrat plugin {module}.so and describes the\n"
+    "licenses that apply to it. unpackrat's own sources stay under the MIT license,\n"
+    "but this module statically links GPL-3.0 code, so the shipped binary is a GPL-3.0\n"
+    "combined work rather than an MIT-only module. The sections below reproduce the MIT\n"
+    "grant, the Observer API header's LGPLv3 notice with the full GPLv3 text, and the\n"
+    "GPL-3.0 and runtime third-party notices for that binary.\n"
+)
 FUZZ_TARGETS = ("pickle", "renpy", "rpgmaker", "zanzarah", "wolfrpg")
 FUZZ_MAX_LENGTH = {"pickle": 262144, "renpy": 1048576, "rpgmaker": 1048576, "zanzarah": 1048576,
                    "wolfrpg": 1048576}
@@ -621,6 +667,222 @@ def build(
     return bin_directory(repository, architecture, configuration)
 
 
+def unity_build(
+    architectures: Sequence[str], configurations: Sequence[str] = ("Release",), *,
+    repository: Path | str = REPOSITORY, jobs: int | None = None,
+) -> tuple[Path, ...]:
+    """Build the experimental Unity module through the ordinary SDK NativeAOT publish.
+
+    The route prepares the pinned AssetRipper source once, then, per architecture, restores the
+    Release triplet for its YY-Thunks object, builds the MSVC Observer static library, publishes
+    the NativeAOT shared library and stages one ``unity.so``/``unity.pdb`` under ``out/native``.
+    Unity is Release only: any other configuration is refused before the first heavy step.
+    """
+
+    repository = Path(repository).resolve()
+    for configuration in configurations:
+        if configuration != "Release":
+            raise BuildError(
+                f"the {UNITY_MODULE} module is an experimental Release-only route; "
+                f"select -Config Release instead of {configuration}")
+    msbuild, vcpkg = _native_tools()
+    dotnet = _require_tool("dotnet")
+    _unity_vendor(repository)
+    staged: list[Path] = []
+    for architecture in architectures:
+        _restore(repository, architecture, "Release", vcpkg)
+        library = _unity_observer_library(repository, architecture, msbuild, vcpkg, jobs)
+        output = _unity_publish(repository, architecture, library, dotnet)
+        staged.append(_unity_stage(repository, architecture, output))
+    return tuple(staged)
+
+
+def _unity_pin(repository: Path) -> tuple[str, str]:
+    """Read the AssetRipper ``sourceRepository`` and ``sourceRevision`` from ``upstream.json``."""
+
+    path = repository / UNITY_UPSTREAM
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        return document["sourceRepository"], document["sourceRevision"]
+    except OSError as error:
+        raise BuildError(f"the AssetRipper pin file is unreadable: {path}") from error
+    except (KeyError, TypeError, ValueError) as error:
+        raise BuildError(f"the AssetRipper pin file is incomplete: {path}") from error
+
+
+def _unity_vendor(repository: Path) -> Path:
+    """Return the prepared AssetRipper tree, creating it from the pinned archive once.
+
+    A missing tree is fetched from the pin with the ``gh`` CLI - the only GitHub path - patched
+    with the reviewed stream-ownership patch and stamped with a receipt.  An existing tree is
+    trusted only when its receipt records the same repository, revision and patch hash and its
+    source is already in the reviewed patch state; anything else fails so a stale or unpatched
+    tree is never silently used, and no existing directory is deleted.
+    """
+
+    repository_name, revision = _unity_pin(repository)
+    patch = repository / UNITY_PATCH
+    expected = {
+        "sourceRepository": repository_name,
+        "sourceRevision": revision,
+        "patchSha256": hashlib.sha256(patch.read_bytes()).hexdigest(),
+    }
+    vendor = repository / UNITY_VENDOR
+    receipt = vendor / UNITY_VENDOR_RECEIPT
+    if vendor.is_dir() and receipt.is_file():
+        if json.loads(receipt.read_text(encoding="utf-8")) == expected:
+            _unity_require_patch(repository, vendor)
+            return vendor
+        raise BuildError(
+            f"the prepared AssetRipper tree at {vendor} does not match {UNITY_UPSTREAM}; "
+            "refresh it deliberately instead of building on the wrong pin")
+    if vendor.exists():
+        raise BuildError(
+            f"the AssetRipper tree at {vendor} exists without a matching receipt; "
+            "remove it deliberately before the driver recreates it from the pin")
+    with tempfile.TemporaryDirectory(prefix=UNITY_VENDOR_PREFIX) as scratch:
+        archive = _unity_download(repository_name, revision, Path(scratch) / "assetripper.zip")
+        _unity_extract(archive, vendor)
+    _unity_patch(repository, vendor)
+    receipt.write_text(json.dumps(expected, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return vendor
+
+
+def _unity_download(repository_name: str, revision: str, archive: Path) -> Path:
+    """Fetch the pinned source as a zipball through the ``gh`` CLI's binary stdout."""
+
+    gh = _require_tool("gh")
+    with archive.open("wb") as stream:
+        subprocess.run(
+            [os.fspath(gh), "api", f"repos/{repository_name}/zipball/{revision}"],
+            stdout=stream,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    return archive
+
+
+def _unity_extract(archive: Path, vendor: Path) -> None:
+    """Move the single pinned ``Source`` tree out of the zipball into ``vendor``.
+
+    ``zipfile`` already drops absolute, drive and ``..`` path components while extracting, so
+    every member stays inside the owned scratch directory.  The narrow check here rejects an
+    archive that is not the expected single ``Source`` tree before anything is moved.
+    """
+
+    with tempfile.TemporaryDirectory(prefix=UNITY_VENDOR_PREFIX) as scratch:
+        root = Path(scratch)
+        with zipfile.ZipFile(archive) as bundle:
+            bundle.extractall(root)
+        entries = list(root.iterdir())
+        if len(entries) != 1 or not (entries[0] / UNITY_VENDOR_SOURCE).is_dir():
+            raise BuildError(
+                f"the AssetRipper archive does not hold a single {UNITY_VENDOR_SOURCE} tree: "
+                f"{archive}")
+        vendor.mkdir(parents=True, exist_ok=True)
+        shutil.move(os.fspath(entries[0] / UNITY_VENDOR_SOURCE), os.fspath(vendor))
+
+
+def _unity_apply_arguments(repository: Path, vendor: Path, *, reverse: bool = False) -> list[str]:
+    """Build the ``git apply`` arguments that address ``vendor`` from the repository top level.
+
+    ``git apply`` resolves patch paths against the top of the enclosing repository and silently
+    skips anything outside the directory it runs from, so a vendor tree nested under the
+    repository is targeted with an explicit ``--directory`` from the top level rather than from
+    inside the vendor tree.
+    """
+
+    relative = Path(vendor).relative_to(Path(repository)).as_posix()
+    arguments = ["git", "apply", "-p1", f"--directory={relative}"]
+    if reverse:
+        arguments.append("--reverse")
+    return arguments
+
+
+def _unity_require_patch(repository: Path, vendor: Path) -> None:
+    """Fail unless ``vendor`` already holds the reviewed patch, checked against real bytes."""
+
+    try:
+        run(
+            [*_unity_apply_arguments(repository, vendor, reverse=True), "--check",
+             os.fspath(Path(repository) / UNITY_PATCH)],
+            cwd=Path(repository), capture=True,
+        )
+    except subprocess.CalledProcessError as error:
+        raise BuildError(
+            f"the prepared AssetRipper tree at {vendor} is not in the reviewed patch state; "
+            "refresh it deliberately instead of building on unpatched source") from error
+
+
+def _unity_patch(repository: Path, vendor: Path) -> None:
+    """Apply the reviewed stream-ownership patch to the prepared tree and confirm it landed."""
+
+    run(
+        [*_unity_apply_arguments(repository, vendor), os.fspath(Path(repository) / UNITY_PATCH)],
+        cwd=Path(repository),
+    )
+    _unity_require_patch(repository, vendor)
+
+
+def _unity_observer_library(
+    repository: Path, architecture: str, msbuild: Path, vcpkg: Path, jobs: int | None,
+) -> Path:
+    """Build the MSVC Observer static library and return its absolute path."""
+
+    output = repository / UNITY_OBSERVER_ROOT / PLATFORMS[architecture] / "Release"
+    command = list(_msbuild_command(
+        repository, repository / UNITY_OBSERVER_PROJECT, architecture, "Release", jobs,
+        msbuild, vcpkg, analysis=False))
+    command += [f"/p:OutDir={output}{os.sep}", f"/p:IntDir={output / 'obj'}{os.sep}"]
+    run(tuple(command), cwd=repository)
+    library = output / "UnityObserver.lib"
+    if not library.is_file():
+        raise BuildError(f"the Unity Observer static library was not produced: {library}")
+    return library
+
+
+def _unity_publish(
+    repository: Path, architecture: str, library: Path, dotnet: Path,
+) -> Path:
+    """Publish the NativeAOT shared library with the Observer static library and YY-Thunks."""
+
+    yy_thunks = (restore_root(repository, architecture, "Release")
+                 / triplet(architecture, "Release") / "share" / "yy-thunks"
+                 / "objs" / architecture / "YY_Thunks_for_WinXP.obj")
+    if not yy_thunks.is_file():
+        raise BuildError(f"the pinned vcpkg YY-Thunks XP object is missing: {yy_thunks}")
+    output = repository / UNITY_PUBLISH_ROOT / architecture
+    run(
+        [
+            os.fspath(dotnet), "publish", os.fspath(repository / UNITY_PROBE_PROJECT),
+            "-c", "Release",
+            "-r", f"win-{architecture}",
+            "-m:1",
+            f"-p:UnityObserverLibrary={os.fspath(library)}",
+            f"-p:UnityYYThunksObject={os.fspath(yy_thunks)}",
+            f"-p:PublishDir={output}{os.sep}",
+        ],
+        cwd=repository,
+    )
+    return output
+
+
+def _unity_stage(repository: Path, architecture: str, output: Path) -> Path:
+    """Copy the published DLL and PDB to the module stage as ``unity.so``/``unity.pdb``."""
+
+    dll = output / f"{UNITY_ASSEMBLY}.dll"
+    pdb = output / f"{UNITY_ASSEMBLY}.pdb"
+    for path in (dll, pdb):
+        if not path.is_file():
+            raise BuildError(f"the Unity publish did not produce {path.name}: {path}")
+    stage = bin_directory(repository, architecture, "Release")
+    stage.mkdir(parents=True, exist_ok=True)
+    destination = stage / UNITY_BINARY
+    shutil.copyfile(dll, destination)
+    shutil.copyfile(pdb, stage / UNITY_SYMBOLS)
+    return destination
+
+
 def _attest_release(repository: Path, architecture: str) -> None:
     """Record the successful Release restore/build for the license-input verification."""
 
@@ -713,13 +975,8 @@ def _licenses_document(repository: Path, module: str) -> bytes:
     parts = [_license_section("unpackrat", (repository / "LICENSE.txt").read_bytes())]
     for name in LICENSES[module]:
         parts.append(_license_section(name, (repository / "licenses" / name).read_bytes()))
-    preamble = (
-        f"This file accompanies the unpackrat plugin {module}.so and describes the\n"
-        "licenses that apply to it. unpackrat is published under the MIT license; the\n"
-        "sections below reproduce its own grant, the Observer API header's LGPLv3 notice\n"
-        "with the full GPLv3 text, and the third-party notices relevant to this module.\n"
-    )
-    return preamble.encode("utf-8") + b"\n" + b"\n".join(parts)
+    preamble = _UNITY_LICENSE_PREAMBLE if module == "unity" else _DEFAULT_LICENSE_PREAMBLE
+    return preamble.format(module=module).encode("utf-8") + b"\n" + b"\n".join(parts)
 
 
 def _license_section(title: str, text: bytes) -> bytes:
@@ -741,6 +998,14 @@ def read_version(repository: Path | str, module: str) -> str:
     except OSError as error:
         raise BuildError(f"module version file is unreadable: {path}") from error
     return version
+
+
+def _staged_bytes(path: Path) -> bytes:
+    # The staged Release binary and its symbols are external prerequisites: a packaging run that
+    # cannot find them must name the missing file instead of failing inside ``read_bytes``.
+    if not path.is_file():
+        raise BuildError(f"staged module input is missing: {path}")
+    return path.read_bytes()
 
 
 def package(
@@ -765,13 +1030,13 @@ def package(
         }
         for architecture in ARCHITECTURES:
             binary = bin_directory(repository, architecture, "Release") / MODULE_BINARIES[module]
-            members = {MODULE_BINARIES[module]: binary.read_bytes(), **common}
+            members = {MODULE_BINARIES[module]: _staged_bytes(binary), **common}
             path = output / f"{module}-{version}-bin-{architecture}.zip"
             _write_zip(path, members)
             created.append(path)
         symbols = {
             f"{architecture}/{module}.pdb":
-                (bin_directory(repository, architecture, "Release") / f"{module}.pdb").read_bytes()
+                _staged_bytes(bin_directory(repository, architecture, "Release") / f"{module}.pdb")
             for architecture in ARCHITECTURES
         }
         path = output / f"{module}-{version}-pdb.zip"
@@ -1509,10 +1774,14 @@ def _parser() -> argparse.ArgumentParser:
     arch_parser.add_argument("-Stage", "--stage", dest="stage", choices=CI_STAGES, default="all")
     for command in (build_parser, test_parser):
         command.add_argument("-Config", "--config", dest="configuration", type=_selection(CONFIGURATIONS), default=("Debug",))
+    # The ordinary build selects the folded native suite by default.  ``-Module unity`` opts
+    # into the experimental Unity route alone; there is no per-native-module build selection.
+    build_parser.add_argument(
+        "-Module", "--module", dest="module", type=_selection((UNITY_MODULE,)), default=None)
     for command in (test_parser, arch_parser):
         command.add_argument("-Corpus", "--corpus", type=Path, default=None)
     package_parser.add_argument("-Output", "--output", type=Path, default=OUT_PACKAGES)
-    package_parser.add_argument("-Module", "--module", dest="module", type=_selection(MODULES), default=MODULES)
+    package_parser.add_argument("-Module", "--module", dest="module", type=_selection(PACKAGE_MODULES), default=MODULES)
     return parser
 
 
@@ -1527,9 +1796,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     if args.command == "build":
-        for architecture in args.architecture:
-            for configuration in args.configuration:
-                build(architecture, configuration, repository=args.repository, jobs=args.jobs)
+        if args.module is not None:
+            unity_build(
+                args.architecture, args.configuration,
+                repository=args.repository, jobs=args.jobs)
+        else:
+            for architecture in args.architecture:
+                for configuration in args.configuration:
+                    build(architecture, configuration, repository=args.repository, jobs=args.jobs)
     elif args.command == "test":
         for architecture in args.architecture:
             for configuration in args.configuration:

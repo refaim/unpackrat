@@ -1,3 +1,7 @@
+Version 1.2.1
+-------------
+ * Shared Observer metadata handling now supports lazy indexed catalogues and rejects producer paths beyond the UTF-8 metadata length bound.
+
 Version 1.2.0
 -------------
  + Added support for Windows XP–11.

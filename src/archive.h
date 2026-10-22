@@ -45,6 +45,14 @@ namespace archive
         void prepare_files();
 
         [[nodiscard]] const extractor::file &get_file(size_t index) const;
+        [[nodiscard]] extractor::file_metadata get_metadata(size_t index) const;
+        // Materialises entry metadata into a caller-owned buffer so a lazy catalogue never
+        // exposes its own storage. The returned path borrows `buffer` for the call only.
+        void get_metadata_into(size_t index, std::span<char> buffer, extractor::file_metadata &out) const;
+        // Optional caller-owned WCHAR route. Returns nullopt when the provider has no wide
+        // override, so callers can retain the existing UTF-8 route unchanged.
+        [[nodiscard]] std::optional<extractor::indexed_catalogue::column> get_wide_metadata_into(
+            size_t index, std::span<wchar_t> buffer) const;
 
         void extract_file(size_t index, const std::filesystem::path &path,
                           const std::function<void(int64_t)> &report_progress) const;

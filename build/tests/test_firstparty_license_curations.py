@@ -1,6 +1,6 @@
 """Reviewed first-party build/test tooling is isolated as content-addressed components.
 
-The seventeen reference-heavy first-party Python build/test files are scanned in full, but
+The nineteen reference-heavy first-party Python build/test files are scanned in full, but
 each is bound to a reviewed, byte-addressed component so that any later edit changes the
 component version and every curation keyed to the old bytes stops applying (fail closed).
 
@@ -108,17 +108,17 @@ class FirstPartyInventory(unittest.TestCase):
         self.entries = _entries()
         self.inventory = _inventory_components()
 
-    def test_the_fixture_covers_exactly_the_seventeen_first_party_files(self) -> None:
-        self.assertEqual(len(self.entries), 17)
+    def test_the_fixture_covers_exactly_the_nineteen_first_party_files(self) -> None:
+        self.assertEqual(len(self.entries), 19)
         members = {entry["member"] for entry in self.entries}
-        self.assertEqual(len(members), 17)
-        self.assertEqual(len({entry["name"] for entry in self.entries}), 17)
-        # The adopted build-tooling and WolfRPG registration sources must be present.
+        self.assertEqual(len(members), 19)
+        self.assertEqual(len({entry["name"] for entry in self.entries}), 19)
+        # The adopted build-tooling, Unity packaging/monitor, and WolfRPG registration sources must be present.
         for member in (
-            "build/licenses.py",
+            "build/licenses.py", "build/tests/test_unity_packaging.py",
             "build/tests/test_license_source_membership.py",
             "build/tests/test_wolfrpg_registration.py",
-            "build/tests/test_wolfrpg_license_registration.py",
+            "build/tests/test_wolfrpg_license_registration.py", "build/tests/test_unity_nuget_monitor.py",
         ):
             self.assertIn(member, members)
         for entry in self.entries:
@@ -203,7 +203,7 @@ class FirstPartyPackageConfiguration(unittest.TestCase):
         self.configs = _configs()
 
     def test_one_configuration_per_first_party_component(self) -> None:
-        self.assertEqual(len(self.configs), 17)
+        self.assertEqual(len(self.configs), 19)
         self.assertEqual(
             sorted(self.configs), sorted(entry["name"] for entry in self.entries)
         )
@@ -316,7 +316,7 @@ class LicenseAuditDocumentation(unittest.TestCase):
             self.docs,
         )
         self.assertIn(
-            "Editing any one of the seventeen changes the deterministic archive id",
+            "Editing any one of the nineteen changes the deterministic archive id",
             self.docs,
         )
 
@@ -376,12 +376,12 @@ class ObservedFindingCoverage(unittest.TestCase):
                 ]
                 self.assertEqual(1, len(matches))
                 reviewed = matches[0]
-                self.assertEqual(1, reviewed["line_count"])
+                self.assertEqual(finding["line_count"], reviewed["line_count"])
                 observed_lines = {
                     other["start_lines"]
                     for other in self.evidence["curated"]
                     if other["path"] == finding["path"]
-                    and other["detected_license"] == finding["detected_license"]
+                    and (other["detected_license"], other["line_count"]) == (finding["detected_license"], finding["line_count"])
                 }
                 self.assertEqual(observed_lines, set(_start_lines(reviewed["start_lines"])))
                 self.assertIn(reviewed, entry["curations"])

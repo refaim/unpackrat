@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Standalone behavioral probe for the UnityNativeAotObserverAdapter target in
+  ..\Directory.Build.targets.
+
+  It imports the experiment targets directly, defines an empty SetupOSSpecificProps
+  so the real target's AfterTargets hook resolves, and reports the exact
+  @(LinkerArg) items the target contributed. The condition matrix (empty property,
+  non-Windows, non-AOT, static library, unsupported architecture, x86, x64, missing
+  file) is driven by global properties from run-observer-adapter-contract.ps1, which
+  asserts the emitted items rather than the source text.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"
+         ToolsVersion="Current"
+         DefaultTargets="ReportObserverAdapter">
+  <Import Project="..\Directory.Build.targets" />
+
+  <!-- The real target hooks AfterTargets="SetupOSSpecificProps"; provide the symbol. -->
+  <Target Name="SetupOSSpecificProps" />
+
+  <Target Name="ReportObserverAdapter"
+          DependsOnTargets="SetupOSSpecificProps;UnityNativeAotObserverAdapter">
+    <Message Importance="high" Text="OBSERVER_LINKERARG=[@(LinkerArg)]" />
+  </Target>
+</Project>

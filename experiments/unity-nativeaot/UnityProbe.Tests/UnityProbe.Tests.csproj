@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<RootNamespace>Unpackrat.UnityProbe.Tests</RootNamespace>
+		<IsPackable>false</IsPackable>
+		<IsTestProject>true</IsTestProject>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+		<PackageReference Include="xunit" Version="2.9.3" />
+		<PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+		<PackageReference Include="coverlet.msbuild" Version="10.0.1">
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\UnityProbe\UnityProbe.csproj" />
+	</ItemGroup>
+
+	<!-- The hermetic integration fixture ships next to the test binary so the pipeline test needs
+	     no external corpus. -->
+	<ItemGroup>
+		<None Include="..\fixtures\text-only.*" Link="fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+		<None Include="..\fixtures\audio\*" Link="fixtures\audio\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<!-- Coverlet gate: the first-party probe assembly must keep full line and branch coverage.
+	     The module filter uses the supported '*' wildcard only: coverlet 10.0.1 rejects a literal
+	     hyphen (IsValidFilterExpression strips [ . ? ] then bans any other non-word char), which
+	     would silently discard the filter and instrument every vendored assembly. -->
+	<PropertyGroup>
+		<Include>[unpackrat*unity*probe]*</Include>
+		<Threshold>100</Threshold>
+		<ThresholdType>line,branch</ThresholdType>
+	</PropertyGroup>
+
+</Project>

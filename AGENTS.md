@@ -107,3 +107,42 @@ load the actual module binaries without requiring FAR Manager. Small repository-
 external golden corpus is an optional compatibility/stress layer selected with `-Corpus`.
 
 See `docs/build-system.md` for the current command contract and build architecture.
+
+## Windows XP SP3 verification VM
+
+XP portability checks run against a reusable Windows XP x86 SP3 guest, never a disposable one. Docker runs inside
+Ubuntu WSL2; there is no native Windows docker CLI, so Docker goes through WSL. The guest uses TCG software emulation
+(`KVM=N`) and is reached from the host at `http://localhost:8006`.
+
+Canonical VM directory: `C:\Users\Roma\.codex\vm\unpackrat-xp-sp3-x86` (in WSL,
+`/mnt/c/Users/Roma/.codex/vm/unpackrat-xp-sp3-x86`). Only its `shared` subfolder is shared: it is a host bind mounted
+into the container as `/shared`, which the guest reaches as `\\host.lan\Data`. The canonical root itself is not shared,
+and `/shared` is a container path, not an XP mount. The permanent container/EXTERNAL volume is
+`unpackrat-unity-xp-sp3-x86-20261017`.
+
+Start only the guarded `compose.yml` in the canonical directory. It pins the `dockurr/windows` image by digest
+(`sha256:59f8bed19cfd49cf1701debe34f9df6311e61a4e2ae68aa9f41206e2184e31cc`) and mounts a read-only
+`install.boot-only.sh` whose `startInstall` refuses the stock automatic installation and cleanup; that guard constrains
+only this entry point, so tools run manually could still change the disk. Inspect the compose, confirm the volume
+exists, and confirm the readonly guard is present before starting:
+
+```powershell
+wsl -d Ubuntu -- docker compose -f /mnt/c/Users/Roma/.codex/vm/unpackrat-xp-sp3-x86/compose.yml up -d --no-build --pull never
+```
+
+Reuse requires durable preconditions to already exist: the installed disk, the readonly guard, and a verified
+consistent backup. If the disk, volume, or metadata is missing, stop and investigate; never reinitialize or reinstall
+automatically. Never start the old unguarded container `unpackrat-xp-sp3-x86-smoke` or an old
+`xp-x86-sp3-smoke/compose.yml`, where a lost marker lets the stock installer auto-delete `data.img` before erroring. Do
+not assume a plain `docker start` is safe for a stock dockurr image, do not remove the guard or boot media/state on a
+guessed interpretation, and shut the guest down cleanly from inside XP before stopping the container.
+
+Before any migration, recreation, image change, or storage or boot configuration change, shut the guest down cleanly
+and keep a verified consistent backup outside every Docker volume, in
+`C:\Users\Roma\.codex\vm\unpackrat-xp-sp3-x86\backups`; restore into a separate volume and leave the original
+untouched. Routine operation (booting, logs, copying files) needs no backup. Never run `docker compose down -v`,
+`docker volume rm`, `docker volume prune`, or `docker system prune --volumes` against the permanent VM, and never
+rename, delete, or clean up its disk, state, or backups; deleting or replacing the VM, disk, or backups requires
+Roma's explicit instruction, and routine cleanup never does them. Do not offer destructive convenience commands.
+Report on-guest behavior only from inside the running guest: host and static checks do not prove guest execution, and
+never state portability results that were not observed.

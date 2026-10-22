@@ -28,6 +28,13 @@ BRANCHES = {
     "bcdec": ("iOrange/bcdec", "main"),
     "drlibs": ("mackron/dr_libs", "master"),
 }
+# Managers registered for sources that are not vcpkg dependencies. The standalone
+# AssetRipper release watcher reads experiments/unity-nativeaot/upstream.json;
+# AssetsTools.NET reads its PackageReference. Neither has a vcpkg manifest entry.
+STANDALONE_MANAGERS = {
+    "assetripper",
+    "AssetsTools.NET",
+}
 
 
 def expression(pattern: str) -> re.Pattern[str]:
@@ -67,7 +74,11 @@ class RenovateConfigurationTests(unittest.TestCase):
         }])
 
     def test_every_direct_dependency_has_a_live_version_or_source_ref(self) -> None:
-        self.assertEqual(set(self.managers), {dependency["name"] for dependency in self.manifest["dependencies"]})
+        self.assertEqual(len(self.managers), len(self.configuration["customManagers"]),
+                         "manager names stay unique")
+        self.assertEqual(set(self.managers),
+                         {dependency["name"] for dependency in self.manifest["dependencies"]}
+                         | STANDALONE_MANAGERS)
         for dependency in self.manifest["dependencies"]:
             name = dependency["name"]
             with self.subTest(dependency=name):

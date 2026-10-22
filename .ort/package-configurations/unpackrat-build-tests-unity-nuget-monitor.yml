@@ -1,0 +1,15 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-unity-nuget-monitor:f1ad038b9bdfe2157d8ee55b2315ef4f5cef567339eef888476a8f43852d6cc0",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/f1ad038b9bdfe2157d8ee55b2315ef4f5cef567339eef888476a8f43852d6cc0.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_unity_nuget_monitor.py",
+      "start_lines": "123",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 123 is the attribution string list entry containing GPL-3.0 combined work and StbImageSharp 2.30.15 that the test requires in the shipped Unity notice. This first-party MIT test tooling checks that retained notice text; it does not grant a license, and no third-party adoption is claimed. The linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
+    }
+  ]
+}

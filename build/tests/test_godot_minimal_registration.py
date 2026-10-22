@@ -6,8 +6,8 @@ The behaviour it pins is the *observable* integration contract:
 
 * Godot is a default module of the selection that drives the native audit
   and packaging routes (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
-* the default packaging route ships ``godot-1.2.0-bin-x64.zip``,
-  ``godot-1.2.0-bin-x86.zip`` and ``godot-1.2.0-pdb.zip`` with the shipped
+* the default packaging route ships ``godot-1.2.1-bin-x64.zip``,
+  ``godot-1.2.1-bin-x86.zip`` and ``godot-1.2.1-pdb.zip`` with the shipped
   payload, registration and notices;
 * ``build/projects/tests.vcxproj`` references ``godot.vcxproj`` with the fixed
   project GUID and ``LinkLibraryDependencies=false``;
@@ -44,11 +44,11 @@ PROJECTS = REPOSITORY_ROOT / "build" / "projects"
 NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 
 GODOT = "godot"
-GODOT_VERSION = "1.2.0"
+GODOT_VERSION = "1.2.1"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
 BASELINE = "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
 WOLFRPG = "wolfrpg"
-WOLFRPG_VERSION = "1.0.0"
+WOLFRPG_VERSION = "1.0.1"
 
 # Independent fixture bytes: the shipped payloads are compared against these
 # literals, never against a value rederived from the same source they came from.
@@ -559,8 +559,8 @@ class GodotDocsContract(GuardedCase):
             "| Unity | Unity serialized files and asset bundles "
             "(e.g. `.assets`, `.bundle`, `.unity3d`) | "
             "[unity](https://github.com/refaim/unpackrat/releases?q=unity) | "
-            "[RU](https://github.com/refaim/unpackrat/blob/unity/v1.0.0/src/modules/unity/ChangeLog.ru.txt) "
-            "[EN](https://github.com/refaim/unpackrat/blob/unity/v1.0.0/src/modules/unity/ChangeLog.en.txt) |",
+            "[RU](src/modules/unity/ChangeLog.ru.txt) "
+            "[EN](src/modules/unity/ChangeLog.en.txt) |",
             readme,
         )
         self.assertNotIn("<<<<<<<", readme)
@@ -585,12 +585,12 @@ class GodotDocsContract(GuardedCase):
             with self.subTest(language=language):
                 notes = (REPOSITORY_ROOT / f"src/modules/godot/ChangeLog.{language}.txt").read_text(encoding="utf-8")
                 headers = list(re.finditer(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE))
-                self.assertEqual([header.group(1) for header in headers], ["1.2.0", "1.0.0"])
+                self.assertEqual([header.group(1) for header in headers], ["1.2.1", "1.2.0", "1.0.0"])
                 top_block = notes[headers[0].end():headers[1].start()]
-                published_history = notes[headers[1].start():]
-                # The single approved 1.2.0 block replaces the unpublished intermediate
-                # releases; the published 1.0.0 history keeps all of its entries.
-                self.assertEqual(len(re.findall(r"^ [+*] ", top_block, re.MULTILINE)), 4)
+                runtime_block, published_history = notes[headers[1].end():headers[2].start()], notes[headers[2].start():]
+                # The reviewed 1.2.1 patch leaves the 1.2.0 runtime block and the published
+                # 1.0.0 history intact, with their original four and eight entries.
+                self.assertEqual([len(re.findall(r"^ [+*] ", block, re.MULTILINE)) for block in (top_block, runtime_block)], [1, 4])
                 self.assertEqual(len(re.findall(r"^ [+*] ", published_history, re.MULTILINE)), 8)
 
 

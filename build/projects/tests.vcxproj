@@ -60,6 +60,10 @@
     <ClCompile Include="$(RepositoryRoot)src\archive.cpp">
       <ObjectFileName>$(IntDir)archive_core.obj</ObjectFileName>
     </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\dll.cpp">
+      <ObjectFileName>$(IntDir)dll_core.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\common_observer.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\io\bounded_stream.cpp">
       <ObjectFileName>$(IntDir)bounded_stream_core.obj</ObjectFileName>
     </ClCompile>

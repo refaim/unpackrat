@@ -183,5 +183,47 @@ class OwnSourceArtifactMembership(unittest.TestCase):
                 licenses._own_source_component(self.component, self.repo, set())
 
 
+class OwnSourceRealRepositoryMembership(unittest.TestCase):
+    """The real Git tree must scan the Unity experiment without broad exclusions."""
+
+    def test_actual_tracked_tree_accounts_for_unity_sources_and_todo(self) -> None:
+        document = json.loads(INVENTORY.read_text(encoding="utf-8"))
+        component = next(
+            item for item in document["components"] if item.get("kind") == "own-source"
+        )
+        claimed = licenses._claimed_members(document["components"])
+        share_data = licenses._own_source_component(
+            component, REPOSITORY, claimed
+        )["shareData"]
+        tracked = licenses._git_tracked(REPOSITORY)
+        exclude = tuple(str(pattern) for pattern in component["exclude"])
+
+        self.assertIn("TODO.md", tracked)
+        self.assertNotIn("TODO.md", share_data)
+        self.assertTrue(licenses._matches_any("TODO.md", exclude))
+
+        for relative in (
+            "experiments/unity-nativeaot/UnityProbe/UnitySource.cs",
+            "experiments/unity-nativeaot/native/UnityObserverProbe.cpp",
+            "experiments/unity-nativeaot/build-tests/run-decision-table.ps1",
+            "experiments/unity-nativeaot/build-tests/observer-adapter-contract.proj",
+            "experiments/unity-nativeaot/patches/assetripper-stream-ownership.patch",
+            "experiments/unity-nativeaot/UnityProbe/ThirdParty/AssetsTools.NET/"
+            "ReusableAssetTypeValueIterator.cs",
+        ):
+            with self.subTest(path=relative):
+                self.assertIn(relative, share_data)
+
+        for path in tracked:
+            with self.subTest(tracked=path):
+                self.assertTrue(
+                    path in share_data
+                    or path in claimed
+                    or licenses._matches_any(path, exclude),
+                    f"{path} is neither scanned, claimed, nor a reviewed "
+                    "non-code exclusion",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

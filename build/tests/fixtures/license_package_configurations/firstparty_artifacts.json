@@ -1,7 +1,7 @@
 {
   "_comment": [
-    "Reviewed artifact and curation table for the seventeen isolated first-party build/test",
-    "Python components (2026-10-16 curation, extended 2026-10-21). sha256 is the SHA-256 of the",
+    "Reviewed artifact and curation table for the nineteen isolated first-party build/test",
+    "Python components (2026-10-16 curation, extended 2026-10-22). sha256 is the SHA-256 of the",
     "deterministic uncompressed tar (fixed PAX format, sorted members, mtime 0, uid/gid 0,",
     "empty uname/gname) built from the exact checked-out file bytes at review time (frozen",
     "CRLF per .gitattributes), so the value matches the future CI checkout. start_lines is the",
@@ -36,46 +36,55 @@
     {
       "name": "unpackrat-build-main",
       "member": "build/main.py",
-      "version": "5a100b8a79d1e0c493ee54617a9512365b378508676a2f4f6ece75f3362053f5",
-      "sha256": "5a100b8a79d1e0c493ee54617a9512365b378508676a2f4f6ece75f3362053f5",
-      "artifact_filename": "5a100b8a79d1e0c493ee54617a9512365b378508676a2f4f6ece75f3362053f5.tar",
+      "version": "b81a901178d4696090dde2848070c73c1ca81c14062bdb6604a1033acc2e3e0b",
+      "sha256": "b81a901178d4696090dde2848070c73c1ca81c14062bdb6604a1033acc2e3e0b",
+      "artifact_filename": "b81a901178d4696090dde2848070c73c1ca81c14062bdb6604a1033acc2e3e0b.tar",
       "extension": ".tar",
       "curations": [
         {
           "path": "build/main.py",
-          "start_lines": "51,54,56,57,59,63,720",
+          "start_lines": "78,81,83,84,86,90,91,92,93,96,101,106,108,109",
           "line_count": 1,
           "detected_license": "GPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 51,54,56,57,59,63,720 share the identifier GPL-3.0-only; line 63 is, for example, `\"wolfrpg\": (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\", \"json.txt\", \"YY-Thunks.txt\"),`. These are notice-filename literals and assertions in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 78,81,83,84,86,90,91,92,93,96,101,106,108,109 share the identifier GPL-3.0-only; line 90 is, for example, `\"wolfrpg\": (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\", \"json.txt\", \"YY-Thunks.txt\"),`. These are notice-filename and default-preamble literals plus new Unity-module prose, the LICENSES tuple, and the opt-in preamble in first-party MIT build/test tooling, not grants; the linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
         },
         {
           "path": "build/main.py",
-          "start_lines": "52",
+          "start_lines": "79",
           "line_count": 1,
           "detected_license": "LGPL-2.0-or-later",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Line 52 carries `# text the LGPL incorporates, and then only that module's own third-party notices.`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.0-or-later as a false positive, so the finding is removed."
+          "comment": "Line 79 carries `# text the LGPL incorporates, and then only that module's own third-party notices.`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.0-or-later as a false positive, so the finding is removed."
         },
         {
           "path": "build/main.py",
-          "start_lines": "51,719",
+          "start_lines": "78,91,100,108",
           "line_count": 1,
           "detected_license": "LGPL-3.0-only",
           "reason": "INCORRECT",
           "concluded_license": "NONE",
-          "comment": "Lines 51,719 share the identifier LGPL-3.0-only; line 51 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+          "comment": "Lines 78,91,100,108 share the identifier LGPL-3.0-only; line 78 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are the migrated Observer notice comment and default-preamble literals plus new Unity-module prose and the opt-in preamble in first-party MIT build/test tooling, not grants; the linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
+        },
+        {
+          "path": "build/main.py",
+          "start_lines": "108",
+          "line_count": 2,
+          "detected_license": "GPL-3.0-only",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Lines 108-109 (line_count 2) are the second ScanCode-observed span in the opt-in Unity preamble prose: line 108 is 'grant, the Observer API header's LGPLv3 notice with the full GPLv3 text, and the' and line 109 is 'GPL-3.0 and runtime third-party notices for that binary.'. This first-party MIT build script describes the retained notices for the AssetRipper-linked GPL-3.0 combined binary, not a new grant; the incorporated AssetRipper GPL-3.0 source is recorded unchanged in the inventory. Only this exact two-line finding is newly removed; the existing single-line 108 and 109 curations stay unchanged, and any three-line span remains unresolved."
         }
       ]
     },
     {
       "name": "unpackrat-build-tests-godot-minimal-registration",
       "member": "build/tests/test_godot_minimal_registration.py",
-      "version": "bcabbb530573d2bc6dadb221c8f0c35025a2af156e2723e4db44647eaac5412a",
-      "sha256": "bcabbb530573d2bc6dadb221c8f0c35025a2af156e2723e4db44647eaac5412a",
-      "artifact_filename": "bcabbb530573d2bc6dadb221c8f0c35025a2af156e2723e4db44647eaac5412a.tar",
+      "version": "400179e08a3580f4a824e9e51dea71db7d0ab55596e2e52ad05cf0a14e2a756a",
+      "sha256": "400179e08a3580f4a824e9e51dea71db7d0ab55596e2e52ad05cf0a14e2a756a",
+      "artifact_filename": "400179e08a3580f4a824e9e51dea71db7d0ab55596e2e52ad05cf0a14e2a756a.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -92,9 +101,9 @@
     {
       "name": "unpackrat-build-tests-wolfrpg-registration",
       "member": "build/tests/test_wolfrpg_registration.py",
-      "version": "c27e19541290e4aaed10506363f62046eaf7dc92d4cdf05b08451937f2c3bcef",
-      "sha256": "c27e19541290e4aaed10506363f62046eaf7dc92d4cdf05b08451937f2c3bcef",
-      "artifact_filename": "c27e19541290e4aaed10506363f62046eaf7dc92d4cdf05b08451937f2c3bcef.tar",
+      "version": "1e393cf0fa6fbea6d6bda55ed1c8e4f30d8393ea5ea5c86206c9d73d6678b806",
+      "sha256": "1e393cf0fa6fbea6d6bda55ed1c8e4f30d8393ea5ea5c86206c9d73d6678b806",
+      "artifact_filename": "1e393cf0fa6fbea6d6bda55ed1c8e4f30d8393ea5ea5c86206c9d73d6678b806.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -139,9 +148,9 @@
     {
       "name": "unpackrat-build-tests-license-package-configurations",
       "member": "build/tests/test_license_package_configurations.py",
-      "version": "6f70b80ceee56062ee0f2cc707efd72816baf8dc610d123e0cae8757d731c1df",
-      "sha256": "6f70b80ceee56062ee0f2cc707efd72816baf8dc610d123e0cae8757d731c1df",
-      "artifact_filename": "6f70b80ceee56062ee0f2cc707efd72816baf8dc610d123e0cae8757d731c1df.tar",
+      "version": "aa34ef18c34a9804f5fd8c6f581832855738888211699fe83c2e5a1e67dc5bd3",
+      "sha256": "aa34ef18c34a9804f5fd8c6f581832855738888211699fe83c2e5a1e67dc5bd3",
+      "artifact_filename": "aa34ef18c34a9804f5fd8c6f581832855738888211699fe83c2e5a1e67dc5bd3.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -340,9 +349,9 @@
     {
       "name": "unpackrat-build-tests-license-source-membership",
       "member": "build/tests/test_license_source_membership.py",
-      "version": "98c3267699dd1ed0a0394f7846ded01fe710b8103a421d4cc6638bcb3b61c683",
-      "sha256": "98c3267699dd1ed0a0394f7846ded01fe710b8103a421d4cc6638bcb3b61c683",
-      "artifact_filename": "98c3267699dd1ed0a0394f7846ded01fe710b8103a421d4cc6638bcb3b61c683.tar",
+      "version": "7d51631774c19f7c36d03f3c25903d13cacb3405cd3bee251a1238f644e0e19a",
+      "sha256": "7d51631774c19f7c36d03f3c25903d13cacb3405cd3bee251a1238f644e0e19a",
+      "artifact_filename": "7d51631774c19f7c36d03f3c25903d13cacb3405cd3bee251a1238f644e0e19a.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -591,9 +600,9 @@
     {
       "name": "unpackrat-build-tests-firstparty-license-curations",
       "member": "build/tests/test_firstparty_license_curations.py",
-      "version": "61d3800a4c658d26015f58e5b3d3ecd10482b47f683ccfe0b3d701b4538387dc",
-      "sha256": "61d3800a4c658d26015f58e5b3d3ecd10482b47f683ccfe0b3d701b4538387dc",
-      "artifact_filename": "61d3800a4c658d26015f58e5b3d3ecd10482b47f683ccfe0b3d701b4538387dc.tar",
+      "version": "80c163e5a0b88e29830f7af4a6b97b56437ebe7e4d1121546baf1507b3e6fbe2",
+      "sha256": "80c163e5a0b88e29830f7af4a6b97b56437ebe7e4d1121546baf1507b3e6fbe2",
+      "artifact_filename": "80c163e5a0b88e29830f7af4a6b97b56437ebe7e4d1121546baf1507b3e6fbe2.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -604,6 +613,62 @@
           "reason": "INCORRECT",
           "concluded_license": "NONE",
           "comment": "Line 297 carries the documentation assertion naming the owner-approved PATENT_GRANT_EXCEPTION. This first-party MIT test file holds those words only as policy-data text, not a grant; ScanCode reported LicenseRef-scancode-unknown as a false positive, so the finding is removed."
+        }
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-unity-packaging",
+      "member": "build/tests/test_unity_packaging.py",
+      "version": "1630ef74260d058a8a443e5767049cd5693d6e34dc9f2f4a68ece675528b022f",
+      "sha256": "1630ef74260d058a8a443e5767049cd5693d6e34dc9f2f4a68ece675528b022f",
+      "artifact_filename": "1630ef74260d058a8a443e5767049cd5693d6e34dc9f2f4a68ece675528b022f.tar",
+      "extension": ".tar",
+      "curations": [
+        {
+          "path": "build/tests/test_unity_packaging.py",
+          "start_lines": "5,48,50,123,129,133,135,145",
+          "line_count": 1,
+          "detected_license": "GPL-3.0-only",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Lines 5,48,50,123,129,133,135,145 share the identifier GPL-3.0-only; line 5 is the module docstring text 'LICENSES.txt labels the combined binary as a GPL-3.0 work instead of an MIT-only module, and a'. These are fixture notice filename and notice-text literals, test method names, and assertions and negative assertions about the Unity module's GPL-3.0 combined binary in first-party MIT test tooling, not grants. The linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
+        },
+        {
+          "path": "build/tests/test_unity_packaging.py",
+          "start_lines": "120,240,243",
+          "line_count": 1,
+          "detected_license": "GPL-1.0-or-later",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Lines 120,240,243 share the identifier GPL-1.0-or-later; line 120 is the test method name test_unity_registers_its_gpl_and_third_party_notices, line 240 is the test method name test_shipped_unity_notice_bundle_labels_gpl_and_the_third_parties, and line 243 asserts that the literal GNU GENERAL PUBLIC LICENSE appears in the shipped notice. Test method names and expected notice text in first-party MIT test tooling are not grants. The linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
+        },
+        {
+          "path": "build/tests/test_unity_packaging.py",
+          "start_lines": "47",
+          "line_count": 1,
+          "detected_license": "LGPL-3.0-only",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Line 47 is the synthetic fixture value 'Fixture Observer LGPLv3 notice' assigned to Observer.txt in first-party MIT test tooling. It names the notice the test writes, not a grant, and no third-party adoption is claimed. The false-positive finding is removed."
+        }
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-unity-nuget-monitor",
+      "member": "build/tests/test_unity_nuget_monitor.py",
+      "version": "f1ad038b9bdfe2157d8ee55b2315ef4f5cef567339eef888476a8f43852d6cc0",
+      "sha256": "f1ad038b9bdfe2157d8ee55b2315ef4f5cef567339eef888476a8f43852d6cc0",
+      "artifact_filename": "f1ad038b9bdfe2157d8ee55b2315ef4f5cef567339eef888476a8f43852d6cc0.tar",
+      "extension": ".tar",
+      "curations": [
+        {
+          "path": "build/tests/test_unity_nuget_monitor.py",
+          "start_lines": "123",
+          "line_count": 1,
+          "detected_license": "GPL-3.0-only",
+          "reason": "INCORRECT",
+          "concluded_license": "NONE",
+          "comment": "Line 123 is the attribution string list entry containing GPL-3.0 combined work and StbImageSharp 2.30.15 that the test requires in the shipped Unity notice. This first-party MIT test tooling checks that retained notice text; it does not grant a license, and no third-party adoption is claimed. The linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
         }
       ]
     }
