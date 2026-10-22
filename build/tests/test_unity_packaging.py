@@ -25,7 +25,7 @@ import main  # noqa: E402
 
 
 UNITY = "unity"
-UNITY_VERSION = "1.0.0"
+UNITY_VERSION = "1.0.1"
 MODULES_UNDER_TEST = ("renpy", "rpgmaker", "zanzarah", "godot")
 
 UNITY_SO_X86 = b"\x7fELF unity shared object x86 fixture\n"
@@ -214,7 +214,7 @@ class UnityCliTests(UnityFixtureCase):
 class UnityShippedTreeTests(unittest.TestCase):
     """The real ``src/modules/unity`` registration must match the shipped layout."""
 
-    def test_version_is_release_1_0_0(self) -> None:
+    def test_version_is_release_1_0_1(self) -> None:
         self.assertEqual(main.read_version(REPOSITORY_ROOT, UNITY), UNITY_VERSION)
 
     def test_observer_registration_uses_the_module_binary_and_a_narrow_filter(self) -> None:
@@ -233,8 +233,8 @@ class UnityShippedTreeTests(unittest.TestCase):
         russian = (REPOSITORY_ROOT / "src" / "modules" / UNITY / "ChangeLog.ru.txt").read_text("utf-8")
         english_headers = re.findall(r"^Version \d+\.\d+\.\d+$", english, re.MULTILINE)
         russian_headers = re.findall(r"^Версия \d+\.\d+\.\d+$", russian, re.MULTILINE)
-        self.assertEqual(english_headers, ["Version 1.0.0"])
-        self.assertEqual(russian_headers, ["Версия 1.0.0"])
+        self.assertEqual(english_headers, ["Version 1.0.1", "Version 1.0.0"])
+        self.assertEqual(russian_headers, ["Версия 1.0.1", "Версия 1.0.0"])
 
     def test_shipped_unity_notice_bundle_labels_gpl_and_the_third_parties(self) -> None:
         notice = (REPOSITORY_ROOT / "licenses" / "Unity.txt").read_bytes()

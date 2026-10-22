@@ -15,6 +15,7 @@
 		<EventSourceSupport>false</EventSourceSupport>
 		<MetadataUpdaterSupport>false</MetadataUpdaterSupport>
 		<IlcDisableReflection>true</IlcDisableReflection>
+		<Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../../src/modules/unity/VERSION').Trim())</Version>
 	</PropertyGroup>
 
 	<!-- Release shared AOT modules for either Windows architecture use independent

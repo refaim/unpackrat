@@ -36,6 +36,8 @@ internal static partial class UnitySource
 	// Retained resource/atlas identities remain ordinary Unity objects for upstream PPtr and
 	// original-path processing. Unsupported shapes are skipped after complete source ID validation.
 
+	private readonly record struct AtlasEntry(int FileId, long PathId, SpriteSourceFacts Geometry);
+
 	private sealed class DeferredObject(AssetInfo info, ObjectInfo data, IReadOnlyList<SerializedTypeReference> references, Shape shape, LazyAssetFactory owner) : UnityObjectBase(info), IObject, INamed, IProbeResource
 	{
 		private long sourceSize;
@@ -51,7 +53,7 @@ internal static partial class UnitySource
 		public IReadOnlyList<SerializedTypeReference> References { get; } = references;
 		public Shape Shape { get; } = shape;
 		public UnityProjection? Projection { get; set; }
-		public Dictionary<(ulong, ulong, ulong, ulong, long), (int FileId, long PathId)>? AtlasTextures { get; set; }
+		public Dictionary<(ulong, ulong, ulong, ulong, long), AtlasEntry>? AtlasTextures { get; set; }
 		UnityEntryKind IProbeResource.Kind => Shape.Kind.GetValueOrDefault();
 		long IProbeResource.PathId => PathID;
 		string IProbeResource.Name => name;
@@ -68,7 +70,9 @@ internal static partial class UnitySource
 
 	private sealed record Shape(UnityEntryKind? Kind, bool Atlas, AssetTypeTemplateField? Template, IAudioClip? Audio)
 	{
+		private UnityProjection.State? quadTraversal;
 		public UnityProjection.State? Traversal { get; } = Template is null ? null : new(Template);
+		public UnityProjection.State? QuadTraversal => Template is null ? null : quadTraversal ??= new(Template!, UnityProjection.Profile.Quad);
 	}
 
 	internal sealed partial class LazyAssetFactory(AssetFactoryBase fullReader, bool compact = false) : AssetFactoryBase
@@ -272,7 +276,7 @@ internal static partial class UnitySource
 			return (true, size, extension);
 		}
 
-		private static UnityProjection.ByteRange Range(UnityProjection fields, string root)
+		internal static UnityProjection.ByteRange Range(UnityProjection fields, string root)
 		{
 			UnityProjection.ByteRange range = fields.Bytes(root);
 			return range.Length != 0 ? range : fields.Bytes(root + "/Array");
@@ -293,9 +297,9 @@ internal static partial class UnitySource
 
 		private static (ulong, ulong, ulong, ulong, long) Key(UnityProjection fields, string prefix)
 			=> new(fields.Unsigned(prefix + "/first/data[0]"), fields.Unsigned(prefix + "/first/data[1]"), fields.Unsigned(prefix + "/first/data[2]"), fields.Unsigned(prefix + "/first/data[3]"), fields.Number(prefix + "/second"));
-		private static Dictionary<(ulong, ulong, ulong, ulong, long), (int FileId, long PathId)> AtlasIndex(UnityProjection fields)
+		private static Dictionary<(ulong, ulong, ulong, ulong, long), AtlasEntry> AtlasIndex(UnityProjection fields)
 		{
-			Dictionary<(ulong, ulong, ulong, ulong, long), (int FileId, long PathId)> result = [];
+			Dictionary<(ulong, ulong, ulong, ulong, long), AtlasEntry> result = [];
 			foreach (string path in fields.Keys)
 			{
 				const string tail = "/first/second";
@@ -303,17 +307,23 @@ internal static partial class UnitySource
 				string entry = path[..^tail.Length];
 				string pointer = entry + "/second/texture";
 				// The pinned AccessDictionary returns the first matching entry for duplicate keys.
-				result.TryAdd(Key(fields, entry + "/first"), ((int)fields.Number(pointer + "/m_FileID"), fields.Number(pointer + "/m_PathID")));
+				result.TryAdd(Key(fields, entry + "/first"),
+					new AtlasEntry((int)fields.Number(pointer + "/m_FileID"), fields.Number(pointer + "/m_PathID"),
+						SpriteFactsReader.ReadSource(fields, entry + "/second/")));
 			}
 			return result;
 		}
-		private bool TryTextureSize(AssetCollection collection, long path, out long size)
+		private bool TryTextureInfo(AssetCollection collection, long path, out long size, out int width, out int height)
 		{
-			if (compactCollections.TryGetValue(collection, out CompactCollection? rows)) return rows.TryTextureSize(path, out size);
-			size = 0;
-			if (collection.TryGetAsset(path) is not DeferredObject texture || EmptyTexture(texture)) return false;
-			size = TextureSize(texture.Projection!); return true;
+			if (compactCollections.TryGetValue(collection, out CompactCollection? rows)) return rows.TryTextureInfo(path, out size, out width, out height);
+			size = 0; width = 0; height = 0;
+			if (collection.TryGetAsset(path) is not DeferredObject texture || EmptyTexture(texture)
+				|| texture.Projection is not { } fields) return false;
+			size = TextureSize(fields); width = unchecked((int)fields.Number("m_Width")); height = unchecked((int)fields.Number("m_Height"));
+			return true;
 		}
+		private bool TryTextureSize(AssetCollection collection, long path, out long size)
+			=> TryTextureInfo(collection, path, out size, out _, out _);
 		private bool TrySpriteSize(DeferredObject sprite, out bool fromAtlas, out long size)
 		{
 			UnityProjection fields = sprite.Projection!; size = 0;
@@ -325,7 +335,7 @@ internal static partial class UnitySource
 				DeferredObject? atlas = Reference(sprite, "m_SpriteAtlas");
 				if (atlas?.Projection is not { } atlasFields || !atlas.Shape.Atlas) return false;
 				atlas.AtlasTextures ??= AtlasIndex(atlasFields);
-				if (!atlas.AtlasTextures.TryGetValue(Key(fields, "m_RenderDataKey"), out var pointer)) return false;
+				if (!atlas.AtlasTextures.TryGetValue(Key(fields, "m_RenderDataKey"), out AtlasEntry pointer)) return false;
 				owner = atlas.Collection; file = pointer.FileId; path = pointer.PathId;
 			}
 			else { file = (int)fields.Number("m_RD/texture/m_FileID"); path = fields.Number("m_RD/texture/m_PathID"); }

@@ -1783,5 +1783,16 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/ZstdCompression.cs b/Source
 +using SharpCompress.Compressors.ZStandard;
  
  namespace AssetRipper.IO.Files.BundleFiles;
- 
 
+diff --git a/Source/AssetRipper.SourceGenerated.Extensions/VertexDataBlob.cs b/Source/AssetRipper.SourceGenerated.Extensions/VertexDataBlob.cs
+--- a/Source/AssetRipper.SourceGenerated.Extensions/VertexDataBlob.cs
++++ b/Source/AssetRipper.SourceGenerated.Extensions/VertexDataBlob.cs
+@@ -693,7 +693,7 @@
+ 		return offset;
+ 	}
+ 
+-	private static IStreamInfo[] ConvertChannelsToStreams(IReadOnlyList<ChannelInfo> channels, uint vertexCount, UnityVersion version)
++	public static IStreamInfo[] ConvertChannelsToStreams(IReadOnlyList<ChannelInfo> channels, uint vertexCount, UnityVersion version)
+ 	{
+ 		if (channels.Count == 0)
+ 		{

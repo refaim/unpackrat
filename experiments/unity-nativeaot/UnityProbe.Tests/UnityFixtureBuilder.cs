@@ -175,10 +175,10 @@ internal static class UnityFixtureBuilder
         return Serialize(builder.Build());
     }
 
-	public static byte[] SerializedRepeatedSprites(int count, bool malformedLast = false)
+	public static byte[] SerializedRepeatedSprites(int count, bool malformedLast = false, uint settingsRaw = 2u)
 	{
 		byte[] pixel = [10, 20, 30, 255];
-		byte[] bytes = SerializedSprite("hero", pixel, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+		byte[] bytes = SerializedSprite("hero", pixel, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, settingsRaw: settingsRaw);
 		using SmartStream input = SmartStream.CreateMemory(bytes);
 		using SerializedFile source = (SerializedFile)SchemeReader.ReadFile(input, "sprite.assets", "sprite.assets");
 		SerializedFileBuilder builder = NewBuilder(source.Version, Texture2DClassId, SpriteClassId);
@@ -188,6 +188,43 @@ internal static class UnityFixtureBuilder
 		for (int i = 0; i < count; i++)
 			builder.Objects.Add(new ObjectInfo { FileID = i + 2, TypeID = SpriteClassId, ClassID = SpriteClassId, SerializedTypeIndex = 1,
 				Type = builder.Types[1], ObjectData = malformedLast && i == count - 1 ? new byte[] { 1 } : sprite });
+		return Serialize(builder.Build());
+	}
+
+	/// <summary>
+	/// One real inline texture row and <paramref name="count"/> Sprites that each select a distinct
+	/// one-pixel column of it. The geometry is deliberately non-duplicate, so ordered-catalogue and
+	/// allocation tests can exercise the ordinary Sprite path without silently collapsing to one
+	/// canonical row.
+	/// </summary>
+	public static byte[] SerializedDistinctSprites(int count, bool malformedLast = false)
+	{
+		UnityVersion version = UnityVersion.Parse("2021.3.0f1");
+		ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
+		ITexture2D texture = CreateTexture(collection, "hero_texture", new byte[checked(count * 4)], count, 1);
+		SerializedFileBuilder builder = NewBuilder(version, Texture2DClassId, SpriteClassId);
+		builder.Objects.Add(new ObjectInfo { FileID = texture.PathID, TypeID = Texture2DClassId,
+			ClassID = Texture2DClassId, SerializedTypeIndex = 0, Type = builder.Types[0],
+			ObjectData = WriteAssetBytes(collection, texture) });
+		for (int i = 0; i < count; i++)
+		{
+			ISprite sprite = AssetCreator.CreateSprite(collection);
+			sprite.Name = new Utf8String("hero");
+			sprite.Rect.Width = 1f;
+			sprite.Rect.Height = 1f;
+			sprite.Pivot.X = 0.5f;
+			sprite.Pivot.Y = 0.5f;
+			sprite.PixelsToUnits = 100f;
+			ISpriteRenderData renderData = sprite.RD;
+			renderData.Texture.SetAsset(collection, texture);
+			renderData.TextureRect.X = i;
+			renderData.TextureRect.Width = 1f;
+			renderData.TextureRect.Height = 1f;
+			renderData.SettingsRaw = 2u;
+			builder.Objects.Add(new ObjectInfo { FileID = sprite.PathID, TypeID = SpriteClassId,
+				ClassID = SpriteClassId, SerializedTypeIndex = 1, Type = builder.Types[1],
+				ObjectData = malformedLast && i == count - 1 ? [1] : WriteAssetBytes(collection, sprite) });
+		}
 		return Serialize(builder.Build());
 	}
 
@@ -642,6 +679,12 @@ internal static class UnityFixtureBuilder
 
 		/// <summary>Appends one extra channel with a zero dimension, which no decoder decodes.</summary>
 		public bool AddUnusedChannel { get; init; }
+
+		/// <summary>Selects an extra active channel at this zero-based index in stream 1.</summary>
+		public int? ActiveExtraChannelIndex { get; init; }
+
+		/// <summary>Declared format for <see cref="ActiveExtraChannelIndex"/>.</summary>
+		public byte ActiveExtraChannelFormat { get; init; }
 	}
 
 	/// <summary>
@@ -677,6 +720,7 @@ internal static class UnityFixtureBuilder
 		string? headerVersion = null,
 		bool externalTexture = false,
 		int? textureFileOverride = null,
+		bool includeLocalTexture = true,
 		params string[] dependencies)
 	{
 		UnityVersion version = UnityVersion.Parse(layoutVersion ?? "2021.3.0f1");
@@ -726,15 +770,18 @@ internal static class UnityFixtureBuilder
 		byte[] spriteObjectData = WriteAssetBytes(collection, sprite);
 
 		SerializedFileBuilder builder = NewBuilder(UnityVersion.Parse(headerVersion ?? version.ToString()), Texture2DClassId, SpriteClassId);
-		builder.Objects.Add(new ObjectInfo
+		if (includeLocalTexture)
 		{
-			FileID = texturePathId,
-			TypeID = Texture2DClassId,
-			ClassID = Texture2DClassId,
-			SerializedTypeIndex = 0,
-			Type = builder.Types[0],
-			ObjectData = textureObjectData,
-		});
+			builder.Objects.Add(new ObjectInfo
+			{
+				FileID = texturePathId,
+				TypeID = Texture2DClassId,
+				ClassID = Texture2DClassId,
+				SerializedTypeIndex = 0,
+				Type = builder.Types[0],
+				ObjectData = textureObjectData,
+			});
+		}
 		builder.Objects.Add(new ObjectInfo
 		{
 			FileID = spritePathId,
@@ -755,6 +802,46 @@ internal static class UnityFixtureBuilder
 			});
 		}
 
+		return Serialize(builder.Build());
+	}
+
+	/// <summary>
+	/// A serialized asset file with one inline texture and two sprites whose render data both
+	/// resolve to that texture, so canonicalization can be exercised across distinct sprite
+	/// identities that share one real source.
+	/// </summary>
+	public static byte[] SerializedSharedSourceSprites(
+		string firstName,
+		string secondName,
+		byte[] textureData,
+		int width,
+		int height,
+		TightMeshOptions? firstMesh,
+		TightMeshOptions? secondMesh,
+		uint firstSettingsRaw = 64u,
+		uint secondSettingsRaw = 64u,
+		float firstDownscale = 0f,
+		float secondDownscale = 0f)
+	{
+		byte[] first = SerializedSprite(firstName, textureData, width, height,
+			0, 0, width, height, 0, 0, width, height, 0, 0,
+			settingsRaw: firstSettingsRaw, tightMesh: firstMesh, downscale: firstDownscale,
+			spritePathId: 2);
+		byte[] second = SerializedSprite(secondName, textureData, width, height,
+			0, 0, width, height, 0, 0, width, height, 0, 0,
+			settingsRaw: secondSettingsRaw, tightMesh: secondMesh, downscale: secondDownscale,
+			spritePathId: 3);
+		using SmartStream firstInput = SmartStream.CreateMemory(first);
+		using SmartStream secondInput = SmartStream.CreateMemory(second);
+		using SerializedFile firstFile = (SerializedFile)SchemeReader.ReadFile(firstInput, "first.assets", "first.assets");
+		using SerializedFile secondFile = (SerializedFile)SchemeReader.ReadFile(secondInput, "second.assets", "second.assets");
+		SerializedFileBuilder builder = NewBuilder(firstFile.Version, Texture2DClassId, SpriteClassId);
+		builder.Objects.Add(new ObjectInfo { FileID = 1, TypeID = Texture2DClassId, ClassID = Texture2DClassId,
+			SerializedTypeIndex = 0, Type = builder.Types[0], ObjectData = firstFile.Objects[0].ObjectData });
+		builder.Objects.Add(new ObjectInfo { FileID = 2, TypeID = SpriteClassId, ClassID = SpriteClassId,
+			SerializedTypeIndex = 1, Type = builder.Types[1], ObjectData = firstFile.Objects[1].ObjectData });
+		builder.Objects.Add(new ObjectInfo { FileID = 3, TypeID = SpriteClassId, ClassID = SpriteClassId,
+			SerializedTypeIndex = 1, Type = builder.Types[1], ObjectData = secondFile.Objects[1].ObjectData });
 		return Serialize(builder.Build());
 	}
 
@@ -1029,6 +1116,11 @@ internal static class UnityFixtureBuilder
 		}
 
 		renderData.VertexData.VertexCount = options.DeclaredVertexCount ?? (uint)vertexCount;
+		int? activeExtraChannelIndex = options.ActiveExtraChannelIndex;
+		if (activeExtraChannelIndex is not null)
+		{
+			Array.Resize(ref data, data.Length + (vertexCount * sizeof(float)));
+		}
 		renderData.VertexData.Data = data;
 		byte dimension = options.ChannelDimension ?? 3;
 		byte format = options.ChannelFormat ?? 0;
@@ -1043,6 +1135,15 @@ internal static class UnityFixtureBuilder
 		if (options.AddUnusedChannel)
 		{
 			AddChannel(renderData, 0, 0, 0, 0);
+		}
+
+		if (activeExtraChannelIndex is int extraChannelIndex)
+		{
+			for (int i = 1; i < extraChannelIndex; i++)
+			{
+				AddChannel(renderData, 0, 0, 0, 0);
+			}
+			AddChannel(renderData, 1, options.ActiveExtraChannelFormat, 0, 1);
 		}
 
 		ushort[] indices = options.Indices ?? Enumerable.Range(0, vertexCount).Select(value => (ushort)value).ToArray();

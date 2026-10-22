@@ -290,6 +290,25 @@ public sealed class UnityLeanIndexTests(ITestOutputHelper output)
 		File.WriteAllBytes(path, bytes); File.WriteAllBytes(Path.Combine(directory, "media.resS"), payload);
 		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(path, readFile: null));
 		using UnitySession compact = UnitySession.Open(path);
+		if (family == "sprite")
+		{
+			// The selected Sprite renders exactly its selected texture, so the compact catalogue
+			// keeps the canonical Sprite and suppresses the duplicate full-texture row. The eager
+			// reference graph keeps both entries.
+			Assert.Equal(2, legacy.Entries.Count);
+			UnityCatalogEntry sprite = Assert.Single(compact.Entries);
+			Assert.Equal(UnityEntryKind.Sprite, sprite.Kind);
+			UnityCatalogEntry legacySprite = Assert.Single(legacy.Entries, entry => entry.Kind == UnityEntryKind.Sprite);
+			for (int pass = 0; pass < 2; pass++)
+			{
+				using MemoryStream expected = new(), actual = new();
+				Assert.True(legacy.Export(legacySprite.Index, expected));
+				Assert.True(compact.Export(sprite.Index, actual));
+				Assert.Equal(expected.ToArray(), actual.ToArray());
+			}
+			Assert.Equal(0, ResolvedIdentityCount(Root(compact)));
+			return;
+		}
 		Assert.Equal(legacy.Entries, compact.Entries); Assert.Equal(Hash(legacy.Entries), Hash(compact.Entries));
 		for (int pass = 0; pass < 2; pass++)
 			for (int i = 0; i < compact.Entries.Count; i++)
@@ -313,14 +332,25 @@ public sealed class UnityLeanIndexTests(ITestOutputHelper output)
 		File.WriteAllBytes(Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName), atlas);
 		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(path, readFile: null));
 		using UnitySession compact = UnitySession.Open(path);
-		Assert.Equal(legacy.Entries, compact.Entries); Assert.Equal(Hash(legacy.Entries), Hash(compact.Entries));
-		Assert.Equal(new long[] { 16, 0, 16, 0 }, compact.Entries.Select(entry => entry.SourceSize));
+		UnityCatalogEntry canonicalSprite = Assert.Single(legacy.Entries, entry => entry.Kind == UnityEntryKind.Sprite && entry.Name == "hero");
+		UnityCatalogEntry[] expected = legacy.Entries
+			.Where(entry => entry.Kind == UnityEntryKind.Texture || entry.Index == canonicalSprite.Index)
+			.ToArray();
+		Assert.Equal(4, legacy.Entries.Count);
+		Assert.Equal(3, expected.Length);
+		Assert.Equal(expected.Select(entry => (entry.PathId, entry.Name, entry.Kind, entry.SourceSize)),
+			compact.Entries.Select(entry => (entry.PathId, entry.Name, entry.Kind, entry.SourceSize)));
+		Assert.Equal(2, compact.Entries.Count(entry => entry.Kind == UnityEntryKind.Texture));
+		Assert.Single(compact.Entries, entry => entry.Kind == UnityEntryKind.Sprite && entry.Name == "hero");
+		Assert.Equal(new long[] { 16, 0, 16 }, compact.Entries.Select(entry => entry.SourceSize));
 		for (int pass = 0; pass < 2; pass++)
-			for (int i = 0; i < compact.Entries.Count; i++)
+			for (int i = 0; i < expected.Length; i++)
 			{
-				using MemoryStream expected = new(), actual = new();
-				Assert.True(legacy.Export(i, expected)); Assert.True(compact.Export(i, actual));
-				Assert.Equal(expected.ToArray(), actual.ToArray()); Assert.Equal(0, ResolvedIdentityCount(Root(compact)));
+				using MemoryStream sourceOutput = new(), compactOutput = new();
+				Assert.True(legacy.Export(expected[i].Index, sourceOutput));
+				Assert.True(compact.Export(compact.Entries[i].Index, compactOutput));
+				Assert.Equal(sourceOutput.ToArray(), compactOutput.ToArray());
+				Assert.Equal(0, ResolvedIdentityCount(Root(compact)));
 			}
 	}
 
@@ -349,6 +379,44 @@ public sealed class UnityLeanIndexTests(ITestOutputHelper output)
 		Assert.True(allocated < 2 * 1024 * 1024,
 			$"4096 already-parsed resource headers allocated {allocated} B; compact capture must not allocate a Unity identity and independent projection arrays for every object.");
 		GC.KeepAlive(session); GC.KeepAlive(root);
+	}
+
+	[Fact]
+	public void HiddenSpriteTextureRemainsResolvableAcrossExportRetries()
+	{
+		byte[] pixels = Enumerable.Repeat(new byte[] { 4, 5, 6, 255 }, 4).SelectMany(pixel => pixel).ToArray();
+		string path = Path.Combine(Temp.NewDirectory(), "hidden-texture.assets");
+		File.WriteAllBytes(path, UnityFixtureBuilder.SerializedSprite("hidden", pixels, 2, 2,
+			0, 0, 2, 2, 0, 0, 2, 2, 0, 0));
+		using UnitySession session = UnitySession.Open(path);
+		UnityCatalogEntry sprite = Assert.Single(session.Entries);
+		Assert.Equal(UnityEntryKind.Sprite, sprite.Kind);
+		Assert.DoesNotContain(session.Entries, entry => entry.Kind == UnityEntryKind.Texture);
+		for (int pass = 0; pass < 2; pass++)
+		{
+			using MemoryStream output = new();
+			Assert.True(session.Export(sprite.Index, output));
+			Assert.Equal(pixels, PngDecoder.Decode(output.ToArray()).Rgba);
+			Assert.Equal(0, ResolvedIdentityCount(Root(session)));
+		}
+	}
+
+	[Fact]
+	public void MaximumBoundedResourceNameSurvivesPackedHeaderStorage()
+	{
+		const int length = 1_048_576;
+		string name = new('x', length);
+		string path = Path.Combine(Temp.NewDirectory(), "maximum-name.assets");
+		File.WriteAllBytes(path, UnityFixtureBuilder.SerializedTextAsset(name, "payload"));
+		using UnitySession session = UnitySession.Open(path);
+		UnityCatalogEntry entry = Assert.Single(session.Entries);
+		Assert.Equal(length, entry.Name.Length);
+		Assert.Equal(name, entry.Name);
+		Assert.Equal(7, entry.SourceSize);
+		using MemoryStream output = new();
+		Assert.True(session.Export(entry.Index, output));
+		Assert.Equal("payload", Encoding.UTF8.GetString(output.ToArray()));
+		Assert.Equal(0, ResolvedIdentityCount(Root(session)));
 	}
 
 	[Fact]
@@ -736,12 +804,14 @@ public sealed class UnityLeanIndexTests(ITestOutputHelper output)
 
 	[Theory]
 	[InlineData(false, 280000)]
-	[InlineData(true, 380000)]
+	// Sprite rows additionally retain one bounded raw-geometry record each so the catalogue can
+	// collapse structural duplicates without re-walking the payload.
+	[InlineData(true, 760000)]
 	public void KnownTableCardinalityBuildsFinalResourceAndSpriteStorageWithinOneAllocationBudget(bool sprites, int budget)
 	{
 		const int count = 4096;
-		byte[] warmBytes = sprites ? UnityFixtureBuilder.SerializedRepeatedSprites(1) : UnityFixtureBuilder.SerializedRepeatedTextAssets(1);
-		byte[] bytes = sprites ? UnityFixtureBuilder.SerializedRepeatedSprites(count) : UnityFixtureBuilder.SerializedRepeatedTextAssets(count);
+		byte[] warmBytes = sprites ? UnityFixtureBuilder.SerializedDistinctSprites(1) : UnityFixtureBuilder.SerializedRepeatedTextAssets(1);
+		byte[] bytes = sprites ? UnityFixtureBuilder.SerializedDistinctSprites(count) : UnityFixtureBuilder.SerializedRepeatedTextAssets(count);
 		using SerializedFile warm = ReadTable(warmBytes); using SerializedFile file = ReadTable(bytes);
 		GameBundle root = new(); UnitySource.LazyAssetFactory factory = new(new GameAssetFactory(new BaseManager(static _ => { })), compact: true);
 		root.AddCollectionFromSerializedFile(warm, factory);
@@ -749,15 +819,38 @@ public sealed class UnityLeanIndexTests(ITestOutputHelper output)
 		var collection = root.AddCollectionFromSerializedFile(file, factory);
 		long allocated = GC.GetAllocatedBytesForCurrentThread() - start;
 		using UnitySession session = UnitySession.FromGraph(factory.BuildCompactGraph(root, file, [collection], [], []));
-		Assert.Equal(count + (sprites ? 1 : 0), session.Entries.Count);
-		Assert.Equal(Enumerable.Range(1, session.Entries.Count).Select(path => (long)path), session.Entries.Select(entry => entry.PathId));
-		Assert.All(session.Entries, entry => Assert.Equal(sprites ? 4 : 7, entry.SourceSize));
-		Assert.All(session.Entries.Skip(sprites ? 1 : 0), entry => { Assert.Equal(sprites ? "hero" : "notes", entry.Name); Assert.Equal(sprites ? UnityEntryKind.Sprite : UnityEntryKind.Text, entry.Kind); });
-		foreach (int index in new[] { 0, session.Entries.Count / 2, session.Entries.Count - 1, 0 })
+		if (sprites)
 		{
-			using MemoryStream destination = new(); Assert.True(session.Export(index, destination));
-			if (sprites) Assert.Equal(new byte[] { 10, 20, 30, 255 }, PngDecoder.Decode(destination.ToArray()).Rgba);
-			else Assert.Equal("payload", Encoding.UTF8.GetString(destination.ToArray()));
+			Assert.Equal(count + 1, session.Entries.Count);
+			Assert.Equal(Enumerable.Range(1, count + 1).Select(path => (long)path), session.Entries.Select(entry => entry.PathId));
+			Assert.Equal("hero_texture", session.Entries[0].Name);
+			Assert.Equal(UnityEntryKind.Texture, session.Entries[0].Kind);
+			Assert.All(session.Entries.Skip(1), entry =>
+			{
+				Assert.Equal("hero", entry.Name);
+				Assert.Equal(UnityEntryKind.Sprite, entry.Kind);
+				Assert.Equal(count * 4L, entry.SourceSize);
+			});
+			foreach (int index in new[] { 1, session.Entries.Count / 2, session.Entries.Count - 1, 1 })
+			{
+				using MemoryStream destination = new();
+				Assert.True(session.Export(index, destination));
+				(int width, int height, _) = PngDecoder.Decode(destination.ToArray());
+				Assert.Equal(1, width);
+				Assert.Equal(1, height);
+			}
+		}
+		else
+		{
+			Assert.Equal(count, session.Entries.Count);
+			Assert.Equal(Enumerable.Range(1, count).Select(path => (long)path), session.Entries.Select(entry => entry.PathId));
+			Assert.All(session.Entries, entry => Assert.Equal(7, entry.SourceSize));
+			Assert.All(session.Entries, entry => { Assert.Equal("notes", entry.Name); Assert.Equal(UnityEntryKind.Text, entry.Kind); });
+			foreach (int index in new[] { 0, session.Entries.Count / 2, session.Entries.Count - 1, 0 })
+			{
+				using MemoryStream destination = new(); Assert.True(session.Export(index, destination));
+				Assert.Equal("payload", Encoding.UTF8.GetString(destination.ToArray()));
+			}
 		}
 		output.WriteLine($"{count} parsed {(sprites ? "Sprite" : "Text")} headers: {allocated} B; fixed allocation bound {budget} B.");
 		Assert.True(allocated <= budget, $"Known table cardinality allocated {allocated} B against {budget} B: final metadata storage must not grow and then copy to another array.");
@@ -982,11 +1075,18 @@ public sealed class UnityLeanIndexTests(ITestOutputHelper output)
 		File.WriteAllBytes(path, UnityFixtureBuilder.SerializedRepeatedSprites(count, malformedLast: true));
 		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(path, readFile: null));
 		using UnitySession compact = UnitySession.Open(path);
-		Assert.Equal(count, compact.Entries.Count); Assert.Equal(legacy.Entries, compact.Entries); Assert.Equal(Hash(legacy.Entries), Hash(compact.Entries));
-		Assert.Equal(Enumerable.Range(1, count).Select(value => (long)value), compact.Entries.Select(row => row.PathId));
-		for (int i = 0; i < count; i++)
+		// The malformed tail row is never exposed. With at least one earlier valid Sprite the
+		// repeated pairs collapse to the canonical Sprite and its full texture is suppressed;
+		// with only the malformed row the texture remains the sole entry.
+		Assert.Equal(count, legacy.Entries.Count);
+		UnityCatalogEntry entry = Assert.Single(compact.Entries);
+		Assert.Equal(count == 1 ? 1L : 2L, entry.PathId);
+		Assert.Equal(count == 1 ? UnityEntryKind.Texture : UnityEntryKind.Sprite, entry.Kind);
+		for (int pass = 0; pass < 2; pass++)
 		{
-			using MemoryStream expected = new(), actual = new(); Assert.True(legacy.Export(i, expected)); Assert.True(compact.Export(i, actual)); Assert.Equal(expected.ToArray(), actual.ToArray());
+			using MemoryStream expected = new(), actual = new();
+			Assert.True(legacy.Export((int)entry.PathId - 1, expected)); Assert.True(compact.Export(0, actual));
+			Assert.Equal(expected.ToArray(), actual.ToArray());
 		}
 		Assert.Equal(0, ResolvedIdentityCount(Root(compact)));
 	}
@@ -1025,16 +1125,19 @@ public sealed class UnityLeanIndexTests(ITestOutputHelper output)
 		long allocated = GC.GetAllocatedBytesForCurrentThread() - start;
 		root.InitializeAllDependencyLists();
 		using UnitySession session = UnitySession.FromGraph(factory.BuildCompactGraph(root, file, [collection], [], []));
-		Assert.Equal(count + 1, session.Entries.Count); Assert.Equal(Enumerable.Range(1, count + 1).Select(i => (long)i), session.Entries.Select(entry => entry.PathId));
-		Assert.All(session.Entries.Skip(1), entry => { Assert.Equal(UnityEntryKind.Sprite, entry.Kind); Assert.Equal("hero", entry.Name); Assert.Equal(0, entry.SourceSize); });
-		foreach (int index in new[] { 0, count / 2, count, 0 })
+		Assert.Equal(2, session.Entries.Count); Assert.Equal(new long[] { 1, 2 }, session.Entries.Select(entry => entry.PathId));
+		Assert.Equal(UnityEntryKind.Texture, session.Entries[0].Kind);
+		Assert.Equal(UnityEntryKind.Sprite, session.Entries[1].Kind); Assert.Equal("hero", session.Entries[1].Name); Assert.Equal(0, session.Entries[1].SourceSize);
+		foreach (int index in new[] { 0, 1, 1, 0 })
 		{
 			using MemoryStream destination = new(); Assert.True(session.Export(index, destination));
 			Assert.Equal(new byte[] { 10, 20, 30, 255 }, PngDecoder.Decode(destination.ToArray()).Rgba); Assert.Equal(0, ResolvedIdentityCount(root));
 		}
 		output.WriteLine($"4096 all-atlas Sprite headers allocated {allocated} B.");
-		// Original fixed64B/link storage measured2,245,688 B; allow only a small fixed setup margin.
-		Assert.True(allocated <= 2_250_000, $"All-atlas links allocated {allocated} B; no geometric key-storage growth is permitted.");
+		// The original 64 B/link layout measured 2,245,688 B. Required fixed Sprite value
+		// arrays account for intentional dedup metadata, while packing Header to 24 B removes
+		// 32,768 B of avoidable growth (2,524,264 - 32,768 = 2,491,496 B).
+		Assert.True(allocated <= 2_500_000, $"All-atlas links allocated {allocated} B; only fixed dedup facts and setup margin are permitted.");
 	}
 
 	[Theory]
@@ -1047,12 +1150,15 @@ public sealed class UnityLeanIndexTests(ITestOutputHelper output)
 		string directory = Temp.NewDirectory(), path = Path.Combine(directory, "mixed.assets"); File.WriteAllBytes(path, bytes);
 		File.WriteAllBytes(Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName), atlas);
 		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(path, readFile: null)); using UnitySession compact = UnitySession.Open(path);
-		Assert.Equal(legacy.Entries, compact.Entries); Assert.Equal(Hash(legacy.Entries), Hash(compact.Entries));
-		Assert.Equal(new long[] { 1 }.Concat(modes.Select((mode, i) => (mode, i)).Where(row => row.mode is 0 or 1).Select(row => (long)row.i + 2)), compact.Entries.Select(entry => entry.PathId));
-		Assert.Equal(new long[] { 4 }.Concat(modes.Where(mode => mode is 0 or 1).Select(mode => mode == 0 ? 4L : 0L)), compact.Entries.Select(entry => entry.SourceSize));
+		(long Path, int Mode)[] canonical = modes.Select((mode, index) => (Path: (long)index + 2, Mode: mode))
+			.Where(row => row.Mode is 0 or 1).GroupBy(row => row.Mode).Select(group => group.First()).OrderBy(row => row.Path).ToArray();
+		Assert.Equal(canonical.Select(row => row.Path), compact.Entries.Select(entry => entry.PathId));
+		Assert.Equal(canonical.Select(row => row.Mode == 0 ? 4L : 0L), compact.Entries.Select(entry => entry.SourceSize));
+		Assert.All(compact.Entries, entry => Assert.Equal(UnityEntryKind.Sprite, entry.Kind));
 		for (int pass = 0; pass < 2; pass++) foreach (UnityCatalogEntry entry in compact.Entries)
 		{
-			using MemoryStream expected = new(), actual = new(); Assert.True(legacy.Export(entry.Index, expected)); Assert.True(compact.Export(entry.Index, actual));
+			UnityCatalogEntry legacyEntry = legacy.Entries.Single(candidate => candidate.PathId == entry.PathId && candidate.Kind == entry.Kind);
+			using MemoryStream expected = new(), actual = new(); Assert.True(legacy.Export(legacyEntry.Index, expected)); Assert.True(compact.Export(entry.Index, actual));
 			Assert.Equal(expected.ToArray(), actual.ToArray()); Assert.Equal(new byte[] { 10, 20, 30, 255 }, PngDecoder.Decode(actual.ToArray()).Rgba); Assert.Equal(0, ResolvedIdentityCount(Root(compact)));
 		}
 	}

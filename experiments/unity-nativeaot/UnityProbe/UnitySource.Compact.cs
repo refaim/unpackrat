@@ -60,6 +60,18 @@ internal static partial class UnitySource
 			IReadOnlyList<SerializedAssetCollection> selectedCollections, IReadOnlyList<FileBase> owned,
 			IReadOnlyList<SmartStream> roots)
 			=> new CompactGraph(this, root, selected, selectedCollections, owned, roots);
+		private void ResolveCompactCollections(IReadOnlyList<SerializedAssetCollection> selected)
+		{
+			foreach (CompactCollection rows in compactCollections.Values) rows.ResolveSpriteReferences();
+			HashSet<SpriteKey> seen = [];
+			HashSet<AssetCollection> selectedSet = new(selected, ReferenceEqualityComparer.Instance);
+			foreach (SerializedAssetCollection collection in selected)
+			{
+				if (compactCollections.TryGetValue(collection, out CompactCollection? rows))
+					rows.SuppressStructuralDuplicates(seen, selectedSet);
+			}
+			foreach (CompactCollection rows in compactCollections.Values) rows.ReleaseSpriteScratch();
+		}
 
 		private struct PayloadRow(long path, long offset, uint length, int prototype)
 		{
@@ -70,23 +82,36 @@ internal static partial class UnitySource
 		}
 		private struct Header(int nameOffset, int nameLength, long size, string extension, bool visible)
 		{
+			private const int VisibilityBit = int.MinValue;
+			private const int ExportableBit = 1 << 30;
+			private const int NameLengthMask = ExportableBit - 1;
 			public int NameOffset = nameOffset;
-			// Names are bounded nonnegative lengths; the sign bit carries visibility.
-			private int nameLengthAndVisibility = visible ? nameLength | int.MinValue : nameLength;
-			public readonly int NameLength => nameLengthAndVisibility & int.MaxValue;
+			// Projection bounds raw names to 1,048,576 bytes, leaving the two high bits
+			// free: the sign bit carries visibility and bit 30 carries exportability.
+			private int flags = nameLength | (visible ? VisibilityBit | ExportableBit : 0);
+			public readonly int NameLength => flags & NameLengthMask;
 			public long Size = size;
 			public string Extension = extension;
-			public readonly bool Visible => nameLengthAndVisibility < 0;
-			public void Reveal() => nameLengthAndVisibility |= int.MinValue;
+			public readonly bool Exportable => (flags & ExportableBit) != 0;
+			public readonly bool Visible => (flags & VisibilityBit) != 0;
+			public void Reveal() { flags |= VisibilityBit | ExportableBit; }
+			public void Hide() => flags &= ~VisibilityBit;
 		}
 		private sealed record Prototype(ObjectInfo Data, Shape Shape, IReadOnlyList<SerializedTypeReference> References, int ClassID);
-		private readonly record struct SpriteLink(int Row, int File, long Path, int AtlasKeyIndex);
+		private readonly record struct SpriteLink(int Row, int File, long Path, int AtlasKeyIndex)
+		{
+			// Occupies the record's existing padding. The four-argument positional constructor
+			// and the 24-byte layout remain unchanged.
+			public bool QuadVertexCountFour { get; init; }
+		}
 
 		private sealed class CompactCollection(LazyAssetFactory factory, AssetCollection collection, int resourceCount, int spriteCount) : IAssetResolver
 		{
 			private readonly List<Prototype> prototypes = [];
 			private readonly Dictionary<(SerializedType?, Shape, int), int> prototypeIndices = [];
 			private SpriteLink[] links = new SpriteLink[spriteCount];
+			private SpriteFacts[]? spriteFacts = spriteCount == 0 ? null : new SpriteFacts[spriteCount];
+			private (int Width, int Height)[]? textureSizes;
 			private (ulong, ulong, ulong, ulong, long)[]? atlasKeys;
 			private int nextRow, nextLink;
 			private readonly List<(int Row, string Source, ulong Offset, ulong Size)> audioPrefixes = [];
@@ -144,6 +169,13 @@ internal static partial class UnitySource
 					ReadOnlySpan<byte> name = fields is null ? [] : fields.RawName;
 					factory.names.Write(name);
 					headers[index] = new(nameOffset, name.Length, metadata.Size, metadata.Extension, metadata.Visible);
+					if (shape.Kind == UnityEntryKind.Texture)
+					{
+						textureSizes ??= new (int, int)[rows.Length];
+						textureSizes[index] = fields is null
+							? default
+							: (unchecked((int)fields.Number("m_Width")), unchecked((int)fields.Number("m_Height")));
+					}
 					if (metadata.Visible && shape.Kind == UnityEntryKind.AudioClip && !shape.Audio!.Has_Type())
 						audioPrefixes.Add((index, fields!.Text("m_Resource/m_Source"), fields.Unsigned("m_Resource/m_Offset"), fields.Unsigned("m_Resource/m_Size")));
 					if (sprite && fields is not null)
@@ -159,7 +191,20 @@ internal static partial class UnitySource
 							atlasKeys ??= new (ulong, ulong, ulong, ulong, long)[links.Length];
 							atlasKeyIndex = nextLink; atlasKeys[atlasKeyIndex] = Key(fields, "m_RenderDataKey");
 						}
-						links[nextLink++] = new(index, file, path, atlasKeyIndex);
+						spriteFacts![nextLink] = new SpriteFacts
+						{
+							Canvas = SpriteFactsReader.ReadCanvas(fields),
+							Source = atlas ? default : SpriteFactsReader.ReadLocalSource(fields),
+						};
+						// Compare the stored wide value directly. Narrowing to int would let
+						// unrelated integer values masquerade as four.
+						bool quadVertexCountFour =
+							fields.TryNumber("m_RD/m_VertexData/m_VertexCount", out long vertexCount)
+							&& vertexCount == 4L;
+						links[nextLink++] = new(index, file, path, atlasKeyIndex)
+						{
+							QuadVertexCountFour = quadVertexCountFour,
+						};
 					}
 				}
 				finally { fields?.ClearScratch(); }
@@ -182,13 +227,24 @@ internal static partial class UnitySource
 					: Array.BinarySearch(lookupPaths, path);
 				return index < 0 ? -1 : orderedLookup ? index : lookupRows[index];
 			}
-			public bool TryTextureSize(long path, out long size)
+			private ObjectInfo Descriptor(int index)
 			{
-				size = 0; int index = Find(path);
-				if (index < 0 || !headers[index].Visible || prototypes[rows[index].Prototype].Shape.Kind != UnityEntryKind.Texture) return false;
-				size = headers[index].Size; return true;
+				PayloadRow row = rows[index];
+				return prototypes[row.Prototype].Data.WithDataRange(row.Path, row.Offset,
+					wideLengths is { } lengths && lengths[index] != 0 ? lengths[index] : row.Length);
 			}
-			public void ResolveSprites()
+			// ResolveSpriteReferences records Resolved only after TryTextureInfo accepted this exact
+			// exportable texture header; suppression only clears Visible, so the row stays present.
+			private void HideTexture(long path) => headers[Find(path)].Hide();
+			public bool TryTextureInfo(long path, out long size, out int width, out int height)
+			{
+				size = 0; width = 0; height = 0; int index = Find(path);
+				if (index < 0 || !headers[index].Exportable || prototypes[rows[index].Prototype].Shape.Kind != UnityEntryKind.Texture) return false;
+				size = headers[index].Size;
+				if (textureSizes is not null) (width, height) = textureSizes[index];
+				return true;
+			}
+			public void ResolveSpriteReferences()
 			{
 				// Nested collections acquire their parent bundle only after parsing completes.
 				// Resolve resource-dependent labels after that ownership graph is attached.
@@ -199,8 +255,9 @@ internal static partial class UnitySource
 					headers[audio.Row].Extension = AudioPayload.DescribeModern(prefix, headers[audio.Row].Size, audio.Size).Extension;
 				}
 				audioPrefixes.Clear(); audioPrefixes.TrimExcess();
-				foreach (SpriteLink link in links.AsSpan(0, nextLink))
+				for (int linkIndex = 0; linkIndex < nextLink; linkIndex++)
 				{
+					SpriteLink link = links[linkIndex];
 					if (link.File < 0 || link.File >= collection.Dependencies.Count || collection.Dependencies[link.File] is not { } target) continue;
 					AssetCollection textureCollection; long texturePath;
 					bool atlasLink = link.AtlasKeyIndex >= 0;
@@ -208,20 +265,115 @@ internal static partial class UnitySource
 					{
 						if (target.TryGetAsset(link.Path) is not DeferredObject atlas || !atlas.Shape.Atlas || atlas.Projection is not { } fields) continue;
 						atlas.AtlasTextures ??= AtlasIndex(fields);
-						if (!atlas.AtlasTextures.TryGetValue(atlasKeys![link.AtlasKeyIndex], out var pointer)
+						if (!atlas.AtlasTextures.TryGetValue(atlasKeys![link.AtlasKeyIndex], out AtlasEntry pointer)
 							|| pointer.FileId < 0 || pointer.FileId >= target.Dependencies.Count
 							|| target.Dependencies[pointer.FileId] is not { } foundCollection) continue;
 						textureCollection = foundCollection; texturePath = pointer.PathId;
+						spriteFacts![linkIndex].Source = pointer.Geometry;
 					}
 					else
 					{
 						textureCollection = target; texturePath = link.Path;
 					}
-					if (!factory.TryTextureSize(textureCollection, texturePath, out long textureSize)) continue;
+					if (!factory.TryTextureInfo(textureCollection, texturePath,
+						out long textureSize, out int textureWidth, out int textureHeight)) continue;
+					SpriteFacts resolved = spriteFacts![linkIndex];
+					resolved.SourceCollection = textureCollection; resolved.SourcePath = texturePath;
+					resolved.SourceWidth = textureWidth; resolved.SourceHeight = textureHeight; resolved.Resolved = true;
+					spriteFacts[linkIndex] = resolved;
 					headers[link.Row].Reveal(); headers[link.Row].Extension = "png";
 					headers[link.Row].Size = atlasLink ? 0 : textureSize;
 				}
-				links = []; atlasKeys = null;
+			}
+			public void SuppressStructuralDuplicates(HashSet<SpriteKey> seen, HashSet<AssetCollection> selected)
+			{
+				if (spriteFacts is null) return;
+				for (int index = 0; index < nextLink; index++)
+				{
+					SpriteFacts facts = spriteFacts[index];
+					if (TryCanonicalizeFullImage(index, facts, selected, seen)) continue;
+					if (facts.Source.SettingsRaw == 64u) continue;
+					if (!facts.Comparable) continue;
+					if (!seen.Add(facts.Key))
+					{
+						headers[links[index].Row].Hide();
+						continue;
+					}
+					HideFullTextureCounterpart(facts, selected);
+				}
+			}
+			private void HideFullTextureCounterpart(SpriteFacts facts, HashSet<AssetCollection> selected)
+			{
+				// SuppressStructuralDuplicates calls this only for a resolved, comparable Sprite.
+				AssetCollection source = facts.SourceCollection!;
+				if (!selected.Contains(source)) return;
+				// A mixed Eager/metadata-only factory resolves an eager source without a compact owner.
+				if (!factory.compactCollections.TryGetValue(source, out CompactCollection? owner)) return;
+				if (!facts.IsFullTexture(facts.SourceWidth, facts.SourceHeight)) return;
+				owner!.HideTexture(facts.SourcePath);
+			}
+			private bool TryCanonicalizeFullImage(int linkIndex, SpriteFacts facts, HashSet<AssetCollection> selected,
+				HashSet<SpriteKey> seen)
+			{
+				if (!facts.Resolved || !facts.Source.Present || !facts.Canvas.Present) return false;
+				if (facts.Source.SettingsRaw is not (2u or 64u)
+					|| !SpriteFactsReader.IsUnitDownscale(facts.Source.Downscale)) return false;
+				// Resolved facts carry the actual source identity chosen above, and only a selected
+				// collection may have its texture hidden by this projection.
+				AssetCollection source = facts.SourceCollection!;
+				if (!selected.Contains(source)) return false;
+				// A mixed Eager/metadata-only factory resolves an eager source without a compact owner.
+				if (!factory.compactCollections.TryGetValue(source, out CompactCollection? owner)) return false;
+				int width = facts.SourceWidth;
+				int height = facts.SourceHeight;
+				bool tight = facts.Source.SettingsRaw == 64u;
+				SpriteFacts normalized = facts;
+				normalized.Source = facts.Source with { SettingsRaw = 2u, Downscale = SpriteFactsReader.Bits(1f) };
+				if (!normalized.IsFullTexture(width, height)) return false;
+				if (tight)
+				{
+					// Missing, floating-point or non-four metadata cannot pass SpriteQuadProof.
+					// Refuse before Shape.QuadTraversal or the second object read is created.
+					if (!links[linkIndex].QuadVertexCountFour) return false;
+					// SpriteQuadProof enforces the tighter 8,388,608-pixel proof bound.
+					if (!TryProveQuad(links[linkIndex].Row, width, height)) return false;
+				}
+				owner!.HideTexture(facts.SourcePath);
+				if (seen.Add(normalized.Key)) return true;
+				headers[links[linkIndex].Row].Hide();
+				return true;
+			}
+			private bool TryProveQuad(int sprite, int width, int height)
+			{
+				PayloadRow row = rows[sprite];
+				Prototype prototype = prototypes[row.Prototype];
+				Shape shape = prototype.Shape;
+				UnityProjection.State traversal = shape.QuadTraversal!;
+				try
+				{
+					// Add records a Sprite only after projecting it with a template, and a compact table
+					// admits only borrowed descriptors; IsFullTexture already proved both dimensions
+					// positive before this tight-mesh check runs.
+					ObjectInfo data = Descriptor(sprite);
+					Stream source = data.BorrowedSource!;
+					UnityProjection fields = UnityProjection.ReadBorrowed(source, data.DataOffset, data.DataSize,
+						shape.Template!, collection.EndianType == EndianType.BigEndian, traversal);
+					return SpriteQuadProof.TryProve(fields, source, data.DataOffset, collection.Version,
+						collection.EndianType, width, height);
+				}
+				catch (Exception error) when (error is InvalidDataException or IOException or ArgumentException
+					or OverflowException or NotSupportedException)
+				{
+					return false;
+				}
+				finally
+				{
+					traversal.Scratch?.ClearScratch();
+				}
+			}
+			public void ReleaseSpriteScratch()
+			{
+				links = []; atlasKeys = null; spriteFacts = null; textureSizes = null;
 			}
 			public void EndOperation(bool capturePaths)
 			{
@@ -268,7 +420,7 @@ internal static partial class UnitySource
 				if (identities.TryGetValue(pathID, out IUnityObjectBase? value)) return value;
 				PayloadRow row = rows[index]; Prototype prototype = prototypes[row.Prototype];
 				DeferredObject result = new(new(collection, row.Path, prototype.ClassID),
-					prototype.Data.WithDataRange(row.Path, row.Offset, wideLengths is { } lengths && lengths[index] != 0 ? lengths[index] : row.Length), prototype.References, prototype.Shape, factory);
+					Descriptor(index), prototype.References, prototype.Shape, factory);
 				Header header = headers[index];
 				result.CaptureName(Encoding.UTF8.GetString(Name(index))); result.CaptureResourceMetadata(header.Size, header.Extension);
 				if (paths.TryGetValue(index, out PathMetadata metadata))
@@ -361,7 +513,7 @@ internal static partial class UnitySource
 			{
 				this.root = root; this.selected = selected; this.owned = owned; this.roots = roots; this.factory = factory; selectedCollections = collections;
 				Collections = collections.Select(collection => (IUnityGraphCollection)new CollectionView(collection)).ToArray();
-				foreach (CompactCollection rows in factory.compactCollections.Values) rows.ResolveSprites();
+				factory.ResolveCompactCollections(collections);
 				factory.EndCompactOperation(true);
 				IReadOnlyList<IProbeAsset>[] legacy = collections.Select(factory.Describe).ToArray();
 				List<CatalogueSegment> found = new(collections.Count);

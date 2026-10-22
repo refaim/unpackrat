@@ -69,6 +69,36 @@ public sealed class UnityLazyMaterializationTests
 		Assert.DoesNotContain(root.FetchAssets(), asset => asset is ISprite or ITexture2D or ISpriteAtlas or ITextAsset or IFont or IMovieTexture or IVideoClip or IAudioClip or IMesh);
 	}
 
+	private static GameBundle Root(UnitySession session)
+	{
+		FieldInfo graphField = typeof(UnitySession).GetField("graph", BindingFlags.Instance | BindingFlags.NonPublic)
+			?? throw new InvalidOperationException("UnitySession graph field is missing.");
+		IUnityGraph graph = (IUnityGraph)graphField.GetValue(session)!;
+		FieldInfo rootField = graph.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+			.Single(field => field.FieldType == typeof(GameBundle));
+		return (GameBundle)rootField.GetValue(graph)!;
+	}
+
+	private static int ResolvedIdentityCount(GameBundle root)
+	{
+		const BindingFlags all = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+		object? collections = root.GetType().GetProperty("Collections", all)?.GetValue(root)
+			?? root.GetType().GetField("collections", all)?.GetValue(root)
+			?? root.GetType().GetField("m_collections", all)?.GetValue(root);
+		if (collections is not System.Collections.IEnumerable enumerable) return 0;
+		int count = 0;
+		foreach (object collection in enumerable)
+		{
+			object? resolver = collection.GetType().GetProperty("AssetResolver", all)?.GetValue(collection)
+				?? collection.GetType().GetField("AssetResolver", all)?.GetValue(collection)
+				?? collection.GetType().GetField("assetResolver", all)?.GetValue(collection);
+			if (resolver is null) continue;
+			if (resolver.GetType().GetField("identities", all)?.GetValue(resolver) is System.Collections.ICollection identities)
+				count += identities.Count;
+		}
+		return count;
+	}
+
 	[Fact]
 	public void AtlasSpriteOpenAndListingUseOnlyMetadataAndExportReadsOnlyItsDependencyClosure()
 	{
@@ -210,14 +240,34 @@ public sealed class UnityLazyMaterializationTests
 		File.WriteAllBytes(path, UnityFixtureBuilder.CompressedBundle(Enumerable.Range(0, 512).Select(i => ($"sprite{i}.assets", sprite)).ToArray()));
 		// Exclude one-time schema/JIT startup from the deterministic managed allocation budget.
 		using (UnitySession warm = UnitySession.Open(Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName))) { Assert.Single(warm.Entries); }
+		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(path, readFile: null));
+		UnityCatalogEntry canonicalSprite = legacy.Entries.First(entry => entry.Kind == UnityEntryKind.Sprite);
+		// Equivalent atlas-backed Sprites collapse to the first selected collection's Sprite;
+		// every selected collection's own texture row remains present and ordered.
+		UnityCatalogEntry[] expected = legacy.Entries
+			.Where(entry => entry.Kind == UnityEntryKind.Texture || entry.Index == canonicalSprite.Index)
+			.ToArray();
+		Assert.Equal(1024, legacy.Entries.Count);
+		Assert.Equal(513, expected.Length);
 		long before = GC.GetAllocatedBytesForCurrentThread();
 		using UnitySession session = UnitySession.Open(path);
 		long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-		Assert.Equal(1024, session.Entries.Count);
+		Assert.Equal(expected.Select(entry => (entry.PathId, entry.Name, entry.Kind, entry.SourceSize)),
+			session.Entries.Select(entry => (entry.PathId, entry.Name, entry.Kind, entry.SourceSize)));
+		Assert.Equal(512, session.Entries.Count(entry => entry.Kind == UnityEntryKind.Texture));
+		Assert.Single(session.Entries, entry => entry.Kind == UnityEntryKind.Sprite);
 		Assert.True(allocated < 80L * 1024 * 1024, $"Shared-atlas metadata allocated {allocated} bytes; repeated full map scans exceed the bounded-work contract.");
-		using MemoryStream output = new();
-		Assert.True(session.Export(1023, output));
-		Assert.Equal(Pixels, PngDecoder.Decode(output.ToArray()).Rgba);
+		for (int pass = 0; pass < 2; pass++)
+		{
+			for (int i = 0; i < expected.Length; i++)
+			{
+				using MemoryStream sourceOutput = new(), compactOutput = new();
+				Assert.True(legacy.Export(expected[i].Index, sourceOutput));
+				Assert.True(session.Export(session.Entries[i].Index, compactOutput));
+				Assert.Equal(sourceOutput.ToArray(), compactOutput.ToArray());
+				Assert.Equal(0, ResolvedIdentityCount(Root(session)));
+			}
+		}
 	}	[Fact]
 	public void RepeatedTinyTextResourcesReuseSessionTraversalWorkspace()
 	{

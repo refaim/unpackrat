@@ -140,11 +140,11 @@ public sealed class UnityCataloguePrefixExtraTests
 		using LoadedGraph loaded = new(UnityFixtureBuilder.SerializedSpriteLinkCases(0, 3, 3, 0).Selected);
 		ICompactUnityGraph catalogue = loaded.Catalogue;
 
-		Assert.Equal(3, catalogue.Entries.Count);
-		Assert.Equal(new long[] { 1, 2, 5 }, catalogue.Entries.Select(entry => entry.PathId));
-		Assert.Equal(new[] { UnityEntryKind.Texture, UnityEntryKind.Sprite, UnityEntryKind.Sprite },
+		Assert.Single(catalogue.Entries);
+		Assert.Equal(new long[] { 2 }, catalogue.Entries.Select(entry => entry.PathId));
+		Assert.Equal(new[] { UnityEntryKind.Sprite },
 			catalogue.Entries.Select(entry => entry.Kind));
-		Assert.Equal(new[] { "hero_texture", "hero", "hero" }, catalogue.Entries.Select(entry => entry.Name));
+		Assert.Equal(new[] { "hero" }, catalogue.Entries.Select(entry => entry.Name));
 		for (int index = 0; index < catalogue.Entries.Count; index++) AssertParity(catalogue, index);
 	}
 
@@ -167,7 +167,7 @@ public sealed class UnityCataloguePrefixExtraTests
 	public void ManyVisibleRowsRemainOrderedAcrossOneHiddenTailRow()
 	{
 		const int count = 512;
-		using LoadedGraph loaded = new(UnityFixtureBuilder.SerializedRepeatedSprites(count, malformedLast: true));
+		using LoadedGraph loaded = new(UnityFixtureBuilder.SerializedDistinctSprites(count, malformedLast: true));
 		ICompactUnityGraph catalogue = loaded.Catalogue;
 
 		Assert.Equal(count, catalogue.Entries.Count);
@@ -184,14 +184,14 @@ public sealed class UnityCataloguePrefixExtraTests
 	{
 		using LoadedGraph loaded = new(
 			UnityFixtureBuilder.SerializedSpriteLinkCases(0, 3, 0, 3, 0).Selected,
-			UnityFixtureBuilder.SerializedRepeatedSprites(5, malformedLast: true));
+			UnityFixtureBuilder.SerializedDistinctSprites(5, malformedLast: true));
 		ICompactUnityGraph catalogue = loaded.Catalogue;
 
 		Assert.Equal(2, loaded.Graph.Collections.Count);
-		Assert.Equal(9, catalogue.Entries.Count);
-		long[] paths = [1, 2, 4, 6, 1, 2, 3, 4, 5];
-		int[] collections = [0, 0, 0, 0, 1, 1, 1, 1, 1];
-		string[] names = ["hero_texture", "hero", "hero", "hero", "hero_texture", "hero", "hero", "hero", "hero"];
+		Assert.Equal(6, catalogue.Entries.Count);
+		long[] paths = [2, 1, 2, 3, 4, 5];
+		int[] collections = [0, 1, 1, 1, 1, 1];
+		string[] names = ["hero", "hero_texture", "hero", "hero", "hero", "hero"];
 		for (int index = 0; index < catalogue.Entries.Count; index++)
 		{
 			UnityCatalogEntry entry = catalogue.Entries[index];
@@ -199,7 +199,7 @@ public sealed class UnityCataloguePrefixExtraTests
 			Assert.Equal(collections[index], entry.CollectionIndex);
 			Assert.Equal(paths[index], entry.PathId);
 			Assert.Equal(names[index], entry.Name);
-			Assert.Equal(index == 0 || index == 4 ? UnityEntryKind.Texture : UnityEntryKind.Sprite, entry.Kind);
+			Assert.Equal(index == 1 ? UnityEntryKind.Texture : UnityEntryKind.Sprite, entry.Kind);
 			AssertParity(catalogue, index);
 			Assert.Equal(entry, catalogue.Entries[index]);
 		}

@@ -372,7 +372,7 @@ public sealed class UnitySchemaRouteExtraTests
 	}
 
 	[Fact]
-	public void NoCaptureAndNonIntegralCaptureSchemasKeepMatureBehavior()
+	public void NoCaptureFloatingCaptureAndDynamicCapturesKeepTheirTypedBehavior()
 	{
 		AssetTypeTemplateField uncaptured = Root(Field("ignored", AssetValueType.Int32));
 		UnityProjection.State uncapturedState = new(uncaptured);
@@ -386,7 +386,10 @@ public sealed class UnitySchemaRouteExtraTests
 		AssetTypeTemplateField floating = Root(Field("m_Width", AssetValueType.Float));
 		UnityProjection.State floatingState = new(floating);
 		using MemoryStream input = new([0, 0, 0xC0, 0x3F], false);
-		Assert.Throws<InvalidDataException>(() => UnityProjection.ReadBorrowed(input, 0, 4, floating, false, floatingState));
+		UnityProjection floatingResult = UnityProjection.ReadBorrowed(input, 0, 4, floating, false, floatingState);
+		Assert.True(floatingResult.TryBits("m_Width", out long bits));
+		Assert.Equal(BitConverter.SingleToInt32Bits(1.5f), bits);
+		Assert.False(floatingResult.TryNumber("m_Width", out _));
 
 		AssetTypeTemplateField atlas = Root(Field("m_Width", AssetValueType.Int32));
 		atlas.Type = "SpriteAtlas";

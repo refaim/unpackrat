@@ -3,6 +3,8 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using AssetRipper.Assets.Collections;
 using AssetRipper.Export.Modules.Textures;
 using AssetRipper.SourceGenerated.Classes.ClassID_213;
 using AssetRipper.SourceGenerated.Classes.ClassID_28;
@@ -92,6 +94,232 @@ internal static partial class UnitySource
 		public bool Packed { get; }
 		public int PackingMode { get; }
 		public int PackingRotation { get; }
+	}
+
+	/// <summary>
+	/// The declared geometry needed to decide whether two selected Sprite rows render the same
+	/// image. Floats stay as their raw IEEE payload so a NaN, a signed zero or a fractional value
+	/// can never be confused with a missing field or a rounded integer.
+	/// </summary>
+	private readonly record struct SpriteSourceFacts(
+		bool Present,
+		uint TextureX,
+		uint TextureY,
+		uint TextureWidth,
+		uint TextureHeight,
+		uint OffsetX,
+		uint OffsetY,
+		uint Downscale,
+		uint SettingsRaw);
+
+	/// <summary>The Sprite's own rect and the offset that places the crop on that canvas.</summary>
+	private readonly record struct SpriteCanvasFacts(
+		bool Present,
+		uint RectWidth,
+		uint RectHeight);
+
+	private struct SpriteFacts
+	{
+		public SpriteSourceFacts Source;
+		public SpriteCanvasFacts Canvas;
+		public AssetCollection? SourceCollection;
+		public long SourcePath;
+		public int SourceWidth;
+		public int SourceHeight;
+		public bool Resolved;
+
+		public readonly bool Comparable =>
+			Resolved && SourceCollection is not null && Source.Present && Canvas.Present
+			&& SpriteFactsReader.IsFinite(Source.TextureX) && SpriteFactsReader.IsFinite(Source.TextureY)
+			&& SpriteFactsReader.IsFinite(Source.TextureWidth) && SpriteFactsReader.IsFinite(Source.TextureHeight)
+			&& SpriteFactsReader.IsFinite(Source.OffsetX) && SpriteFactsReader.IsFinite(Source.OffsetY)
+			&& SpriteFactsReader.IsFinite(Source.Downscale)
+			&& SpriteFactsReader.IsFinite(Canvas.RectWidth) && SpriteFactsReader.IsFinite(Canvas.RectHeight)
+			&& SpriteFactsReader.Positive(Source.TextureWidth) && SpriteFactsReader.Positive(Source.TextureHeight)
+			&& SpriteFactsReader.Positive(Canvas.RectWidth) && SpriteFactsReader.Positive(Canvas.RectHeight)
+			&& SpriteFactsReader.IsExportableRectangle(Source, Canvas, SourceWidth, SourceHeight);
+
+		public readonly SpriteKey Key => new(SourceCollection!, SourcePath, Source, Canvas);
+
+		public readonly bool IsFullTexture(int width, int height)
+		{
+			if (!Comparable || width <= 0 || height <= 0) return false;
+			if (!SpriteFactsReader.IsIdentityRotation(Source.SettingsRaw)) return false;
+			if (Source.TextureX != 0 || Source.TextureY != 0) return false;
+			if (Source.OffsetX != 0 || Source.OffsetY != 0) return false;
+			if (Source.TextureWidth != SpriteFactsReader.Bits((float)width)
+				|| Source.TextureHeight != SpriteFactsReader.Bits((float)height)) return false;
+			if (Canvas.RectWidth != SpriteFactsReader.Bits((float)width)
+				|| Canvas.RectHeight != SpriteFactsReader.Bits((float)height)) return false;
+			return true;
+		}
+	}
+
+	private readonly struct SpriteKey : IEquatable<SpriteKey>
+	{
+		public SpriteKey(AssetCollection sourceCollection, long sourcePath,
+			SpriteSourceFacts source, SpriteCanvasFacts canvas)
+			=> (SourceCollection, SourcePath, Source, Canvas) = (sourceCollection, sourcePath, source, canvas);
+
+		private AssetCollection SourceCollection { get; }
+		private long SourcePath { get; }
+		private SpriteSourceFacts Source { get; }
+		private SpriteCanvasFacts Canvas { get; }
+
+		public bool Equals(SpriteKey other) =>
+			ReferenceEquals(SourceCollection, other.SourceCollection)
+			&& SourcePath == other.SourcePath && Source == other.Source && Canvas == other.Canvas;
+
+		public override bool Equals(object? obj) => obj is SpriteKey other && Equals(other);
+
+		public override int GetHashCode()
+		{
+			HashCode hash = new();
+			hash.Add(RuntimeHelpers.GetHashCode(SourceCollection));
+			hash.Add(SourcePath);
+			hash.Add(Source);
+			hash.Add(Canvas);
+			return hash.ToHashCode();
+		}
+	}
+
+	/// <summary>
+	/// Reads the bounded Sprite geometry from the already-projected header. A path that is absent
+	/// from the schema leaves the corresponding facts absent; it is never defaulted to zero.
+	/// </summary>
+	private static class SpriteFactsReader
+	{
+		private const uint OneBits = 0x3F800000u;
+		private const uint KnownSettingsMask = 0x7Fu;
+
+		public static SpriteSourceFacts ReadSource(UnityProjection fields, string prefix)
+		{
+			if (!TryFloat32(fields, prefix + "textureRect/x", out uint textureX)
+				|| !TryFloat32(fields, prefix + "textureRect/y", out uint textureY)
+				|| !TryFloat32(fields, prefix + "textureRect/width", out uint textureWidth)
+				|| !TryFloat32(fields, prefix + "textureRect/height", out uint textureHeight)
+				|| !TryFloat32(fields, prefix + "textureRectOffset/x", out uint offsetX)
+				|| !TryFloat32(fields, prefix + "textureRectOffset/y", out uint offsetY)
+				|| !TryFloat32(fields, prefix + "downscaleMultiplier", out uint downscale)
+				|| !TrySettings(fields, prefix, out uint settings))
+			{
+				return default;
+			}
+			return new SpriteSourceFacts(true, textureX, textureY, textureWidth, textureHeight,
+				offsetX, offsetY, downscale, settings);
+		}
+
+		public static SpriteSourceFacts ReadLocalSource(UnityProjection fields)
+		{
+			if (!TryFloat32(fields, "m_RD/textureRect/x", out uint textureX)
+				|| !TryFloat32(fields, "m_RD/textureRect/y", out uint textureY)
+				|| !TryFloat32(fields, "m_RD/textureRect/width", out uint textureWidth)
+				|| !TryFloat32(fields, "m_RD/textureRect/height", out uint textureHeight)
+				|| !TryFloat32(fields, "m_RD/textureRectOffset/x", out uint offsetX)
+				|| !TryFloat32(fields, "m_RD/textureRectOffset/y", out uint offsetY)
+				|| !TryFloat32(fields, "m_RD/downscaleMultiplier", out uint downscale)
+				|| !TryLocalSettings(fields, out uint settings))
+			{
+				return default;
+			}
+			return new SpriteSourceFacts(true, textureX, textureY, textureWidth, textureHeight,
+				offsetX, offsetY, downscale, settings);
+		}
+
+		public static SpriteCanvasFacts ReadCanvas(UnityProjection fields)
+		{
+			if (!TryFloat32(fields, "m_Rect/width", out uint rectWidth)
+				|| !TryFloat32(fields, "m_Rect/height", out uint rectHeight))
+			{
+				return default;
+			}
+			return new SpriteCanvasFacts(true, rectWidth, rectHeight);
+		}
+
+		private static bool TryLocalSettings(UnityProjection fields, out uint settings)
+		{
+			if (fields.TryNumber("m_RD/settingsRaw", out long raw))
+			{
+				settings = unchecked((uint)raw);
+				return true;
+			}
+			if (fields.TryNumber("m_RD/packingMode", out long mode)
+				&& fields.TryNumber("m_RD/packingRotation", out long rotation))
+			{
+				long packed = fields.TryNumber("m_RD/packed", out long packedValue) && packedValue != 0 ? 1 : 0;
+				settings = unchecked((uint)((packed << 0) | ((mode & 0x1) << 1) | ((rotation & 0xF) << 2)));
+				return true;
+			}
+			settings = 0;
+			return false;
+		}
+
+		private static bool TrySettings(UnityProjection fields, string prefix, out uint settings)
+		{
+			if (fields.TryNumber(prefix + "settingsRaw", out long raw))
+			{
+				settings = unchecked((uint)raw);
+				return true;
+			}
+			if (fields.TryNumber(prefix + "packingMode", out long mode)
+				&& fields.TryNumber(prefix + "packingRotation", out long rotation))
+			{
+				long packed = fields.TryNumber(prefix + "packed", out long packedValue) && packedValue != 0 ? 1 : 0;
+				settings = unchecked((uint)((packed << 0) | ((mode & 0x1) << 1) | ((rotation & 0xF) << 2)));
+				return true;
+			}
+			settings = 0;
+			return false;
+		}
+
+		private static bool TryFloat32(UnityProjection fields, string path, out uint bits)
+		{
+			if (fields.TryFloat32(path, out bits)) return true;
+			bits = 0;
+			return false;
+		}
+
+		public static uint Bits(float value) => unchecked((uint)BitConverter.SingleToInt32Bits(value));
+
+		public static bool IsFinite(uint bits) => float.IsFinite(BitConverter.Int32BitsToSingle(unchecked((int)bits)));
+
+		public static bool Positive(uint bits) => BitConverter.Int32BitsToSingle(unchecked((int)bits)) > 0f;
+
+		public static bool IsUnitDownscale(uint bits) => bits is 0u or OneBits;
+
+		public static bool IsKnownRectangleSettings(uint settings)
+		{
+			if ((settings & ~KnownSettingsMask) != 0) return false;
+			uint mode = (settings >> 1) & 0x1u;
+			uint rotation = (settings >> 2) & 0xFu;
+			return mode == (uint)SpriteGeometry.ModeRectangle && rotation <= SpriteGeometry.RotationRotate90;
+		}
+
+		public static bool IsIdentityRotation(uint settings) => ((settings >> 2) & 0xFu) == 0;
+
+		public static bool IsExportableRectangle(SpriteSourceFacts source, SpriteCanvasFacts canvas, int textureWidth, int textureHeight)
+		{
+			if (!source.Present || !canvas.Present || textureWidth <= 0 || textureHeight <= 0) return false;
+			if (!IsKnownRectangleSettings(source.SettingsRaw) || !IsUnitDownscale(source.Downscale)) return false;
+			if (!SpriteGeometry.TryCropRect(textureWidth, textureHeight,
+				BitConverter.Int32BitsToSingle(unchecked((int)source.TextureX)),
+				BitConverter.Int32BitsToSingle(unchecked((int)source.TextureY)),
+				BitConverter.Int32BitsToSingle(unchecked((int)source.TextureWidth)),
+				BitConverter.Int32BitsToSingle(unchecked((int)source.TextureHeight)),
+				out _, out _, out int cropWidth, out int cropHeight)) return false;
+			if (!SpriteGeometry.TryCanvasSize(BitConverter.Int32BitsToSingle(unchecked((int)canvas.RectWidth)),
+				BitConverter.Int32BitsToSingle(unchecked((int)canvas.RectHeight)), Budgets.MaxTextureBytes,
+				out int canvasWidth, out int canvasHeight)) return false;
+			uint rotation = (source.SettingsRaw >> 2) & 0xFu;
+			int effectiveRotation = (source.SettingsRaw & 1u) != 0 ? (int)rotation : SpriteGeometry.RotationNone;
+			int uprightWidth = effectiveRotation == SpriteGeometry.RotationRotate90 ? cropHeight : cropWidth;
+			int uprightHeight = effectiveRotation == SpriteGeometry.RotationRotate90 ? cropWidth : cropHeight;
+			if (!SpriteGeometry.TryPlacement(BitConverter.Int32BitsToSingle(unchecked((int)source.OffsetX)),
+				BitConverter.Int32BitsToSingle(unchecked((int)source.OffsetY)), canvasHeight, uprightHeight,
+				out int x, out int y)) return false;
+			return x >= 0 && y >= 0 && (long)x + uprightWidth <= canvasWidth
+				&& (long)y + uprightHeight <= canvasHeight;
+		}
 	}
 
 	/// <summary>

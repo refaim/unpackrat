@@ -228,11 +228,10 @@ internal static class SpriteGeometry
 	/// The trimmed sprite's canvas in pixels: the rounded size of the sprite's own rect, with a
 	/// fully transparent pixel buffer. A non-finite, non-positive or oversized rect is refused.
 	/// </summary>
-	internal static bool TryCanvas(float rectWidth, float rectHeight, long maxBytes, out int width, out int height, out byte[] canvas)
+	internal static bool TryCanvasSize(float rectWidth, float rectHeight, long maxBytes, out int width, out int height)
 	{
 		width = 0;
 		height = 0;
-		canvas = [];
 		if (!float.IsFinite(rectWidth) || !float.IsFinite(rectHeight) || rectWidth <= 0f || rectHeight <= 0f)
 		{
 			return false;
@@ -254,6 +253,18 @@ internal static class SpriteGeometry
 
 		width = canvasWidth;
 		height = canvasHeight;
+		return true;
+	}
+
+	internal static bool TryCanvas(float rectWidth, float rectHeight, long maxBytes, out int width, out int height, out byte[] canvas)
+	{
+		canvas = [];
+		if (!TryCanvasSize(rectWidth, rectHeight, maxBytes, out width, out height)
+			|| !TryPixelBuffer(width, height, out int length))
+		{
+			return false;
+		}
+
 		canvas = new byte[length];
 		return true;
 	}
