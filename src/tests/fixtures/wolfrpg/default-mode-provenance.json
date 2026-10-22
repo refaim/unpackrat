@@ -1,0 +1,103 @@
+{
+  "phase": "wolfrpg modern default-mode fixtures (default table indices 6, 7, 8)",
+  "vendor": {
+    "repo": "Sinflower/UberWolf",
+    "ref": "f4191375d289171b1f29dbc5ca320133b2b4b96a",
+    "lib": "C:/Users/Roma/.codex/worktrees/wolfrpg-continue/ObserverModules/out/native/vcpkg_installed/x64/unpackrat-x64-windows-static/lib/uberwolf.lib",
+    "table": "WolfDec::DefaultCryptModes(), added by build/vcpkg/ports/uberwolf/default-crypt-modes.patch over the unchanged DEFAULT_CRYPT_MODES table"
+  },
+  "generator": {
+    "source": "out/scratch/wolfrpg-default/oracle.cpp (untracked scratch)",
+    "encode": "entry.encFunc(output, \".\", true, entry.key.data(), entry.cryptVersion)",
+    "decode": "entry.decFunc(input, outDir, entry.key.data())",
+    "comparison": "every produced path and byte compared against the owned input tree; the oracle was required to PASS before freezing each container",
+    "timestamp_policy": "the two input files and the nested directory are stamped to a fixed FILETIME; the encoder is driven with a relative \".\" root so the top-level directory's live access time is never recorded",
+    "determinism_note": "the pinned encoder is not byte-reproducible across runs: even with identical stamped inputs the archive size and the compressed table region vary, so the frozen container bytes and their sha256 are authoritative",
+    "payload_note": "sub/repeat.bin keeps a genuine repeat but uses a 2048-byte owned block so the container clears the pinned v3.31/v3.50 encoder+decoder floor (they early-return when body < 0x400 bytes); a smaller container silently produced no output and that failure is recorded, not masked"
+  },
+  "payloads": [
+    {
+      "path": "hello.txt",
+      "size": 30,
+      "sha256": "e7ce5e2e1fa745417d33d81a36a6277951ce58b9618d22c58b2cde261372e452",
+      "generator": "literal \"Owned WolfRPG fixture payload\" plus a trailing LF",
+      "stored_size": 252,
+      "press_data_size": "uncompressed (0xffffffffffffffff)",
+      "huff_press_data_size": 252,
+      "source": "DARC_FILEHEAD HuffPressDataSize read from the exact frozen containers; the body is Huffman-only pressed (no LZ) so it expands 30 -> 252 bytes"
+    },
+    {
+      "path": "sub/repeat.bin",
+      "size": 8192,
+      "sha256": "e5106c728e9feee91e9a8ac3a70eb1bfa611dbc481661c9c59cf5f66439f4db1",
+      "generator": "a 2048-byte xorshift32(0x51ED2701) owned block repeated four times",
+      "stored_size": 2402,
+      "press_data_size": 2063,
+      "huff_press_data_size": 2402,
+      "source": "DARC_FILEHEAD PressDataSize/HuffPressDataSize read from the exact frozen containers; stored_size is the HuffPressDataSize the reader reports"
+    }
+  ],
+  "fixtures": [
+    {
+      "file": "default-mode-6.wolf",
+      "mode_index": 6,
+      "mode_name": "Wolf RPG v3.31",
+      "crypt_version": 331,
+      "key_hex": "ca084c5d170ddaa1d727c8415438823254b7f9468e136bcad05c9595e2dc0353609b4a3817f36959a4c79a4363e654afdbbb435800",
+      "enc": "DXArchive::EncodeArchiveOneDirectoryWolf",
+      "dec": "DXArchive::DecodeArchive",
+      "size": 3137,
+      "sha256": "067fb87a6eb3de22fb42118ed289263fc5b586f0605442b1b3789e53a930d768",
+      "fnv1a64": "51d5a52b1f7c54f7",
+      "head_size": 424,
+      "flags": "0x014b0000",
+      "huffman_encode_kb": 12,
+      "password_sensitive": true
+    },
+    {
+      "file": "default-mode-7.wolf",
+      "mode_index": 7,
+      "mode_name": "Wolf RPG v3.50",
+      "crypt_version": 350,
+      "key_hex": "d284ce28ce8882e42a182e4c06b4ea8406b8c6885aa09e7c5640ba3452ccc67c2e141268fe5c769486788e4cbe88669c1ee08e6c00",
+      "enc": "DXArchive::EncodeArchiveOneDirectoryWolf",
+      "dec": "DXArchive::DecodeArchive",
+      "size": 3137,
+      "sha256": "1f26e2e1a84d83c60c54c745da124b72f49cfd66f83ffb7961ecc3605980d98a",
+      "fnv1a64": "2b8ae1e580bc5d3e",
+      "head_size": 424,
+      "flags": "0x015e0000",
+      "huffman_encode_kb": 12,
+      "password_sensitive": false
+    },
+    {
+      "file": "default-mode-8.wolf",
+      "mode_index": 8,
+      "mode_name": "Wolf RPG ChaCha2 v1",
+      "crypt_version": 100,
+      "key_hex": "c982f8b42c939e830ebcbc92688d59a14a9e7fb0acaf1d8f8eb83b9ee889d9adffbc2dab9d8b0fb4bb9a698500",
+      "enc": "DXArchive::EncodeArchiveOneDirectoryWolf",
+      "dec": "DXArchive::DecodeArchive",
+      "size": 3137,
+      "sha256": "d2c1ac9c7eb38868928c66f3ce214c5c00b2cea8ccfe5d127b94a823f6bb9f3a",
+      "fnv1a64": "0cadb317ca29ffe4",
+      "head_size": 424,
+      "flags": "0x00640000",
+      "huffman_encode_kb": 12,
+      "password_sensitive": false
+    }
+  ],
+  "oracle": {
+    "tool": "out/scratch/wolfrpg-default/probe.cpp (untracked scratch); drives the unchanged pinned vendor decoder DXArchive::DecodeArchive, the decFunc of the default table entry, on a read-only copy of each frozen container",
+    "metadata": "the per-entry DataSize/PressDataSize/HuffPressDataSize above were read back from the exact frozen containers by replaying the pinned decoder's header step with the pinned crypt primitives and then walking the typed DARC_HEAD/DARC_FILEHEAD/DARC_DIRECTORY records; the recovered paths (hello.txt, sub/repeat.bin) and DataSize values (30, 8192) confirm the parse",
+    "decode_correct_key": "all three containers decode rc=0; hello.txt and sub/repeat.bin both MATCH the owned plaintext (fnv1a64 hello 45cb0322a9a90780, repeat dae3c866244a0505)",
+    "decode_wrong_key_v331": "cryptVersion 331 does not accept a wrong password: the pinned decoder faults (0xc0000374) instead of returning the payloads, so the reader contract is to reject",
+    "decode_wrong_key_v350_chacha100": "cryptVersion 350 and 100 return the exact same payload bytes under the wrong password \"not-the-default-key\" (both MATCH), because v3.50 salts with the fixed literal \"958\" and default ChaCha2 keeps a fixed key/nonce",
+    "no_regeneration": "the 3137-byte containers are authoritative; a later re-run of the scratch encoder produced 3158/3159-byte variants for modes 6/7 and those were never used as the expected source"
+  },
+  "test_bug_corrections": [
+    "stored_size: the unit test asserted stored_size == plaintext size; the physically stored extent is 252 and 2402 bytes, so the expectation now uses the frozen encoded extent while unpacked_size stays 30 and 8192",
+    "password: the unit test asserted a wrong password is always rejected; v3.50 and default ChaCha2 ignore the password string, so those two modes now assert password invariance (open/list/extract the exact frozen bytes) and only v3.31 keeps the negative rejection."
+  ],
+  "expected_state": "RED until integration: the current reader slice implements only the uncompressed DX8 container and rejects keyed/head-pressed headers with read_error, so the positive sections fail while the v3.31 negative control passes for the wrong reason. GREEN requires the modern modes in the reused backend."
+}

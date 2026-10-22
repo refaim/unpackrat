@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <ios>
+#include <string_view>
 #include <utility>
 
 namespace test::support
@@ -126,6 +127,40 @@ namespace test::support
         append_bytes(output, {'V', 'P', '8', 'L'});
         append_u32(output, 0x2F);
         return output;
+    }
+
+    namespace
+    {
+        std::uint8_t hex_byte(const char high, const char low)
+        {
+            const auto value = [](const char digit) -> std::uint8_t {
+                return digit >= 'a' ? static_cast<std::uint8_t>(digit - 'a' + 10)
+                                    : static_cast<std::uint8_t>(digit - '0');
+            };
+            return static_cast<std::uint8_t>((static_cast<unsigned>(value(high)) << 4U) |
+                                             static_cast<unsigned>(value(low)));
+        }
+
+        godot_bytes from_hex(const std::string_view text)
+        {
+            godot_bytes bytes;
+            bytes.reserve(text.size() / 2);
+            for (std::size_t index = 0; index + 1 < text.size(); index += 2) {
+                bytes.push_back(hex_byte(text[index], text[index + 1]));
+            }
+            return bytes;
+        }
+    } // namespace
+
+    godot_bytes red_pixel_png()
+    {
+        return from_hex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154"
+                        "78da63f8cfc0f01f00050001ff56c72f0d0000000049454e44ae426082");
+    }
+
+    godot_bytes red_pixel_webp()
+    {
+        return from_hex("524946461c000000574542505650384c0f0000002f000000000710fd8ffe0722a2ff0100");
     }
 
     std::uint64_t godot_level_bytes(const std::uint32_t format, const std::uint32_t width, const std::uint32_t height)

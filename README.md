@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/refaim/unpackrat/actions/workflows/main.yml/badge.svg)](https://github.com/refaim/unpackrat/actions/workflows/main.yml)
 
-unpackrat brings support for exotic game archives to FAR Manager. It ships as a set of Observer plugin
+unpackrat brings support for exotic archives to FAR Manager. It ships as a set of Observer plugin
 modules, one per archive format, that present an archive as an ordinary folder you can browse and
 extract from. Each module is a single self-contained DLL with its dependencies built in and no
 external runtime DLLs to install.
@@ -18,30 +18,14 @@ from the module's release listing below.
 
 | Module | Formats | Release | ChangeLog |
 |--------|---------|---------|-----------|
-| Ren'Py | `.rpa` (RPA-2.0, RPA-3.0) | [renpy releases](https://github.com/refaim/unpackrat/releases?q=renpy) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
-| RPG Maker | `.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a` (VX Ace, RGSS3) | [rpgmaker releases](https://github.com/refaim/unpackrat/releases?q=rpgmaker) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
-| Zanzarah | `.pak` (original, Steam) | [zanzarah releases](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
-| Godot | `.pck`, embedded PCK and same-stem EXE sidecars | [godot releases](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
+| Ren'Py | `.rpa` (RPA-1.0 with adjacent `.rpi`, RPA-2.0, RPA-3.0) | [renpy](https://github.com/refaim/unpackrat/releases?q=renpy) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
+| RPG Maker | `.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a` (VX Ace, RGSS3) | [rpgmaker](https://github.com/refaim/unpackrat/releases?q=rpgmaker) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
+| Zanzarah | `.pak` | [zanzarah](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
+| Godot | `.pck` | [godot](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
+| WolfRPG | `.wolf`, `.wolfx` | [wolfrpg](https://github.com/refaim/unpackrat/releases?q=wolfrpg) | [RU](src/modules/wolfrpg/ChangeLog.ru.txt) [EN](src/modules/wolfrpg/ChangeLog.en.txt) |
+| Unity | Unity serialized files and asset bundles (e.g. `.assets`, `.bundle`, `.unity3d`) | [unity](https://github.com/refaim/unpackrat/releases?q=unity) | [RU](src/modules/unity/ChangeLog.ru.txt) [EN](src/modules/unity/ChangeLog.en.txt) |
 
-Godot restores imported assets to their original folders. In `[Godot]`, `DecodeResources=1`
-shows a converted file in place of its compiled original, such as `art/hero.png` in place of
-`art/hero.ctex`; unsupported resources keep their originals. The shipped INI enables this mode.
-`DecodeResources=0`, or a missing setting, shows originals and skips resource conversion. Import
-metadata remains visible in both modes; renamed paths are recorded in `name-map.tsv`.
-
-Media decoding and encoding run during extraction. Converted entries display the packed source
-size; converted extraction progress uses that same packed size. Texture containers are recognised by
-content and can hold PNG, WebP or raw/GPU image data. FontFile payloads retain their original font
-format. Conversion has no aggregate work quota or default image pixel/byte ceiling.
-
-Encrypted packs use keys recovered by static inspection of neighbouring EXEs, with complete
-plaintext MD5 verification. Games are never launched. If recovery cannot find a valid key, enter
-its 64 hexadecimal digits in Observer's password dialog. An EXE without an embedded pack can open
-its same-stem sibling `.pck`. Encrypted resources are decrypted in either presentation mode.
-
-Unity support is an experimental candidate on the development branch, not a published release, and
-no Unity module release listing is offered yet. Local candidate builds are experimental manual-test
-builds shared directly, not public downloads. Open one selected Unity `.assets`, `.bundle`
+Unity support is a published module. Open one selected Unity `.assets`, `.bundle`
 or `data.unity3d` file; UnityFS internal bundles are handled automatically. Sibling `resS` and
 resource files, and the other dependencies the selected file references, are resolved for that
 selected file, while resources owned by unrelated dependencies are not added, so keep the sidecar
@@ -61,8 +45,8 @@ DisplayedSize and PackedSize report the original source payload length (0 means 
 output may differ. An unsupported downscale value beyond 0 or 1, a tight mask that cannot be read,
 or a source geometry budget refusal fails that one entry's export, so not every variant or Unity
 version is guaranteed. External code, `MonoBehaviour`, `ScriptableObject`, `Material` and
-`AnimationClip` are outside this resource feature. The candidate targets a single DLL with no
-separate .NET runtime to install, and local builds remain experimental manual-test builds.
+`AnimationClip` are outside this resource feature. The Unity module is a single DLL with no
+separate .NET runtime to install.
 
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
@@ -80,48 +64,6 @@ extract from with the usual FAR commands.
 
 unpackrat's own source is released under the [MIT License](LICENSE.txt).
 
-One upstream file is an explicit exception: the Observer API header [`src/api.h`](src/api.h) stays
-under LGPL-3.0-only. Its notice is reproduced as [`licenses/Observer.txt`](licenses/Observer.txt), and
-because LGPLv3 incorporates the GNU GPLv3, the corresponding full GPLv3 text travels beside it as
-[`licenses/GPL-3.0.txt`](licenses/GPL-3.0.txt). Those two texts are always retained in every packaged
-module.
-
-### Third-party components
-
-| Project | License | Modules |
-|---------|---------|---------|
-| [nlohmann/json](https://github.com/nlohmann/json) | [MIT](licenses/json.txt) | Tests only |
-| [catchorg/Catch2](https://github.com/catchorg/Catch2) | [BSL-1.0](licenses/Catch2.txt) | Tests only |
-| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt) plus [GPL-3.0](licenses/GPL-3.0.txt) | Ren'Py, RPG Maker, Zanzarah, Godot, Unity |
-| [YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks) | [MIT](licenses/YY-Thunks.txt) | Ren'Py, RPG Maker, Zanzarah, Godot, Unity |
-| [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash) | [BSD-2-Clause](licenses/xxHash.txt) | Tests only |
-| [zlib-ng](https://github.com/zlib-ng/zlib-ng) | [Zlib](licenses/zlib-ng.txt) | Ren'Py, Godot |
-| [godotengine/godot](https://github.com/godotengine/godot) | [MIT](licenses/godot.txt) | Godot |
-| [iOrange/bcdec](https://github.com/iOrange/bcdec) | [MIT](licenses/bcdec.txt) | Godot |
-| [mackron/dr_libs](https://github.com/mackron/dr_libs) | [Unlicense OR MIT-0](licenses/dr_libs.txt) | Godot |
-| [phoboslab/qoa](https://github.com/phoboslab/qoa) | [MIT](licenses/qoa.txt) | Godot |
-| [randy408/libspng](https://github.com/randy408/libspng) | [BSD-2-Clause](licenses/libspng.txt) | Godot |
-| [xiph/ogg](https://github.com/xiph/ogg) | [BSD-3-Clause](licenses/libogg.txt) | Godot |
-| [ariya/FastLZ](https://github.com/ariya/FastLZ) | [MIT](licenses/fastlz.txt) | Godot |
-| [facebook/zstd](https://github.com/facebook/zstd) | [BSD-3-Clause](licenses/zstd.txt) | Godot |
-| [google/brotli](https://github.com/google/brotli) | [MIT](licenses/brotli.txt) | Godot |
-| [Zydis](https://github.com/zyantific/zydis) | [MIT](licenses/zydis.txt) | Godot |
-| [Zycore](https://github.com/zyantific/zycore-c) | [MIT](licenses/zycore.txt) | Godot |
-| [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (mbedcrypto only) | [Apache-2.0](licenses/mbedcrypto.txt) | Godot |
-| [AssetRipper](https://github.com/AssetRipper/AssetRipper) (GPL-3.0) and the .NET runtime | [GPL-3.0 / MIT](licenses/Unity.txt) | Unity |
-
-The bcdec, dr_libs and QOA decoders are restored through [local vcpkg overlay ports](build/vcpkg/ports/README.md)
-as static libraries. Their source revisions and downloaded header hashes are pinned there. QOA uses the header
-from Godot 4.5-stable, which is the version tested with this module.
-
-### Sources of inspiration
-
-| Project | License | Modules |
-|---------|---------|---------|
-| [luxrck/rgssad](https://github.com/luxrck/rgssad) | [MIT](licenses/rgssad.txt) | RPG Maker |
-| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) | Ren'Py |
-| [Shizmob/rpatool](https://github.com/Shizmob/rpatool) | [WTFPL](licenses/rpatool.txt) | Ren'Py |
-| [pg83/ix](https://github.com/pg83/ix/tree/66726a904152246fbef8b27e26e878840f6d7fb7) | [MIT](licenses/IX.txt) | Historical build tooling |
 
 ## Building
 
@@ -136,8 +78,6 @@ DLLs to ship. The full command contract, prerequisites and quality gates live in
 .\build.ps1 ci-arch -Arch x64
 .\build.ps1 package
 ```
-
-Each module also publishes an optional `-pdb.zip` symbol bundle beside its module archives.
 
 ## Links
 

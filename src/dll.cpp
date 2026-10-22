@@ -153,9 +153,10 @@ extern "C" int MODULE_EXPORT GetItem(HANDLE storage, int item_index, StorageItem
         const auto path = metadata.path.substr(0, metadata.path.find('\0'));
         int chars_written = 0;
         if (path.size() <= unpackrat::archive_limits::max_path_bytes) {
-            chars_written = path.empty() ? 1 : MultiByteToWideChar(
-                CP_UTF8, 0, path.data(), static_cast<int>(path.size()), local_info.Path,
-                static_cast<int>(std::size(local_info.Path)) - 1);
+            chars_written =
+                path.empty() ? 1
+                             : MultiByteToWideChar(CP_UTF8, 0, path.data(), static_cast<int>(path.size()),
+                                                   local_info.Path, static_cast<int>(std::size(local_info.Path)) - 1);
         }
         std::memcpy(item_info, &local_info, sizeof(StorageItemInfo));
         if (chars_written == 0) {

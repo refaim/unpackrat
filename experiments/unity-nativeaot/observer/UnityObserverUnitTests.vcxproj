@@ -68,7 +68,7 @@
     <ClCompile Include="$(unpackratUnityObserverRoot)\src\archive.cpp" />
     <ClCompile Include="UnityExtractor.cpp" Condition="'$(CommonObserverTests)' != 'true'" />
     <ClCompile Include="UnityExtractorTests.cpp" Condition="'$(CommonObserverTests)' != 'true'" />
-    <ClCompile Include="CommonObserverTests.cpp" Condition="'$(CommonObserverTests)' == 'true'" />
+    <ClCompile Include="$(unpackratUnityObserverRoot)\src\tests\unit\common_observer.cpp" Condition="'$(CommonObserverTests)' == 'true'" />
     <ClCompile Include="$(unpackratUnityObserverRoot)\src\tests\support\archive_lazy_fixtures.cpp" Condition="'$(CommonObserverTests)' == 'true'" />
     <ClCompile Include="$(unpackratUnityObserverRoot)\src\tests\unit\archive_lazy.cpp" Condition="'$(CommonObserverTests)' == 'true'" />
   </ItemGroup>

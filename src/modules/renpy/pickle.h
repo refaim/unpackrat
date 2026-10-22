@@ -19,6 +19,12 @@ namespace pickle
     using list = std::vector<value_ptr>;
     using dict = std::unordered_map<std::string, value_ptr>;
 
+    struct limits final
+    {
+        std::size_t max_nodes = 1'000'000;
+        std::size_t max_owned_bytes = std::size_t{64} * 1024 * 1024;
+    };
+
     class value
     {
       public:
@@ -197,7 +203,7 @@ namespace pickle
         }
     };
 
-    value_ptr clone(const value &source);
+    value_ptr clone(const value &source, const limits &bounds = {});
 
     class parser
     {
@@ -207,6 +213,9 @@ namespace pickle
         std::vector<value_ptr> stack_;
         std::vector<size_t> mark_stack_;
         std::unordered_map<uint32_t, value_ptr> memo_;
+        // Monotonic work/ownership allowances cover original values, every memo clone,
+        // and copied strings and dictionary keys, even after a memo slot is replaced.
+        limits remaining_;
 
         uint8_t read_byte();
 
@@ -227,15 +236,16 @@ namespace pickle
         value_ptr parse_value();
 
       public:
-        explicit parser(const std::span<const std::byte> data) : data_(data)
+        explicit parser(const std::span<const std::byte> data, const limits &bounds = {})
+            : data_(data), remaining_(bounds)
         {
         }
 
         value_ptr parse();
     };
 
-    value_ptr loads(std::span<const std::byte> data);
+    value_ptr loads(std::span<const std::byte> data, const limits &bounds = {});
 
-    value_ptr loads(const std::string &data);
+    value_ptr loads(const std::string &data, const limits &bounds = {});
 } // namespace pickle
 #endif

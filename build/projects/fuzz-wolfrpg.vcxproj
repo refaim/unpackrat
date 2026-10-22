@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\unpackrat-project-configurations.props" />
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{4DC87682-0A20-42C6-B26E-B1A29781C47B}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>fuzz_wolfrpg</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <unpackratConfigurationType>Application</unpackratConfigurationType>
+    <unpackratModuleName>wolfrpg</unpackratModuleName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="..\unpackrat-configuration.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\unpackrat-project.props" />
+  <Import Project="..\unpackrat-module-version.props" />
+  <Import Project="..\unpackrat-fuzz.props" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
+
+  <PropertyGroup>
+    <TargetName>fuzz-wolfrpg</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\include\uberwolf;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <!-- The project-owned adapter isolates the pinned UberWolf static library. -->
+      <AdditionalDependencies>uberwolf.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(RepositoryRoot)src\core\io\bounded_stream.cpp" />
+    <ClInclude Include="$(RepositoryRoot)src\core\archive_limits.h" />
+    <ClCompile Include="$(RepositoryRoot)src\fuzz\wolfrpg.cpp">
+      <ObjectFileName>$(IntDir)wolfrpg_fuzzer.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\archive.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\chacha_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\game_context.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\legacy_archive.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\legacy_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\lz_reader.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\huffman_reader.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\modern_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\pro_keys.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\text_encoding.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\wolfx_archive.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\wolfx_candidates.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\wolfx_game_metadata.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\wolfx_metadata.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\platform\win32\system_codepage.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\wolfrpg\wolfrpg.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\wolfrpg\archive.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\wolfrpg\lz_reader.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\wolfrpg\huffman_reader.h" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.targets" />
+</Project>

@@ -1,0 +1,7 @@
+Version 1.0.1
+-------------
+ * Shared Observer metadata handling now supports lazy indexed catalogues and rejects producer paths beyond the UTF-8 metadata length bound.
+
+Version 1.0.0
+-------------
+ + Added the WolfRPG module for browsing and extracting files from .wolf and .wolfx archives.

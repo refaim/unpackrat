@@ -9,13 +9,13 @@
     5,
     0
   ],
-  "file_base": 256,
-  "file_size": 2452,
-  "sha256": "1e0516da4d6a0a65c22c612ff647448375b8398170777e8a75ada7dc4c98488b",
+  "file_base": 512,
+  "file_size": 2708,
+  "sha256": "b0b6235e933f04ab0608d207d3be85008b35da5ea5ada4613d82188685327575",
   "entries": [
     {
-      "path": "res://audio/legacy-negative-main.sample",
-      "converted_path": "audio/legacy-negative-main.wav",
+      "path": ".godot/imported/legacy-negative-main.wav-9294f42b89e1812093754ce0e775a040.sample",
+      "converted_path": ".godot/imported/legacy-negative-main.wav",
       "logical_size": 335,
       "md5": "03c7488a04d760376a000722fcdbd300",
       "sha256": "23338307385dd4fdcd7aa114be90bd682517f146fc0874d77ababc651c54cb11",
@@ -23,8 +23,8 @@
       "output_sha256": null
     },
     {
-      "path": "res://audio/prefixed.mp3",
-      "converted_path": "audio/prefixed.mp3",
+      "path": ".godot/imported/prefixed.mp3-f41d2303b60d7740c499a460ecf68363.res",
+      "converted_path": ".godot/imported/prefixed.mp3",
       "logical_size": 1861,
       "md5": "8c6048a9740c2060b9f6f202f1640453",
       "sha256": "210756e6f27db5c409b21bb07b6bbcd65e540717e91383691fe7817eac2e61ce",

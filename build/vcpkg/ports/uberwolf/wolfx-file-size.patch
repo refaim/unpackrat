@@ -1,0 +1,12 @@
+diff --git a/UberWolfLib/WolfX/Types.hpp b/UberWolfLib/WolfX/Types.hpp
+--- a/UberWolfLib/WolfX/Types.hpp
++++ b/UberWolfLib/WolfX/Types.hpp
+@@ -93,7 +93,7 @@
+ struct WolfXFile
+ {
+ 	std::wstring filePath;
+-	std::size_t fileSize;
++	std::uintmax_t fileSize;
+ };
+ 
+ using WolfXFiles = std::vector<WolfXFile>;

@@ -1,0 +1,51 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-notice-content:99aa6a8c52660abaac8208db46cdd4c3aabaa689c677b839214c8627cd5f8f0e",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/99aa6a8c52660abaac8208db46cdd4c3aabaa689c677b839214c8627cd5f8f0e.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "64,65,66,126",
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 64,65,66,126: gpl = notice(\"GPL-3.0.txt\") This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "12,123",
+      "line_count": 1,
+      "detected_license": "GPL-2.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 12,123: * ``licenses/zstd.txt`` keeps the root BSD-3-Clause and GPLv2 alternatives and adds This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "41,64",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 41,64: \"GPL-3.0.txt\", \"json.txt\", \"libogg.txt\", \"libspng.txt\", \"mbedcrypto.txt\", This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "63",
+      "line_count": 1,
+      "detected_license": "LGPL-2.1-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 63: self.assertIn(\"GNU LESSER GENERAL PUBLIC LICENSE\", observer) This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "61,77,98,123,174",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-license-reference",
+      "reason": "REFERENCE",
+      "concluded_license": "NONE",
+      "comment": "Lines 61,77,98,123,174: self.assertIn(\"Permission is hereby granted, free of charge\", license_text) This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
+    }
+  ]
+}

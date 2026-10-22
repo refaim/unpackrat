@@ -63,10 +63,11 @@ $Cases = @(
 )
 
 function Invoke-Probe {
-    param([pscustomobject]$Case)
+    param([pscustomobject]$Case, [string]$MsBuildPath)
+    $msBuild = $MsBuildPath
     $probeOut = Join-Path $WorkDir ("capture-" + $Case.Id + ".txt")
     Remove-Item -LiteralPath $probeOut -ErrorAction SilentlyContinue
-    $args = @(
+    $taskArgs = @(
         $ProbeProj,
         '/nologo', '/v:m', '/t:CaptureFlags',
         "/p:RealTargets=$RealTargets",
@@ -79,7 +80,7 @@ function Invoke-Probe {
         "/p:NativeLib=$($Case.NativeLib)",
         "/p:UnityYYThunksObject=$($Case.Obj)"
     )
-    $output = & $MsBuild @args 2>&1 | Out-String
+    $output = & $msBuild @taskArgs 2>&1 | Out-String
     $exit = $LASTEXITCODE
     $lines = @()
     if (Test-Path -LiteralPath $probeOut) {
@@ -99,7 +100,7 @@ function Test-SortedEqual {
 
 $failures = 0
 foreach ($case in $Cases) {
-    $r = Invoke-Probe -Case $case
+    $r = Invoke-Probe -Case $case -MsBuildPath $MsBuild
     $problems = New-Object System.Collections.Generic.List[string]
 
     if ($case.ExpectExit -eq 'zero' -and $r.Exit -ne 0) {

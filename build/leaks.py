@@ -29,8 +29,9 @@ MODES = ("operations", "lifecycle")
 SCENARIOS = (
     "small-success", "malformed", "cancellation", "read-failure", "write-failure",
     "large-metadata", "sparse-metadata",
+    "wolf-small-success", "wolf-malformed", "wolf-cancellation",
 )
-BINARIES = ("leak-probe.exe", "renpy.so", "rpgmaker.so", "zanzarah.so", "godot.so")
+BINARIES = ("leak-probe.exe", "renpy.so", "rpgmaker.so", "zanzarah.so", "godot.so", "wolfrpg.so")
 # Every probe marker wait and every UMDH invocation is bounded so a stalled child cannot wedge CI.
 _MARKER_TIMEOUT = 300.0
 _UMDH_TIMEOUT = 300.0

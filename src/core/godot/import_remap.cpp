@@ -1,11 +1,13 @@
 #include "import_remap.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string_view>
 #include <utility>
 
 #include "../archive_limits.h"
+#include "../codecs/crypto_codec.h"
 
 namespace unpackrat::godot
 {
@@ -791,5 +793,186 @@ namespace unpackrat::godot
             mappings.push_back(import_mapping{virtual_path, *compiled, variant});
         }
         return mappings;
+    }
+
+    namespace
+    {
+        constexpr std::string_view imported_dir_v4 = ".godot/imported/";
+        constexpr std::string_view imported_dir_v3 = ".import/";
+        constexpr std::string_view res_prefix = "res://";
+        constexpr std::string_view import_suffix_name = ".import";
+        constexpr std::size_t md5_hex_chars = 32;
+
+        // The second operand is always a fixed lowercase literal at every call site.
+        // Fold only the externally supplied first operand so the helper contract stays
+        // narrow and untrusted case handling lives in one place.
+        bool ascii_fold_equal(const std::string_view text, const std::string_view lowercase_literal) noexcept
+        {
+            if (text.size() != lowercase_literal.size()) {
+                return false;
+            }
+            for (std::size_t index = 0; index < text.size(); ++index) {
+                char folded = text[index];
+                if (folded >= 'A' && folded <= 'Z') {
+                    folded = static_cast<char>(folded - 'A' + 'a');
+                }
+                if (folded != lowercase_literal[index]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // lowercase_suffix is a fixed lowercase literal at the only call site.
+        bool ends_with_fold(const std::string_view text, const std::string_view lowercase_suffix) noexcept
+        {
+            return text.size() >= lowercase_suffix.size() &&
+                   ascii_fold_equal(text.substr(text.size() - lowercase_suffix.size()), lowercase_suffix);
+        }
+
+        bool is_hex_digit(const char value) noexcept
+        {
+            return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F');
+        }
+
+        bool is_feature_char(const char value) noexcept
+        {
+            return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
+                   value == '_';
+        }
+
+        bool is_compiled_extension(const std::string_view extension) noexcept
+        {
+            return ascii_fold_equal(extension, ".ctex") || ascii_fold_equal(extension, ".stex") ||
+                   ascii_fold_equal(extension, ".tex") || ascii_fold_equal(extension, ".scaledtex") ||
+                   ascii_fold_equal(extension, ".res") || ascii_fold_equal(extension, ".sample") ||
+                   ascii_fold_equal(extension, ".fontdata") || ascii_fold_equal(extension, ".scn");
+        }
+
+        std::string md5_text(const std::string_view text)
+        {
+            codecs::md5_state digest;
+            digest.update(std::span<const std::byte>(reinterpret_cast<const std::byte *>(text.data()), text.size()));
+            const codecs::digest128 value = digest.finish();
+            static constexpr char digits[] = "0123456789abcdef";
+            std::string output;
+            output.reserve(value.size() * 2);
+            for (const std::byte byte : value) {
+                const auto unsigned_byte = std::to_integer<unsigned>(byte);
+                output.push_back(digits[unsigned_byte >> 4U]);
+                output.push_back(digits[unsigned_byte & 0x0FU]);
+            }
+            return output;
+        }
+    } // namespace
+
+    std::optional<std::string> output_extension_for_source(const std::string_view source_extension)
+    {
+        if (source_extension.size() < 2 || source_extension.front() != '.') {
+            return std::nullopt;
+        }
+        if (ascii_fold_equal(source_extension, ".jpg") || ascii_fold_equal(source_extension, ".jpeg") ||
+            ascii_fold_equal(source_extension, ".svg")) {
+            return std::string(".png");
+        }
+        if (ascii_fold_equal(source_extension, ".png") || ascii_fold_equal(source_extension, ".webp") ||
+            ascii_fold_equal(source_extension, ".wav") || ascii_fold_equal(source_extension, ".ogg") ||
+            ascii_fold_equal(source_extension, ".mp3") || ascii_fold_equal(source_extension, ".ttf") ||
+            ascii_fold_equal(source_extension, ".otf") || ascii_fold_equal(source_extension, ".ttc") ||
+            ascii_fold_equal(source_extension, ".woff") || ascii_fold_equal(source_extension, ".woff2")) {
+            return std::string(source_extension);
+        }
+        return std::nullopt;
+    }
+
+    std::optional<imported_name> classify_imported_name(const std::string_view path)
+    {
+        if (!path.starts_with(imported_dir_v4) && !path.starts_with(imported_dir_v3)) {
+            return std::nullopt;
+        }
+        const std::size_t name_start = path.find_last_of('/') + 1;
+        // The accepted prefix always contains a slash, so name_start is a valid split.
+        // Search the filename component only: dots in ".godot" or ".import" must not
+        // stand in for a filename extension, and an absent extension then has exactly
+        // one reachable rejection condition.
+        const std::string_view filename = path.substr(name_start);
+        const std::size_t compiled_dot_in_name = filename.find_last_of('.');
+        if (compiled_dot_in_name == std::string_view::npos) {
+            return std::nullopt;
+        }
+        const std::size_t compiled_dot = name_start + compiled_dot_in_name;
+        if (!is_compiled_extension(path.substr(compiled_dot))) {
+            return std::nullopt;
+        }
+        const std::size_t dash = path.find_last_of('-', compiled_dot);
+        if (dash == std::string_view::npos || dash < name_start || dash + 1 + md5_hex_chars > compiled_dot) {
+            return std::nullopt;
+        }
+        if (!std::ranges::all_of(path.substr(dash + 1, md5_hex_chars), is_hex_digit)) {
+            return std::nullopt;
+        }
+        const std::size_t hash_end = dash + 1 + md5_hex_chars;
+        std::string_view variant;
+        if (hash_end != compiled_dot) {
+            if (path[hash_end] != '.' || hash_end + 1 == compiled_dot) {
+                return std::nullopt;
+            }
+            variant = path.substr(hash_end + 1, compiled_dot - hash_end - 1);
+            if (!std::ranges::all_of(variant, is_feature_char)) {
+                return std::nullopt;
+            }
+        }
+        const std::string_view before_dash = path.substr(0, dash);
+        // dash >= name_start, so this source-name slice is in range. Search only that
+        // filename component for the same reason as the compiled extension above.
+        const std::string_view source_name = before_dash.substr(name_start);
+        const std::size_t source_dot_in_name = source_name.find_last_of('.');
+        if (source_dot_in_name == std::string_view::npos) {
+            return std::nullopt;
+        }
+        const std::size_t source_dot = name_start + source_dot_in_name;
+        const std::optional<std::string> output = output_extension_for_source(before_dash.substr(source_dot));
+        if (!output.has_value()) {
+            return std::nullopt;
+        }
+        return imported_name{path.substr(0, hash_end), before_dash, *output, variant};
+    }
+
+    std::optional<std::string> conventional_import_source_path(const std::string_view metadata_path)
+    {
+        std::string_view path = metadata_path;
+        if (path.starts_with(res_prefix)) {
+            path.remove_prefix(res_prefix.size());
+        }
+        if (!ends_with_fold(path, import_suffix_name)) {
+            return std::nullopt;
+        }
+        path.remove_suffix(import_suffix_name.size());
+        const std::size_t slash = path.find_last_of('/');
+        const std::size_t dot = path.find_last_of('.');
+        const std::size_t name_start = slash == std::string_view::npos ? 0 : slash + 1;
+        if (dot == std::string_view::npos || dot < name_start) {
+            return std::nullopt;
+        }
+        if (!output_extension_for_source(path.substr(dot)).has_value()) {
+            return std::nullopt;
+        }
+        return std::string(path);
+    }
+
+    std::string conventional_import_basename(const std::string_view source_path)
+    {
+        const std::size_t slash = source_path.find_last_of('/');
+        const std::string_view filename = slash == std::string_view::npos ? source_path : source_path.substr(slash + 1);
+        std::string canonical;
+        canonical.reserve(res_prefix.size() + source_path.size());
+        canonical.append(res_prefix);
+        canonical.append(source_path);
+        std::string output;
+        output.reserve(filename.size() + 1 + md5_hex_chars);
+        output.append(filename);
+        output.push_back('-');
+        output.append(md5_text(canonical));
+        return output;
     }
 } // namespace unpackrat::godot

@@ -9,6 +9,7 @@ the per-module symbol bundle must describe one PDB per supported architecture.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import unittest
@@ -25,7 +26,14 @@ METHODOLOGY = REPOSITORY / "docs" / "critical-software-methodology.md"
 DOCUMENTS = (README, AGENTS, BUILD_SYSTEM, METHODOLOGY)
 
 MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
+CONSOLIDATED_RELEASES = {
+    "renpy": "3.2.0",
+    "rpgmaker": "1.3.0",
+    "zanzarah": "2.3.0",
+    "godot": "1.2.0",
+}
 LANGUAGES = ("en", "ru")
+
 
 # A word-start match for "arm" catches "ARM", "ARM64" and "arm64" without tripping on
 # unrelated words such as the "farmanager" host domain.
@@ -75,8 +83,13 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
         self.assertIn("(x86 or x64)", download)
         self.assertIn("for x86 and x64", building)
 
-    def test_readme_keeps_every_upstream_row_and_changelog_link(self) -> None:
-        readme = read(README)
+    def test_central_inventory_scopes_and_changelog_links(self) -> None:
+        # The reviewed component inventory carries every upstream identity with a reviewed scope;
+        # the README keeps the bilingual changelog links for every shipped module.
+        inventory = json.loads(
+            (REPOSITORY / "build" / "license-inventory.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(inventory["schema"], "unpackrat-license-inventory/3")
         upstream = (
             "https://github.com/nlohmann/json",
             "https://github.com/catchorg/Catch2",
@@ -86,12 +99,21 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
             "https://github.com/luxrck/rgssad",
             "https://github.com/birkenfeld/serde-pickle",
             "https://github.com/Shizmob/rpatool",
-            "https://github.com/pg83/ix",
         )
+        urls = [
+            str(component["source"].get("url"))
+            for component in inventory["components"]
+            if isinstance(component, dict) and isinstance(component.get("source"), dict)
+        ]
         for project in upstream:
             with self.subTest(project=project):
-                self.assertIn(project, readme)
-        # Bilingual changelog links for every shipped module.
+                self.assertTrue(any(url.startswith(project) for url in urls), project)
+        allowed_scopes = {"runtime", "test", "build", "reference"}
+        for component in inventory["components"]:
+            with self.subTest(component=component.get("name") if isinstance(component, dict) else component):
+                self.assertIsInstance(component, dict)
+                self.assertIn(component["scope"], allowed_scopes)
+        readme = read(README)
         for module in MODULES:
             for language in LANGUAGES:
                 with self.subTest(module=module, language=language):
@@ -161,6 +183,52 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
         self.assertIn("forbidden imports", docs)
         self.assertIn("BinSkim", docs)
 
+    def test_future_changelog_release_keeps_the_historical_windows_announcement(self) -> None:
+        for language, header, announcement in (
+            ("en", "Version", "+ Added support for Windows XP–11."),
+            ("ru", "Версия", "+ Добавлена поддержка Windows XP–11."),
+        ):
+            with self.subTest(language=language):
+                changelog = (
+                    f"{header} 99.0.0\n-------------\n + Added a future feature.\n\n"
+                    f"{header} 3.2.0\n-------------\n {announcement}\n\n"
+                    f"{header} 1.0.0\n-------------\n + Original release.\n"
+                )
+                case = SupportedArchitectureDocumentTests(
+                    "test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history"
+                )
+                with (
+                    mock.patch(__name__ + ".MODULES", ("renpy",)),
+                    mock.patch(__name__ + ".LANGUAGES", (language,)),
+                    mock.patch(__name__ + ".read", return_value=changelog),
+                    mock.patch.object(Path, "read_text", return_value="99.0.0"),
+                ):
+                    case.test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history()
+
+    def test_latest_or_other_release_cannot_replace_the_consolidated_windows_announcement(self) -> None:
+        for language, header, announcement in (
+            ("en", "Version", "+ Added support for Windows XP–11."),
+            ("ru", "Версия", "+ Добавлена поддержка Windows XP–11."),
+        ):
+            with self.subTest(language=language):
+                changelog = (
+                    f"{header} 99.0.0\n-------------\n {announcement}\n\n"
+                    f"{header} 3.2.0\n-------------\n + A different historical feature.\n\n"
+                    f"{header} 3.1.0\n-------------\n {announcement}\n\n"
+                    f"{header} 1.0.0\n-------------\n + Original release.\n"
+                )
+                case = SupportedArchitectureDocumentTests(
+                    "test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history"
+                )
+                with (
+                    mock.patch(__name__ + ".MODULES", ("renpy",)),
+                    mock.patch(__name__ + ".LANGUAGES", (language,)),
+                    mock.patch(__name__ + ".read", return_value=changelog),
+                    mock.patch.object(Path, "read_text", return_value="99.0.0"),
+                    self.assertRaisesRegex(AssertionError, "XP"),
+                ):
+                    case.test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history()
+
     def test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history(self) -> None:
         headers = {"en": "Version", "ru": "\u0412\u0435\u0440\u0441\u0438\u044f"}
         for module in MODULES:
@@ -172,15 +240,39 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
                 with self.subTest(module=module, language=language):
                     lines = read(REPOSITORY / "src" / "modules" / module / name).splitlines()
                     self.assertIsNone(_ARM.search("\n".join(lines)), f"{module}/{name} claims ARM")
-                    # The unreleased top version keeps its heading and its meaningful entries.
+                    # The newest heading is derived from the current VERSION file, and the top
+                    # section keeps at least one meaningful entry. Earlier releases stay in the
+                    # history, so the original 1.0.0 lineage must survive.
                     self.assertEqual(lines[0], f"{headers[language]} {version}")
-                    top = read(REPOSITORY / "src" / "modules" / module / name).split("\n\n", 1)[0]
-                    public_entries = {
-                        "en": "* Added support for all Windows versions from XP through Windows 11.",
-                        "ru": "* Поддерживаются все версии Windows от XP до Windows 11.",
-                    }
-                    self.assertEqual([line.strip() for line in top.splitlines()[2:]],
-                                     [public_entries[language]])
+                    self.assertTrue(lines[1].startswith("-"), lines[1])
+                    headings = tuple(headers.values())
+                    body = lines[2:]
+                    end = next(
+                        (index for index, line in enumerate(body) if line.startswith(headings)),
+                        len(body),
+                    )
+                    entries = [
+                        line for line in body[:end] if line.lstrip().startswith(("*", "+"))
+                    ]
+                    self.assertGreaterEqual(len(entries), 1)
+                    # The Windows support announcement belongs to its original consolidated
+                    # release. New releases keep that exact historical section without
+                    # repeating the announcement as if Windows support were newly added.
+                    consolidated = f"{headers[language]} {CONSOLIDATED_RELEASES[module]}"
+                    self.assertIn(consolidated, lines)
+                    body = lines[lines.index(consolidated) + 2:]
+                    end = next(
+                        (index for index, line in enumerate(body) if line.startswith(headings)),
+                        len(body),
+                    )
+                    entries = [
+                        line for line in body[:end] if line.lstrip().startswith(("*", "+"))
+                    ]
+                    announcement = {
+                        "en": "+ Added support for Windows XP–11.",
+                        "ru": "+ Добавлена поддержка Windows XP–11.",
+                    }[language]
+                    self.assertIn(announcement, [line.strip() for line in entries])
                     # The historical 1.0.0 lineage survives.
                     self.assertIn(f"{headers[language]} 1.0.0", "\n".join(lines))
 

@@ -1,0 +1,28 @@
+diff --git a/3rdParty/DXLib/DXArchive.cpp b/3rdParty/DXLib/DXArchive.cpp
+index 22fc69c..e0d3725 100644
+--- a/3rdParty/DXLib/DXArchive.cpp
++++ b/3rdParty/DXLib/DXArchive.cpp
+@@ -530,9 +530,11 @@ void DXArchive::KeyCreate(const char *Source, size_t SourceBytes, u8 *Key)
+ 		SourceBytes = CL_strlen(CHARCODEFORMAT_ASCII, Source);
+ 	}
+ 
++	std::vector<char> DynamicWorkBuffer;
+ 	if (SourceBytes > sizeof(WorkBuffer))
+ 	{
+-		UseWorkBuffer = (char *)malloc(SourceBytes);
++		DynamicWorkBuffer.resize(SourceBytes);
++		UseWorkBuffer = DynamicWorkBuffer.data();
+ 	}
+ 	else
+ 	{
+@@ -561,10 +563,6 @@ void DXArchive::KeyCreate(const char *Source, size_t SourceBytes, u8 *Key)
+ 	Key[5] = (u8)(CRC32_1 >> 8);
+ 	Key[6] = (u8)(CRC32_1 >> 16);
+ 
+-	if (SourceBytes > sizeof(WorkBuffer))
+-	{
+-		free(UseWorkBuffer);
+-	}
+ }
+ 
+ // 鍵文字列を使用して Xor 演算( Key は必ず DXA_KEY_BYTES の長さがなければならない )

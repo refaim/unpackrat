@@ -1,0 +1,26 @@
+{
+  "source_ref": "f4191375d289171b1f29dbc5ca320133b2b4b96a",
+  "source_archive_sha512": "28105836e9fb6af1b380d72066b57007316aa28c20480e0e1583a2252bdb27e3420d6d8b13433283868dd60236d629818453208836b1e7824eeffa143240a725",
+  "files": {
+    "UberWolfLib/WolfRPG/FileAccess.hpp": {
+      "sha256": "77a28e0863013652cf93d4bebe1a3077f48c391f13e3d9dd5c3a2170c3d8521a",
+      "derivation": "unmodified pinned source"
+    },
+    "UberWolfLib/UberWolfLib.cpp": {
+      "sha256": "fa61b5398081d2fc0f54cc5b444708009d506637d069534dd44f9e52a4ef244d",
+      "derivation": "unmodified pinned source"
+    },
+    "UberWolfLib/WolfX/Types.hpp": {
+      "sha256": "b06761f52d38b8f9160852c7e611f741447ac72676ee851da3a8b76eb53a8d21",
+      "derivation": "unmodified pinned source"
+    },
+    "3rdParty/DXLib/DXArchive.cpp": {
+      "sha256": "0103439cd52cd85ce86b05df167c54a49f9f545b994d9968da59535db4af2826",
+      "derivation": "unmodified pinned source"
+    },
+    "3rdParty/lz4/lz4.h": {
+      "sha256": "35998706a6ce50c1f7ba47a9a4e27f7a440e8d8ac2085a6a1beeaa123edceda7",
+      "derivation": "complete pinned source license notice"
+    }
+  }
+}

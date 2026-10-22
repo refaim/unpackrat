@@ -1,0 +1,4 @@
+# Pinned UberWolfLib source snapshots. They are stored with their canonical LF
+# bytes and marked -text so a Git checkout reproduces the recorded SHA256.
+WolfDec.h.fixture -text
+WolfDec.cpp.fixture -text

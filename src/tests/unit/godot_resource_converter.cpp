@@ -7,6 +7,7 @@
 //   struct resource_descriptor { resource_kind kind; std::string extension; };
 //   class resource_source_error final : public std::runtime_error { ... };
 //   std::optional<resource_descriptor> probe_resource(std::istream&, byte_range);
+//   std::optional<resource_descriptor> probe_resource(std::istream&, byte_range, std::uint64_t stream_size);
 //   void write_resource(std::istream&, byte_range, const resource_descriptor&,
 //                       const std::function<void(std::span<const std::byte>)>&);
 //
@@ -58,6 +59,8 @@
 // carry the dllimport decoration; the macro stays private to this translation unit.
 #define SPNG_STATIC
 #include <spng.h>
+#define WEBP_STATIC
+#include <webp/decode.h>
 
 namespace
 {
@@ -71,6 +74,8 @@ namespace
     using test::support::godot_resource_bytes;
     using test::support::gst2_fixture;
     using test::support::png_bytes;
+    using test::support::red_pixel_png;
+    using test::support::red_pixel_webp;
     using test::support::resource_document_spec;
     using test::support::resource_property_spec;
     using test::support::resource_record_spec;
@@ -81,9 +86,11 @@ namespace
     using unpackrat::codecs::compression_kind;
     using unpackrat::godot::byte_range;
     using unpackrat::godot::probe_resource;
+    using unpackrat::godot::read_binary_resource_metadata;
     using unpackrat::godot::resource_descriptor;
     using unpackrat::godot::resource_kind;
     using unpackrat::godot::resource_source_error;
+    using unpackrat::godot::write_image_resource_as_streaming;
     using unpackrat::godot::write_resource;
 
     // Both fixture byte aliases are ``std::vector<std::uint8_t>``, so one converter serves them.
@@ -115,6 +122,19 @@ namespace
             result.push_back(static_cast<std::byte>(value));
         }
         return result;
+    }
+
+    unpackrat::io::byte_source source_over(const std::vector<std::uint8_t> &bytes)
+    {
+        return unpackrat::io::byte_source{
+            bytes.size(), [&bytes](const std::uint64_t offset, const std::span<std::byte> target) {
+                if (offset > bytes.size() || target.size() > bytes.size() - offset) {
+                    throw std::out_of_range("test source range");
+                }
+                for (std::size_t index = 0; index < target.size(); ++index) {
+                    target[index] = static_cast<std::byte>(bytes[static_cast<std::size_t>(offset) + index]);
+                }
+            }};
     }
 
     bool starts_with_png_signature(const std::span<const std::byte> stream)
@@ -168,6 +188,24 @@ namespace
         return result;
     }
 
+    decoded_png decode_webp(const std::span<const std::byte> stream)
+    {
+        int width = 0;
+        int height = 0;
+        REQUIRE(WebPGetInfo(reinterpret_cast<const std::uint8_t *>(stream.data()), stream.size(), &width, &height) !=
+                0);
+        REQUIRE(width > 0);
+        REQUIRE(height > 0);
+        decoded_png result;
+        result.width = static_cast<std::uint32_t>(width);
+        result.height = static_cast<std::uint32_t>(height);
+        result.pixels.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+        REQUIRE(WebPDecodeRGBAInto(reinterpret_cast<const std::uint8_t *>(stream.data()), stream.size(),
+                                   reinterpret_cast<std::uint8_t *>(result.pixels.data()), result.pixels.size(),
+                                   width * 4) != 0);
+        return result;
+    }
+
     std::vector<std::byte> rgba(const std::initializer_list<unsigned int> values)
     {
         std::vector<std::byte> result;
@@ -189,23 +227,25 @@ namespace
     }
 
     // A GDST (Godot 3 StreamTexture) carrying one or more preserved PNG levels.
-    godot_bytes gdst_png_texture(const std::vector<godot_bytes> &mips)
+    godot_bytes gdst_png_texture(const std::vector<godot_bytes> &mips, const std::uint16_t width = 8,
+                                 const std::uint16_t height = 8)
     {
         gdst_fixture fixture;
-        fixture.width = 8;
-        fixture.height = 8;
+        fixture.width = width;
+        fixture.height = height;
         fixture.data_format = test::support::gdst_bit_png | test::support::gdst_bit_stream;
         fixture.mips = mips;
         return build_gdst(fixture);
     }
 
-    godot_bytes gdst_webp_texture(const godot_bytes &riff)
+    godot_bytes gdst_webp_texture(const godot_bytes &riff, const std::uint16_t width = 8,
+                                  const std::uint16_t height = 8)
     {
         godot_bytes wrapped = {'W', 'E', 'B', 'P'};
         wrapped.insert(wrapped.end(), riff.begin(), riff.end());
         gdst_fixture fixture;
-        fixture.width = 8;
-        fixture.height = 8;
+        fixture.width = width;
+        fixture.height = height;
         fixture.data_format = test::support::gdst_bit_webp | test::support::gdst_bit_stream;
         fixture.mips = {wrapped};
         return build_gdst(fixture);
@@ -920,8 +960,8 @@ TEST_CASE("godot resource converter: generated compatibility pack exposes legacy
     unpackrat::godot::archive_session session(path);
     const auto &entries = session.index().entries;
     REQUIRE(entries.size() == 2);
-    CHECK(entries[0].path == "audio/legacy-negative-main.sample");
-    CHECK(entries[1].path == "audio/prefixed.mp3");
+    CHECK(entries[0].path == ".godot/imported/legacy-negative-main.wav-9294f42b89e1812093754ce0e775a040.sample");
+    CHECK(entries[1].path == ".godot/imported/prefixed.mp3-f41d2303b60d7740c499a460ecf68363.res");
     const auto sample = probe_resource(session.stream(), entries[0].body);
     REQUIRE(sample.has_value());
     if (!sample.has_value()) {
@@ -1117,6 +1157,421 @@ TEST_CASE("godot resource converter: probes, preserves and converts the physical
 
         std::istringstream writer(as_text(image));
         CHECK(write_collect(writer, whole(image), descriptor.value_or(resource_descriptor{})) == as_byte_vector(inner));
+    }
+}
+
+TEST_CASE("godot resource converter: a PNG-selected view never emits preserved WebP bytes",
+          "[godot][resource-converter][extension-mismatch]")
+{
+    // A source filename may say ".png" while the stored texture preserves WebP. The stored bytes
+    // are a real lossless stream, so the selected PNG view must be a true PNG carrying the same
+    // pixel, never the untouched RIFF container.
+    const godot_bytes stored = gdst_webp_texture(red_pixel_webp(), 1, 1);
+    std::istringstream prober(as_text(stored));
+    const auto physical = probe_resource(prober, whole(stored));
+    REQUIRE(physical.has_value());
+    CHECK(physical.value_or(resource_descriptor{}).extension == ".webp");
+
+    std::istringstream writer(as_text(stored));
+    const std::vector<std::byte> output =
+        write_collect(writer, whole(stored), resource_descriptor{resource_kind::texture, ".png"});
+    REQUIRE(starts_with_png_signature(output));
+    const decoded_png decoded = decode_png(output);
+    CHECK(decoded.width == 1);
+    CHECK(decoded.height == 1);
+    CHECK(decoded.pixels == rgba({255, 0, 0, 255}));
+}
+
+TEST_CASE("godot resource converter: a WebP-selected view converts preserved PNG pixels",
+          "[godot][resource-converter][extension-mismatch]")
+{
+    const godot_bytes stored = gdst_png_texture({red_pixel_png()}, 1, 1);
+    std::istringstream prober(as_text(stored));
+    const auto physical = probe_resource(prober, whole(stored));
+    REQUIRE(physical.has_value());
+    CHECK(physical.value_or(resource_descriptor{}).extension == ".png");
+
+    std::istringstream writer(as_text(stored));
+    const std::vector<std::byte> output =
+        write_collect(writer, whole(stored), resource_descriptor{resource_kind::texture, ".webp"});
+    REQUIRE(output.size() > 12);
+    REQUIRE(std::memcmp(output.data(), "RIFF", 4) == 0);
+    REQUIRE(std::memcmp(output.data() + 8, "WEBP", 4) == 0);
+    const decoded_png decoded = decode_webp(output);
+    CHECK(decoded.width == 1);
+    CHECK(decoded.height == 1);
+    CHECK(decoded.pixels == rgba({255, 0, 0, 255}));
+}
+
+TEST_CASE("godot resource converter: binary image descriptors transcode preserved and raw payloads",
+          "[godot][resource-converter][image-transcode]")
+{
+    SECTION("a preserved Godot 2 PNG converts to the requested WebP output")
+    {
+        godot_bytes envelope = {'P', 'N', 'G', ' '};
+        const godot_bytes png = red_pixel_png();
+        envelope.insert(envelope.end(), png.begin(), png.end());
+        const godot_resource_bytes stored = g2_encoded_image_resource(2, envelope);
+        std::istringstream prober(as_text(stored));
+        const auto physical = probe_resource(prober, whole(stored));
+        REQUIRE(physical.has_value());
+        CHECK(physical.value_or(resource_descriptor{}).extension == ".png");
+
+        std::istringstream writer(as_text(stored));
+        const std::vector<std::byte> output =
+            write_collect(writer, whole(stored), resource_descriptor{resource_kind::image, ".WEBP"});
+        REQUIRE(output.size() > 12);
+        CHECK(std::memcmp(output.data(), "RIFF", 4) == 0);
+        CHECK(std::memcmp(output.data() + 8, "WEBP", 4) == 0);
+        const decoded_png decoded = decode_webp(output);
+        CHECK(decoded.width == 1);
+        CHECK(decoded.height == 1);
+        CHECK(decoded.pixels == rgba({255, 0, 0, 255}));
+    }
+    SECTION("a preserved Godot 2 WebP converts to the requested PNG output")
+    {
+        godot_bytes envelope = {'W', 'E', 'B', 'P'};
+        const godot_bytes webp = red_pixel_webp();
+        envelope.insert(envelope.end(), webp.begin(), webp.end());
+        const godot_resource_bytes stored = g2_encoded_image_resource(3, envelope);
+        std::istringstream prober(as_text(stored));
+        const auto physical = probe_resource(prober, whole(stored));
+        REQUIRE(physical.has_value());
+        CHECK(physical.value_or(resource_descriptor{}).extension == ".webp");
+
+        std::istringstream writer(as_text(stored));
+        const std::vector<std::byte> output =
+            write_collect(writer, whole(stored), resource_descriptor{resource_kind::image, ".png"});
+        REQUIRE(starts_with_png_signature(output));
+        const decoded_png decoded = decode_png(output);
+        CHECK(decoded.width == 1);
+        CHECK(decoded.height == 1);
+        CHECK(decoded.pixels == rgba({255, 0, 0, 255}));
+    }
+    SECTION("a raw RGBA image converts to lossless WebP without changing its pixels")
+    {
+        const std::vector<std::uint8_t> pixels{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+        const godot_resource_bytes stored = modern_image_resource(4, 6, 2, 2, pixels);
+        std::istringstream writer(as_text(stored));
+        const decoded_png decoded =
+            decode_webp(write_collect(writer, whole(stored), resource_descriptor{resource_kind::image, ".webp"}));
+        CHECK(decoded.width == 2);
+        CHECK(decoded.height == 2);
+        CHECK(decoded.pixels == rgba({1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}));
+    }
+}
+
+TEST_CASE("godot resource converter: streaming image selection validates metadata and source bounds",
+          "[godot][resource-converter][image-stream]")
+{
+    SECTION("an unsupported root is rejected before output")
+    {
+        const godot_resource_bytes packed = non_image_resource();
+        const auto source = source_over(packed);
+        const auto metadata = read_binary_resource_metadata(source.size, source.read);
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_image_resource_as_streaming(metadata, source, ".png",
+                                                          [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::codecs::image_error);
+        CHECK(writes == 0);
+    }
+    SECTION("a media start outside the logical source is rejected before output")
+    {
+        godot_bytes envelope = {'P', 'N', 'G', ' '};
+        const godot_bytes png = red_pixel_png();
+        envelope.insert(envelope.end(), png.begin(), png.end());
+        const godot_resource_bytes packed = g2_encoded_image_resource(2, envelope);
+        auto source = source_over(packed);
+        const auto metadata = read_binary_resource_metadata(source.size, source.read);
+        const auto &image = metadata.records.back().properties.front().value.image;
+        REQUIRE(image.byte_offset > 0);
+        source.size = image.byte_offset - 1;
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_image_resource_as_streaming(metadata, source, ".webp",
+                                                          [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::codecs::image_error);
+        CHECK(writes == 0);
+    }
+    SECTION("a media tail outside the logical source is rejected before output")
+    {
+        godot_bytes envelope = {'P', 'N', 'G', ' '};
+        const godot_bytes png = red_pixel_png();
+        envelope.insert(envelope.end(), png.begin(), png.end());
+        const godot_resource_bytes packed = g2_encoded_image_resource(2, envelope);
+        auto source = source_over(packed);
+        const auto metadata = read_binary_resource_metadata(source.size, source.read);
+        const auto &image = metadata.records.back().properties.front().value.image;
+        source.size = image.byte_offset + image.byte_length - 1;
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_image_resource_as_streaming(metadata, source, ".webp",
+                                                          [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::codecs::image_error);
+        CHECK(writes == 0);
+    }
+    SECTION("the same encoding is copied byte for byte")
+    {
+        godot_bytes envelope = {'P', 'N', 'G', ' '};
+        const godot_bytes png = red_pixel_png();
+        envelope.insert(envelope.end(), png.begin(), png.end());
+        const godot_resource_bytes packed = g2_encoded_image_resource(2, envelope);
+        const auto source = source_over(packed);
+        const auto metadata = read_binary_resource_metadata(source.size, source.read);
+        std::vector<std::byte> output;
+        write_image_resource_as_streaming(metadata, source, ".png", [&output](const std::span<const std::byte> bytes) {
+            output.insert(output.end(), bytes.begin(), bytes.end());
+        });
+        CHECK(output == as_byte_vector(png));
+    }
+    SECTION("an uppercase target reaches the direct normalizer and transcodes pixels")
+    {
+        godot_bytes envelope = {'P', 'N', 'G', ' '};
+        const godot_bytes png = red_pixel_png();
+        envelope.insert(envelope.end(), png.begin(), png.end());
+        const godot_resource_bytes packed = g2_encoded_image_resource(2, envelope);
+        const auto source = source_over(packed);
+        const auto metadata = read_binary_resource_metadata(source.size, source.read);
+        std::vector<std::byte> output;
+        write_image_resource_as_streaming(metadata, source, ".WEBP", [&output](const std::span<const std::byte> bytes) {
+            output.insert(output.end(), bytes.begin(), bytes.end());
+        });
+        const decoded_png decoded = decode_webp(output);
+        CHECK(decoded.width == 1);
+        CHECK(decoded.height == 1);
+        CHECK(decoded.pixels == rgba({255, 0, 0, 255}));
+    }
+    SECTION("a preserved PNG rejects an unsupported selected encoding after reading its body")
+    {
+        godot_bytes envelope = {'P', 'N', 'G', ' '};
+        const godot_bytes png = red_pixel_png();
+        envelope.insert(envelope.end(), png.begin(), png.end());
+        const godot_resource_bytes packed = g2_encoded_image_resource(2, envelope);
+        const auto base_source = source_over(packed);
+        const auto metadata = read_binary_resource_metadata(base_source.size, base_source.read);
+        std::size_t reads = 0;
+        auto source = base_source;
+        source.read = [&base_source, &reads](const std::uint64_t offset, const std::span<std::byte> target) {
+            ++reads;
+            base_source.read(offset, target);
+        };
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_image_resource_as_streaming(metadata, source, ".jpg",
+                                                          [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::codecs::image_error);
+        CHECK(reads > 0);
+        CHECK(writes == 0);
+    }
+    SECTION("a preserved WebP rejects an unsupported selected encoding after reading its body")
+    {
+        godot_bytes envelope = {'W', 'E', 'B', 'P'};
+        const godot_bytes webp = red_pixel_webp();
+        envelope.insert(envelope.end(), webp.begin(), webp.end());
+        const godot_resource_bytes packed = g2_encoded_image_resource(3, envelope);
+        const auto base_source = source_over(packed);
+        const auto metadata = read_binary_resource_metadata(base_source.size, base_source.read);
+        std::size_t reads = 0;
+        auto source = base_source;
+        source.read = [&base_source, &reads](const std::uint64_t offset, const std::span<std::byte> target) {
+            ++reads;
+            base_source.read(offset, target);
+        };
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_image_resource_as_streaming(metadata, source, ".jpg",
+                                                          [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::codecs::image_error);
+        CHECK(reads > 0);
+        CHECK(writes == 0);
+    }
+    SECTION("a preserved stream above the input budget is rejected before reading")
+    {
+        godot_bytes envelope = {'P', 'N', 'G', ' '};
+        const godot_bytes png = red_pixel_png();
+        envelope.insert(envelope.end(), png.begin(), png.end());
+        const godot_resource_bytes packed = g2_encoded_image_resource(2, envelope);
+        auto source = source_over(packed);
+        auto metadata = read_binary_resource_metadata(source.size, source.read);
+        auto &image = metadata.records.back().properties.front().value.image;
+        image.byte_length = image.data.size() + 64;
+        source.size = image.byte_offset + image.byte_length;
+        unpackrat::codecs::image_limits limits;
+        limits.max_input_bytes = 64;
+        limits.max_output_bytes = 256;
+        std::size_t reads = 0;
+        std::size_t writes = 0;
+        source.read = [&reads](std::uint64_t, std::span<std::byte>) { ++reads; };
+        CHECK_THROWS_AS(write_image_resource_as_streaming(
+                            metadata, source, ".webp", [&writes](std::span<const std::byte>) { ++writes; }, limits),
+                        unpackrat::codecs::image_error);
+        CHECK(reads == 0);
+        CHECK(writes == 0);
+    }
+}
+
+TEST_CASE("godot resource converter: raw WebP selection enforces the decoded byte budget",
+          "[godot][resource-converter][image-budget]")
+{
+    std::size_t reads = 0;
+    const unpackrat::io::byte_source source{16, [&reads](std::uint64_t, std::span<std::byte>) { ++reads; }};
+    unpackrat::codecs::image_limits limits;
+    limits.max_output_bytes = 15;
+    CHECK_THROWS_AS(unpackrat::godot::decode_raw_image(source, 4, 5, 2, 2, limits), unpackrat::codecs::image_error);
+    CHECK(reads == 0);
+}
+
+TEST_CASE("godot resource converter: auto descriptors dispatch only recognised containers",
+          "[godot][resource-converter][auto-detect]")
+{
+    SECTION("a texture envelope")
+    {
+        const godot_bytes body = red_pixel_png();
+        const godot_bytes stored = gdst_png_texture({body}, 1, 1);
+        std::istringstream writer(as_text(stored));
+        CHECK(write_collect(writer, whole(stored), resource_descriptor{resource_kind::auto_detect, ".png"}) ==
+              as_byte_vector(body));
+    }
+    SECTION("an RSRC image")
+    {
+        const std::vector<std::uint8_t> pixels{255, 0, 0, 255};
+        const godot_resource_bytes stored = modern_image_resource(4, 6, 1, 1, pixels);
+        std::istringstream writer(as_text(stored));
+        const decoded_png decoded =
+            decode_png(write_collect(writer, whole(stored), resource_descriptor{resource_kind::auto_detect, ".png"}));
+        CHECK(decoded.pixels == rgba({255, 0, 0, 255}));
+    }
+    SECTION("an RSCC image")
+    {
+        resource_document_spec logical_spec = document(4, 6);
+        logical_spec.include_magic = false;
+        const std::vector<std::uint8_t> pixels{255, 0, 0, 255};
+        logical_spec.records.push_back(
+            record("local://0", "Image", {property("data", image_data(1, 1, "RGBA8", pixels))}));
+        logical_spec.records.push_back(
+            record("res://tex", "ImageTexture",
+                   {property("image", encode(true, [](variant_encoder &encoder) { encoder.object_internal(0); }))}));
+        logical_spec.main_type = "ImageTexture";
+        const godot_resource_bytes logical = build_resource(logical_spec);
+        const std::vector<std::byte> stored = build_rscc(as_byte_vector(logical), compression_kind::deflate, 128);
+        std::istringstream writer(as_text(stored));
+        const decoded_png decoded =
+            decode_png(write_collect(writer, whole(stored), resource_descriptor{resource_kind::auto_detect, ".png"}));
+        CHECK(decoded.pixels == rgba({255, 0, 0, 255}));
+    }
+    SECTION("an embedded font")
+    {
+        const std::vector<std::uint8_t> font = {'O', 'T', 'T', 'O', 0, 0, 0, 0};
+        auto spec = document(4, 6);
+        spec.main_type = "FontFile";
+        spec.records.push_back(record("res://font", "FontFile", {property("data", vbytes(true, font))}));
+        const godot_resource_bytes stored = build_resource(spec);
+        std::istringstream writer(as_text(stored));
+        CHECK(write_collect(writer, whole(stored), resource_descriptor{resource_kind::auto_detect, ".otf"}) ==
+              as_byte_vector(font));
+    }
+    SECTION("an unrecognised container")
+    {
+        const std::string stored = "NOPE";
+        std::istringstream writer(stored);
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_resource(writer, byte_range{0, stored.size()},
+                                       resource_descriptor{resource_kind::auto_detect, ".png"},
+                                       [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::godot::resource_error);
+        CHECK(writes == 0);
+    }
+    SECTION("nonempty ordinary bytes with no recognised magic")
+    {
+        const std::string stored = "UNKNOWN!";
+        std::istringstream writer(stored);
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_resource(writer, byte_range{0, stored.size()},
+                                       resource_descriptor{resource_kind::auto_detect, ".png"},
+                                       [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::godot::resource_error);
+        CHECK(writes == 0);
+    }
+    SECTION("a valid binary resource with an unmodelled root class")
+    {
+        auto spec = document(4, 6);
+        spec.main_type = "ImageTexture";
+        spec.records.push_back(record("res://root", "Node", {}));
+        const godot_resource_bytes stored = build_resource(spec);
+        std::istringstream writer(as_text(stored));
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_resource(writer, whole(stored), resource_descriptor{resource_kind::auto_detect, ".png"},
+                                       [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::godot::resource_error);
+        CHECK(writes == 0);
+    }
+}
+
+TEST_CASE("godot resource converter: short windows, unselected outputs and encoded dimension mismatches",
+          "[godot][resource-converter][image-validation]")
+{
+    SECTION("an empty window declines without a source read")
+    {
+        std::istringstream stream(std::string{});
+        CHECK(!(probe_resource(stream, byte_range{0, 0}).has_value()));
+    }
+    SECTION("a window shorter than the magic declines without a source read")
+    {
+        const std::string stored = "ABC";
+        std::istringstream stream(stored);
+        CHECK(!(probe_resource(stream, byte_range{0, stored.size()}).has_value()));
+    }
+    SECTION("a texture with a non-image selected output is rejected before emission")
+    {
+        const godot_bytes stored = gdst_png_texture({red_pixel_png()}, 1, 1);
+        std::istringstream writer(as_text(stored));
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_resource(writer, whole(stored), resource_descriptor{resource_kind::texture, ".jpg"},
+                                       [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::godot::resource_error);
+        CHECK(writes == 0);
+    }
+    SECTION("a raw texture descriptor converts to lossless WebP pixels")
+    {
+        const godot_bytes stored = gdst_raw_texture();
+        std::istringstream prober(as_text(stored));
+        const auto descriptor = probe_resource(prober, whole(stored));
+        REQUIRE(descriptor.has_value());
+        CHECK(descriptor.value_or(resource_descriptor{}).extension == ".png");
+        std::istringstream writer(as_text(stored));
+        const decoded_png decoded =
+            decode_webp(write_collect(writer, whole(stored), resource_descriptor{resource_kind::texture, ".webp"}));
+        CHECK(decoded.width == 1);
+        CHECK(decoded.height == 1);
+        CHECK(decoded.pixels == rgba({1, 2, 3, 4}));
+    }
+    SECTION("a transcoded payload must match the declared texture dimensions")
+    {
+        const bool width_mismatch = GENERATE(false, true);
+        gdst_fixture fixture;
+        fixture.width = width_mismatch ? 2 : 1;
+        fixture.height = width_mismatch ? 1 : 2;
+        fixture.data_format = test::support::gdst_bit_png | test::support::gdst_bit_stream;
+        fixture.mips = {red_pixel_png()};
+        const godot_bytes stored = build_gdst(fixture);
+        std::istringstream writer(as_text(stored));
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_resource(writer, whole(stored), resource_descriptor{resource_kind::texture, ".webp"},
+                                       [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::godot::resource_error);
+        CHECK(writes == 0);
+    }
+    SECTION("an encoded level above the input budget is rejected without a large read")
+    {
+        godot_bytes image = gdst_png_texture({red_pixel_png()}, 1, 1);
+        constexpr std::uint32_t oversized = std::uint32_t{256} * 1024 * 1024 + 1;
+        test::support::patch_u32(image, 24, oversized);
+        constexpr std::uint64_t body_offset = 20 + 4 + 4;
+        const std::uint64_t reported_size = body_offset + oversized;
+        reporting_stream stream(as_text(image), reported_size, true, 4096);
+        std::size_t writes = 0;
+        CHECK_THROWS_AS(write_resource(stream, byte_range{0, reported_size},
+                                       resource_descriptor{resource_kind::texture, ".webp"},
+                                       [&writes](std::span<const std::byte>) { ++writes; }),
+                        unpackrat::codecs::image_error);
+        CHECK(writes == 0);
+        CHECK(stream.largest_request() <= 4096);
     }
 }
 
@@ -1560,9 +2015,8 @@ TEST_CASE("godot resource converter: extraction rejects a changed or mismatched 
 
     const auto image_source = modern_image_resource(4, 6, 2, 2, zero_bytes(16));
     std::istringstream image_writer(as_text(image_source));
-    CHECK_THROWS_AS(
-        write_collect(image_writer, whole(image_source), resource_descriptor{resource_kind::image, ".webp"}),
-        unpackrat::codecs::image_error);
+    CHECK_THROWS_AS(write_collect(image_writer, whole(image_source), resource_descriptor{resource_kind::image, ".jpg"}),
+                    unpackrat::codecs::image_error);
 
     std::istringstream raw("raw bytes");
     CHECK_THROWS_AS(write_collect(raw, byte_range{0, 9}, resource_descriptor{resource_kind::image, ".png"}),
@@ -1696,4 +2150,139 @@ TEST_CASE("godot resource converter: one size scan and callback seeks preserve f
                    });
     CHECK(output == as_byte_vector(font));
     CHECK(stream.counts().end_scans == 1);
+}
+
+TEST_CASE("godot resource converter: a caller-supplied source size removes the per-probe end scan",
+          "[godot][resource-converter][perf3-opening]")
+{
+    // Opening a listing probes every stored physical resource window through ``probe_resource``.
+    // The scanning overload re-derives the stream length by seeking to the stream end and back, so
+    // an archive with N resource entries pays N seek-to-end/seek-back pairs inside one listing even
+    // though the length never changes. ``list_files`` knows the length of the leased source
+    // (``read_pack`` validated every entry range against it, and an encrypted member exposes
+    // exactly ``logical_size`` decrypted bytes), so the size is a caller-owned input and the
+    // length-supplying overload must probe without any end scan. The companion
+    // ``[perf2-converter]`` test records the single end scan the scanning overload still performs.
+    const auto resource = modern_image_resource(4, 6, 2, 2, zero_bytes(16));
+    seek_count_stream stream(as_text(resource));
+    const auto descriptor = probe_resource(stream, whole(resource), static_cast<std::uint64_t>(resource.size()));
+    REQUIRE(descriptor.has_value());
+    if (!descriptor.has_value()) {
+        return;
+    }
+    CHECK(descriptor->kind == resource_kind::image);
+    CHECK(descriptor->extension == ".png");
+    CHECK(stream.counts().end_scans == 0);
+}
+
+TEST_CASE("godot resource converter: a supplied size rejects an out-of-range window before probing",
+          "[godot][resource-converter][perf3-opening]")
+{
+    // The supplied length is authoritative, so a window it cannot contain is a source fault before
+    // any magic is inspected, including when the bytes at the window start carry no recognized
+    // magic. The scanning two-argument overload keeps its previous behaviour.
+    const std::string body = "ABCD";
+    const byte_range window{0, body.size()};
+    seek_count_stream stream(body);
+
+    SECTION("unknown magic inside the supplied length is declined, not a fault")
+    {
+        CHECK(!(probe_resource(stream, window, body.size()).has_value()));
+        CHECK(stream.counts().end_scans == 0);
+    }
+    SECTION("a window one byte past the supplied length is a source fault")
+    {
+        CHECK_THROWS_AS(probe_resource(stream, byte_range{0, body.size() + 1}, body.size()), resource_source_error);
+    }
+    SECTION("a window that starts past the supplied length is a source fault")
+    {
+        CHECK_THROWS_AS(probe_resource(stream, byte_range{body.size(), 1}, body.size()), resource_source_error);
+    }
+    SECTION("an overflowing window is a source fault")
+    {
+        constexpr std::uint64_t huge = (std::numeric_limits<std::uint64_t>::max)();
+        CHECK_THROWS_AS(probe_resource(stream, byte_range{huge, 2}, body.size()), resource_source_error);
+    }
+    SECTION("a supplied length wider than a stream offset is a source fault")
+    {
+        constexpr std::uint64_t huge = (std::numeric_limits<std::uint64_t>::max)();
+        CHECK_THROWS_AS(probe_resource(stream, window, huge), resource_source_error);
+    }
+}
+
+TEST_CASE("godot resource converter: a supplied size that excludes a texture window is a source fault",
+          "[godot][resource-converter][perf3-opening]")
+{
+    gdst_fixture fixture;
+    fixture.width = 4;
+    fixture.height = 4;
+    fixture.data_format = test::support::image_format_rgba8;
+    fixture.raw_data = godot_bytes(std::size_t{4} * 4 * 4, 0x11);
+    const godot_bytes image = build_gdst(fixture);
+    const auto length = static_cast<std::uint64_t>(image.size());
+
+    seek_count_stream accepted(as_text(image));
+    CHECK(probe_resource(accepted, whole(image), length).has_value());
+    CHECK(accepted.counts().end_scans == 0);
+
+    // The texture path must honour the supplied length too: a window the length cannot contain is
+    // the same source fault a scan would report, and it must not scan to discover that.
+    seek_count_stream rejected(as_text(image));
+    CHECK_THROWS_AS(probe_resource(rejected, whole(image), length - 1), resource_source_error);
+    CHECK(rejected.counts().end_scans == 0);
+}
+
+TEST_CASE("godot resource converter: a supplied source size is validated against the probe window",
+          "[godot][resource-converter][perf3-opening]")
+{
+    // Decision table for the caller-supplied length. The reader must still reject a window whose
+    // tail lies past the supplied stream length (a genuine source fault), accept a window that is
+    // fully contained, and never fall back to scanning the stream end itself.
+    const auto resource = modern_image_resource(4, 6, 2, 2, zero_bytes(16));
+    const auto window = static_cast<std::uint64_t>(resource.size());
+
+    struct decision final
+    {
+        std::uint64_t supplied;
+        bool accepted;
+    };
+    const decision table[] = {
+        {window, true},      // exact length: the window ends exactly at the stream end
+        {window + 1, true},  // a longer stream still contains the window
+        {window - 1, false}, // one byte short: the window tail is past the supplied end
+        {0, false},          // an empty stream cannot contain a non-empty window
+    };
+
+    for (const decision &row : table) {
+        seek_count_stream stream(as_text(resource));
+        if (row.accepted) {
+            CHECK(probe_resource(stream, whole(resource), row.supplied).has_value());
+        } else {
+            CHECK_THROWS_AS(probe_resource(stream, whole(resource), row.supplied), resource_source_error);
+        }
+        CHECK(stream.counts().end_scans == 0);
+    }
+}
+
+TEST_CASE("godot resource converter: a caller-supplied source size removes the texture probe end scan",
+          "[godot][resource-converter][perf3-opening]")
+{
+    // The GDST/GST2 envelope path reaches the stream length through ``io::bounded_stream`` inside
+    // the texture prober, so the same per-probe scan reappears for texture entries. The supplied
+    // size must reach that path too, otherwise a pack of Godot 3 texture envelopes keeps paying one
+    // end scan per entry.
+    gdst_fixture fixture;
+    fixture.width = 64;
+    fixture.height = 64;
+    fixture.data_format = test::support::image_format_rgba8;
+    fixture.raw_data = godot_bytes(std::size_t{64} * 64 * 4, 0x7F);
+    const godot_bytes image = build_gdst(fixture);
+    seek_count_stream stream(as_text(image));
+    const auto descriptor = probe_resource(stream, whole(image), static_cast<std::uint64_t>(image.size()));
+    REQUIRE(descriptor.has_value());
+    if (!descriptor.has_value()) {
+        return;
+    }
+    CHECK(descriptor->extension == ".png");
+    CHECK(stream.counts().end_scans == 0);
 }

@@ -102,6 +102,10 @@ namespace archive
             // A lazy catalogue materialises the path into the caller buffer; a retained
             // provider keeps its own storage and is copied through metadata() unchanged.
             if (const auto column = catalogue->path_into(index, buffer)) {
+                if (column->written > buffer.size()) {
+                    // Reject a malformed producer before the caller can consume an oversized buffer.
+                    throw extractor::read_error();
+                }
                 out.path = std::string_view(buffer.data(), column->written);
                 out.size = column->size;
                 out.packed_size = column->packed_size;
@@ -113,8 +117,8 @@ namespace archive
         out = get_metadata(index);
     }
 
-    std::optional<extractor::indexed_catalogue::column>
-    archive::get_wide_metadata_into(const size_t index, const std::span<wchar_t> buffer) const
+    std::optional<extractor::indexed_catalogue::column> archive::get_wide_metadata_into(
+        const size_t index, const std::span<wchar_t> buffer) const
     {
         const auto *catalogue = extractor_->indexed_files();
         if (catalogue == nullptr) {

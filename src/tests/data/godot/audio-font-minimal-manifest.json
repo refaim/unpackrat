@@ -9,13 +9,13 @@
     5,
     0
   ],
-  "file_base": 256,
-  "file_size": 783,
-  "sha256": "197015bf837eaeaca8fad94c6d0c6a02f9adc01ea8e00283eb014c402b953d2d",
+  "file_base": 512,
+  "file_size": 1039,
+  "sha256": "a76cf504d387ee21795843e1ac7b50f95475b3ccfc4d7c453040172dc7bee1a6",
   "entries": [
     {
-      "path": "res://audio/padded-sample.res",
-      "converted_path": "audio/padded-sample.wav",
+      "path": ".godot/imported/padded-sample.wav-4148c31ce360e6aba7d4da9451cbb397.res",
+      "converted_path": ".godot/imported/padded-sample.wav",
       "logical_size": 334,
       "md5": "12f36166cffbd5820bc9dd77082f70a5",
       "sha256": "401780949ec73da72acb0264cc4d76b1db0d3812e329e5138075dc1ce7ac692b",
@@ -23,8 +23,8 @@
       "output_sha256": null
     },
     {
-      "path": "res://fonts/generated-font.res",
-      "converted_path": "fonts/generated-font.otf",
+      "path": ".godot/imported/generated-font.otf-9321cd5ee26c85c09cd10205dd82dde0.res",
+      "converted_path": ".godot/imported/generated-font.otf",
       "logical_size": 193,
       "md5": "41d61377debceac27aeff0d06352e5e6",
       "sha256": "f50fb4ca4f46dd0cfe5758a7234986007d61048eeeca5cc7ab8e27e53715a258",

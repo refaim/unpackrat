@@ -1,0 +1,33 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-unity-packaging:1630ef74260d058a8a443e5767049cd5693d6e34dc9f2f4a68ece675528b022f",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/1630ef74260d058a8a443e5767049cd5693d6e34dc9f2f4a68ece675528b022f.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": "5,48,50,123,129,133,135,145",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 5,48,50,123,129,133,135,145 share the identifier GPL-3.0-only; line 5 is the module docstring text 'LICENSES.txt labels the combined binary as a GPL-3.0 work instead of an MIT-only module, and a'. These are fixture notice filename and notice-text literals, test method names, and assertions and negative assertions about the Unity module's GPL-3.0 combined binary in first-party MIT test tooling, not grants. The linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": "120,240,243",
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 120,240,243 share the identifier GPL-1.0-or-later; line 120 is the test method name test_unity_registers_its_gpl_and_third_party_notices, line 240 is the test method name test_shipped_unity_notice_bundle_labels_gpl_and_the_third_parties, and line 243 asserts that the literal GNU GENERAL PUBLIC LICENSE appears in the shipped notice. Test method names and expected notice text in first-party MIT test tooling are not grants. The linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": "47",
+      "line_count": 1,
+      "detected_license": "LGPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 47 is the synthetic fixture value 'Fixture Observer LGPLv3 notice' assigned to Observer.txt in first-party MIT test tooling. It names the notice the test writes, not a grant, and no third-party adoption is claimed. The false-positive finding is removed."
+    }
+  ]
+}

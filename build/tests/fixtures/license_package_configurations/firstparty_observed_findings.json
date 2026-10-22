@@ -1,0 +1,146 @@
+{
+  "_comment": [
+    "Exact new first-party ScanCode findings observed on public unpackrat PR85 head",
+    "c9ab7, building on the PR81 observations. Every curated record is one complete",
+    "detected expression; for the two adopted Unity test files the matching package",
+    "configuration and firstparty_artifacts rows bind the whole file to the same",
+    "content-addressed artifact. unresolved_control records a different expression,",
+    "line or line_count that no curation may cover."
+  ],
+  "curated": [
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": 115,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown"
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": 120,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown"
+    },
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": 62,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown"
+    },
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": 76,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_firstparty_license_curations.py",
+      "start_lines": 297,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 5,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 47,
+      "line_count": 1,
+      "detected_license": "LGPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 48,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 50,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 120,
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 123,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 129,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 133,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 135,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 145,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 240,
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later"
+    },
+    {
+      "path": "build/tests/test_unity_packaging.py",
+      "start_lines": 243,
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later"
+    },
+    {
+      "path": "build/tests/test_unity_nuget_monitor.py",
+      "start_lines": 123,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/main.py",
+      "start_lines": 108,
+      "line_count": 2,
+      "detected_license": "GPL-3.0-only"
+    }
+  ],
+  "unresolved_control": [
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": 77,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only"
+    },
+    {
+      "path": "build/tests/test_webp_license_review.py",
+      "start_lines": 76,
+      "line_count": 1,
+      "detected_license": "GPL-3.0-or-later"
+    },
+    {
+      "path": "build/main.py",
+      "start_lines": 108,
+      "line_count": 3,
+      "detected_license": "GPL-3.0-only"
+    }
+  ]
+}

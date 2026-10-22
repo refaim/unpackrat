@@ -12,22 +12,36 @@
 //
 #include "../framework/observer.h"
 
+#include "../../core/codecs/crypto_codec.h"
 #include "../support/archive_fixtures.h"
 #include "../support/godot_fixtures.h"
 #include "../support/godot_resource_fixtures.h"
 #include "../support/godot_texture_fixtures.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
+
+#define SPNG_STATIC
+#include <spng.h>
+
+#define WEBP_STATIC
+#include <webp/decode.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <windows.h>
 
 namespace
 {
@@ -145,6 +159,121 @@ namespace
         return contents;
     }
 
+    std::vector<std::byte> decode_png_rgba(const std::string_view encoded)
+    {
+        spng_ctx *context = spng_ctx_new(0);
+        REQUIRE(context != nullptr);
+        const auto release = std::unique_ptr<spng_ctx, decltype(&spng_ctx_free)>(context, spng_ctx_free);
+
+        REQUIRE(spng_set_png_buffer(context, encoded.data(), encoded.size()) == SPNG_OK);
+        spng_ihdr header{};
+        REQUIRE(spng_get_ihdr(context, &header) == SPNG_OK);
+        REQUIRE(header.width == 1);
+        REQUIRE(header.height == 1);
+
+        std::size_t decoded_size = 0;
+        REQUIRE(spng_decoded_image_size(context, SPNG_FMT_RGBA8, &decoded_size) == SPNG_OK);
+        std::vector<std::byte> pixels(decoded_size);
+        REQUIRE(spng_decode_image(context, pixels.data(), pixels.size(), SPNG_FMT_RGBA8, 0) == SPNG_OK);
+        return pixels;
+    }
+
+    std::vector<std::byte> decode_webp_rgba(const std::string_view encoded)
+    {
+        int width = 0;
+        int height = 0;
+        const auto *bytes = reinterpret_cast<const std::uint8_t *>(encoded.data());
+        REQUIRE(WebPGetInfo(bytes, encoded.size(), &width, &height) != 0);
+        REQUIRE(width == 1);
+        REQUIRE(height == 1);
+
+        std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4);
+        REQUIRE(WebPDecodeRGBAInto(bytes, encoded.size(), rgba.data(), rgba.size(), width * 4) != nullptr);
+        std::vector<std::byte> pixels;
+        pixels.reserve(rgba.size());
+        for (const std::uint8_t value : rgba) {
+            pixels.push_back(static_cast<std::byte>(value));
+        }
+        return pixels;
+    }
+
+    // Holding an exclusive byte-range lock over a stored payload makes any listing-time body read
+    // fail deterministically. The pack locator may still read the leading analysis prefix, so the
+    // cases below place their target bodies beyond that prefix.
+    struct handle_closer final
+    {
+        void operator()(void *handle) const noexcept
+        {
+            static_cast<void>(CloseHandle(handle));
+        }
+    };
+
+    class locked_file_range final
+    {
+      public:
+        locked_file_range(const std::filesystem::path &path, const std::uint64_t offset, const std::uint64_t length)
+        {
+            if (length == 0 || length > MAXDWORD) {
+                throw std::invalid_argument("Invalid range-lock length");
+            }
+            const HANDLE opened =
+                CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (opened == INVALID_HANDLE_VALUE) {
+                throw std::system_error(static_cast<int>(GetLastError()), std::system_category(),
+                                        "Failed to open file for a range lock");
+            }
+            file_.reset(opened);
+            overlapped_.Offset = static_cast<DWORD>(offset);
+            overlapped_.OffsetHigh = static_cast<DWORD>(offset >> 32U);
+            length_ = static_cast<DWORD>(length);
+            if (!LockFileEx(file_.get(), LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, length_, 0,
+                            &overlapped_)) {
+                throw std::system_error(static_cast<int>(GetLastError()), std::system_category(),
+                                        "Failed to lock file range");
+            }
+        }
+
+        ~locked_file_range()
+        {
+            if (file_ != nullptr) {
+                static_cast<void>(UnlockFileEx(file_.get(), 0, length_, 0, &overlapped_));
+            }
+        }
+
+        locked_file_range(const locked_file_range &) = delete;
+        locked_file_range &operator=(const locked_file_range &) = delete;
+
+      private:
+        std::unique_ptr<void, handle_closer> file_;
+        OVERLAPPED overlapped_{};
+        DWORD length_ = 0;
+    };
+
+    std::uint64_t payload_offset(const godot_bytes &packed, const godot_bytes &payload)
+    {
+        REQUIRE(!payload.empty());
+        const auto found = std::search(packed.begin(), packed.end(), payload.begin(), payload.end());
+        REQUIRE(found != packed.end());
+        return static_cast<std::uint64_t>(std::distance(packed.begin(), found));
+    }
+
+    std::string md5_hex(const std::string_view text)
+    {
+        unpackrat::codecs::md5_state hash;
+        hash.update(std::span<const std::byte>(reinterpret_cast<const std::byte *>(text.data()), text.size()));
+        const auto digest = hash.finish();
+        static constexpr char digits[] = "0123456789abcdef";
+        std::string output;
+        output.reserve(digest.size() * 2);
+        for (const std::byte value : digest) {
+            const auto byte = std::to_integer<unsigned>(value);
+            output.push_back(digits[byte >> 4U]);
+            output.push_back(digits[byte & 0x0FU]);
+        }
+        return output;
+    }
+
     godot_entry_options entry(std::string path, std::vector<std::uint8_t> payload)
     {
         godot_entry_options options;
@@ -173,6 +302,33 @@ namespace
         fixture.height = 8;
         fixture.data_format = test::support::gdst_bit_png | test::support::gdst_bit_stream;
         fixture.mips = {png_bytes(32)};
+        return build_gdst(fixture);
+    }
+
+    // A complete 1x1 red texture whose preserved PNG level can be decoded independently.
+    godot_bytes compiled_red_texture(const std::uint32_t flags = 0)
+    {
+        gdst_fixture fixture;
+        fixture.width = 1;
+        fixture.height = 1;
+        fixture.flags = flags;
+        fixture.data_format = test::support::gdst_bit_png | test::support::gdst_bit_stream;
+        fixture.mips = {test::support::red_pixel_png()};
+        return build_gdst(fixture);
+    }
+
+    // A Godot 3 texture whose preserved media is WebP even though an imported source could have
+    // been named ".png". The body must never be emitted under a ".png" destination.
+    godot_bytes compiled_webp_texture()
+    {
+        godot_bytes wrapped = {'W', 'E', 'B', 'P'};
+        const godot_bytes riff = test::support::webp_riff_payload();
+        wrapped.insert(wrapped.end(), riff.begin(), riff.end());
+        gdst_fixture fixture;
+        fixture.width = 8;
+        fixture.height = 8;
+        fixture.data_format = test::support::gdst_bit_webp | test::support::gdst_bit_stream;
+        fixture.mips = {wrapped};
         return build_gdst(fixture);
     }
 
@@ -359,6 +515,302 @@ TEST_CASE("godot integration: exported imports restore folders and preserve term
     CHECK(alias->compressed_size == static_cast<int64_t>(compiled_source.size()));
 }
 
+TEST_CASE("godot integration: aliases keep their own output encoding and cannot hide a later support",
+          "[integration][godot][alias-encoding]")
+{
+    const std::string hash = "00112233445566778899aabbccddeeff";
+    const std::string compiled = "res://.godot/imported/shared.png-" + hash + ".ctex";
+    const godot_bytes texture = compiled_red_texture();
+
+    SECTION("PNG and WebP aliases decode independently from one physical texture")
+    {
+        godot_pck_options options;
+        options.version = 4;
+        options.engine_version = {4, 0, 0};
+        options.entries.push_back(entry("res://art/a.png.import", as_u8(remap_metadata("res://art/a.png", compiled))));
+        options.entries.push_back(
+            entry("res://art/b.webp.import", as_u8(remap_metadata("res://art/b.webp", compiled))));
+        options.entries.push_back(entry(compiled, texture));
+
+        const temporary_archive archive("godot-alias-encodings", build_godot_pck(options));
+        const test::observer plugin;
+        const auto files = plugin.list_files(archive.path());
+        const auto destination = archive.path().wstring() + L".out";
+
+        const test::file *png = find_file(files, "art/a.png");
+        const test::file *webp = find_file(files, "art/b.webp");
+        REQUIRE(png != nullptr);
+        REQUIRE(webp != nullptr);
+
+        const std::string png_bytes = extract_bytes(*png, destination);
+        const std::string webp_bytes = extract_bytes(*webp, destination);
+        REQUIRE(png_bytes.starts_with(std::string_view("\x89PNG\r\n\x1A\n", 8)));
+        REQUIRE(webp_bytes.starts_with("RIFF"));
+        REQUIRE(webp_bytes.substr(8, 4) == "WEBP");
+        CHECK(decode_png_rgba(png_bytes) ==
+              std::vector<std::byte>{std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255}});
+        CHECK(decode_webp_rgba(webp_bytes) ==
+              std::vector<std::byte>{std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255}});
+    }
+
+    SECTION("an unsupported first alias does not suppress a supported later alias")
+    {
+        godot_pck_options options;
+        options.version = 4;
+        options.engine_version = {4, 0, 0};
+        options.entries.push_back(
+            entry("res://art/first.gif.import", as_u8(remap_metadata("res://art/first.gif", compiled))));
+        options.entries.push_back(
+            entry("res://art/second.png.import", as_u8(remap_metadata("res://art/second.png", compiled))));
+        options.entries.push_back(entry(compiled, texture));
+
+        const temporary_archive archive("godot-alias-later-support", build_godot_pck(options));
+        const test::observer plugin;
+        const auto files = plugin.list_files(archive.path());
+
+        const test::file *raw = find_file(files, "art/first.ctex");
+        REQUIRE(raw != nullptr);
+        CHECK(extract_bytes(*raw, archive.path().wstring() + L".out") == as_string(texture));
+
+        const test::file *supported = find_file(files, "art/second.png");
+        REQUIRE(supported != nullptr);
+        const std::string output = extract_bytes(*supported, archive.path().wstring() + L".out");
+        CHECK(decode_png_rgba(output) ==
+              std::vector<std::byte>{std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255}});
+    }
+}
+
+TEST_CASE("godot integration: a failed range-lock constructor closes its handle",
+          "[integration][godot][locked-range-raii]")
+{
+    const temporary_archive archive("godot-lock-raii", godot_bytes(16, 0x5A));
+    const std::filesystem::path &path = archive.path();
+    {
+        const locked_file_range first_lock(path, 0, 1);
+        CHECK_THROWS_AS(locked_file_range(path, 0, 1), std::system_error);
+        CHECK_THROWS_AS(locked_file_range(path.wstring() + L".missing", 0, 1), std::system_error);
+    }
+
+    // An exclusive reopen proves the failed constructor released the helper's read handle.
+    const HANDLE opened =
+        CreateFileW(path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    const std::unique_ptr<void, handle_closer> exclusive(opened == INVALID_HANDLE_VALUE ? nullptr : opened);
+    REQUIRE(exclusive != nullptr);
+}
+
+TEST_CASE("godot integration: conventional feature variants list without reading metadata or media bodies",
+          "[integration][godot][filename-extension][variant-toc]")
+{
+    const std::string source_path = "res://art/picture.png";
+    const std::string hash = md5_hex(source_path);
+    const std::string metadata = remap_metadata(source_path, ".godot/imported/picture.png-" + hash + ".s3tc.ctex");
+    const godot_bytes s3tc = compiled_red_texture(1);
+    const godot_bytes etc2 = compiled_red_texture(2);
+
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    options.entries.push_back(entry("res://padding/keep.bin", godot_bytes(std::size_t{160} * 1024, 0x5A)));
+    options.entries.push_back(entry("res://art/picture.png.import", as_u8(metadata)));
+    options.entries.push_back(entry("res://.godot/imported/picture.png-" + hash + ".s3tc.ctex", s3tc));
+    options.entries.push_back(entry("res://.godot/imported/picture.png-" + hash + ".etc2.ctex", etc2));
+
+    const godot_bytes packed = build_godot_pck(options);
+    const std::uint64_t metadata_offset = payload_offset(packed, as_u8(metadata));
+    const std::uint64_t s3tc_offset = payload_offset(packed, s3tc);
+    const std::uint64_t etc2_offset = payload_offset(packed, etc2);
+    REQUIRE(metadata_offset > std::uint64_t{128} * 1024);
+    REQUIRE(s3tc_offset > std::uint64_t{128} * 1024);
+    REQUIRE(etc2_offset > std::uint64_t{128} * 1024);
+
+    const temporary_archive archive("godot-variant-toc", packed);
+    const test::observer plugin;
+    const auto files = [&] {
+        const locked_file_range metadata_lock(archive.path(), metadata_offset, metadata.size());
+        const locked_file_range s3tc_lock(archive.path(), s3tc_offset, s3tc.size());
+        const locked_file_range etc2_lock(archive.path(), etc2_offset, etc2.size());
+        return plugin.list_files(archive.path());
+    }();
+
+    const test::file *s3tc_view = find_file(files, "art/picture.s3tc.png");
+    const test::file *etc2_view = find_file(files, "art/picture.etc2.png");
+    REQUIRE(s3tc_view != nullptr);
+    REQUIRE(etc2_view != nullptr);
+    CHECK(s3tc_view->compressed_size == static_cast<int64_t>(s3tc.size()));
+    CHECK(etc2_view->compressed_size == static_cast<int64_t>(etc2.size()));
+}
+
+TEST_CASE("godot integration: a duplicate feature token keeps the conventional match conservative",
+          "[integration][godot][filename-extension][variant-ambiguous]")
+{
+    const std::string source_path = "res://art/picture.png";
+    const std::string hash = md5_hex(source_path);
+    const std::string duplicate = "res://.godot/imported/picture.png-" + hash + ".s3tc.ctex";
+    const std::string chosen = "res://.godot/imported/chosen.ctex";
+    const std::string metadata = remap_metadata(source_path, chosen);
+    const godot_bytes texture = compiled_red_texture();
+
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    options.entries.push_back(entry("res://art/picture.png.import", as_u8(metadata)));
+    options.entries.push_back(entry(duplicate, texture));
+    options.entries.push_back(entry(duplicate, texture));
+    options.entries.push_back(entry(chosen, texture));
+
+    const temporary_archive archive("godot-variant-ambiguous", build_godot_pck(options));
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+
+    const test::file *mapped = find_file(files, "art/picture.png");
+    REQUIRE(mapped != nullptr);
+    const std::string output = extract_bytes(*mapped, archive.path().wstring() + L".out");
+    CHECK(decode_png_rgba(output) ==
+          std::vector<std::byte>{std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255}});
+    CHECK(find_file(files, "art/picture.s3tc.png") == nullptr);
+}
+
+TEST_CASE("godot integration: an oversized conventional variant group preserves every raw entry",
+          "[integration][godot][filename-extension][variant-limit]")
+{
+    constexpr std::size_t variant_count = 65;
+    const std::string source_path = "res://art/" + std::string(180, 'a') + "/picture.png";
+    const std::string hash = md5_hex(source_path);
+    const std::string metadata = remap_metadata(source_path, "res://.godot/imported/picture.png-" + hash + ".v0.ctex");
+
+    std::vector<godot_bytes> textures;
+    textures.reserve(variant_count);
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    options.entries.push_back(entry("res://padding/keep.bin", godot_bytes(std::size_t{160} * 1024, 0x5A)));
+    options.entries.push_back(entry(source_path + ".import", as_u8(metadata)));
+    for (std::size_t index = 0; index < variant_count; ++index) {
+        CAPTURE(index);
+        textures.push_back(compiled_red_texture(static_cast<std::uint32_t>(index + 1)));
+        options.entries.push_back(entry(
+            "res://.godot/imported/picture.png-" + hash + ".v" + std::to_string(index) + ".ctex", textures.back()));
+    }
+
+    const godot_bytes packed = build_godot_pck(options);
+    const std::uint64_t metadata_offset = payload_offset(packed, as_u8(metadata));
+    REQUIRE(metadata_offset > std::uint64_t{128} * 1024);
+
+    const temporary_archive archive("godot-variant-limit", packed);
+    const test::observer plugin;
+    const auto files = [&] {
+        const locked_file_range metadata_lock(archive.path(), metadata_offset, metadata.size());
+        return plugin.list_files(archive.path());
+    }();
+
+    const std::string source_relative = source_path.substr(6);
+    const std::string source_stem = source_relative.substr(0, source_relative.size() - 4);
+    CHECK(find_file(files, source_stem + ".v0.png") == nullptr);
+
+    const auto destination = archive.path().wstring() + L".out";
+    for (std::size_t index = 0; index < variant_count; ++index) {
+        CAPTURE(index);
+        const std::string stored = ".godot/imported/picture.png-" + hash + ".v" + std::to_string(index) + ".ctex";
+        const test::file *raw = find_file(files, stored);
+        REQUIRE(raw != nullptr);
+        CHECK(raw->compressed_size == static_cast<int64_t>(textures[index].size()));
+        CHECK(extract_bytes(*raw, destination) == as_string(textures[index]));
+    }
+}
+
+TEST_CASE("godot integration: group invalidation covers duplicate members at the variant boundary",
+          "[integration][godot][filename-extension][variant-combination]")
+{
+    const std::string source_path = "res://art/" + std::string(180, 'a') + "/picture.png";
+    const std::string hash = md5_hex(source_path);
+    const std::string metadata = remap_metadata(source_path, "res://.godot/imported/picture.png-" + hash + ".v0.ctex");
+    const std::string source_relative = source_path.substr(6);
+    const std::string source_stem = source_relative.substr(0, source_relative.size() - 4);
+
+    const auto run_group = [&](const std::string_view label, const std::size_t unique_count, const bool duplicate_first,
+                               auto &&verify) {
+        CAPTURE(label);
+        struct stored_texture final
+        {
+            std::string path;
+            godot_bytes bytes;
+        };
+        std::vector<stored_texture> textures;
+        const auto add_variant = [&](const std::size_t index) {
+            const std::string stored =
+                "res://.godot/imported/picture.png-" + hash + ".v" + std::to_string(index) + ".ctex";
+            textures.push_back(stored_texture{stored, compiled_red_texture(static_cast<std::uint32_t>(index + 1))});
+        };
+        if (duplicate_first) {
+            add_variant(0);
+            add_variant(0);
+        }
+        for (std::size_t index = duplicate_first ? 1 : 0; index < unique_count; ++index) {
+            add_variant(index);
+        }
+        if (duplicate_first) {
+            add_variant(1);
+        }
+
+        godot_pck_options options;
+        options.version = 4;
+        options.engine_version = {4, 0, 0};
+        options.entries.push_back(entry("res://padding/keep.bin", godot_bytes(std::size_t{160} * 1024, 0x5A)));
+        options.entries.push_back(entry(source_path + ".import", as_u8(metadata)));
+        for (const stored_texture &texture : textures) {
+            options.entries.push_back(entry(texture.path, texture.bytes));
+        }
+
+        const godot_bytes packed = build_godot_pck(options);
+        const std::uint64_t metadata_offset = payload_offset(packed, as_u8(metadata));
+        REQUIRE(metadata_offset > std::uint64_t{128} * 1024);
+        const temporary_archive archive(label, packed);
+        const test::observer plugin;
+        const auto files = [&] {
+            const locked_file_range metadata_lock(archive.path(), metadata_offset, metadata.size());
+            return plugin.list_files(archive.path());
+        }();
+        verify(files, textures, archive.path().wstring() + L".out");
+    };
+
+    SECTION("64 unique variants remain eligible for filename inference")
+    {
+        run_group("godot-variant-limit-64", 64, false,
+                  [&](const std::vector<test::file> &files, const auto &, const std::filesystem::path &) {
+                      CHECK(find_file(files, source_stem + ".v0.png") != nullptr);
+                      CHECK(find_file(files, ".godot/imported/picture.png-" + hash + ".v0.ctex") == nullptr);
+                  });
+    }
+
+    SECTION("a duplicate before the 65th unique variant refuses every member of the group")
+    {
+        run_group(
+            "godot-variant-duplicate-overflow", 65, true,
+            [&](const std::vector<test::file> &files, const auto &textures, const std::filesystem::path &destination) {
+                CHECK(find_file(files, source_stem + ".v0.png") == nullptr);
+                for (std::size_t index = 0; index < 65; ++index) {
+                    CHECK(find_file(files, source_stem + ".v" + std::to_string(index) + ".png") == nullptr);
+                }
+                for (std::size_t index = 0; index < textures.size(); ++index) {
+                    CAPTURE(index);
+                    std::string stored = textures[index].path.substr(6);
+                    std::size_t duplicate = 0;
+                    for (std::size_t previous = 0; previous < index; ++previous) {
+                        if (textures[previous].path == textures[index].path) {
+                            ++duplicate;
+                        }
+                    }
+                    if (duplicate != 0) {
+                        stored.insert(stored.size() - 5, "~" + std::to_string(duplicate));
+                    }
+                    const test::file *raw = find_file(files, stored);
+                    REQUIRE(raw != nullptr);
+                    CHECK(extract_bytes(*raw, destination) == as_string(textures[index].bytes));
+                }
+            });
+    }
+}
+
 TEST_CASE("godot integration: a zero-byte physical source keeps its real empty size", "[integration][godot]")
 {
     godot_pck_options options;
@@ -479,13 +931,13 @@ TEST_CASE("godot integration: metadata reads and aliases stay within one aggrega
     CHECK(find_file(files, "art/a.png") != nullptr);
 
     // The alias declared after the allowance is exhausted is skipped, so no unbounded alias set
-    // is built. The independently recognised texture still appears decoded in its physical folder.
+    // is built. The generic compiled name carries no source suffix, so it remains a raw stored view.
     CHECK(find_file(files, "art/z.png") == nullptr);
     const godot_bytes compiled = compiled_texture();
-    const test::file *z_original = find_file(files, ".godot/imported/z.png");
+    const test::file *z_original = find_file(files, ".godot/imported/z.ctex");
     REQUIRE(z_original != nullptr);
     CHECK(z_original->compressed_size == static_cast<int64_t>(compiled.size()));
-    CHECK(extract_bytes(*z_original, destination) == as_string(png_bytes(32)));
+    CHECK(extract_bytes(*z_original, destination) == as_string(compiled));
 
     // A skipped fragment's own physical source is still reachable raw.
     const test::file *junk_original = find_file(files, "junk/16.import");
@@ -564,6 +1016,9 @@ TEST_CASE("godot integration: one aggregate alias allowance bounds amplified fra
     // The late alias declared after the shared allowance is exhausted is skipped, so no unbounded
     // alias set is built.
     CHECK(find_file(files, "art/z.png") == nullptr);
+    const test::file *late_texture = find_file(files, ".godot/imported/z.ctex");
+    REQUIRE(late_texture != nullptr);
+    CHECK(extract_bytes(*late_texture, destination) == as_string(compiled_texture()));
     // Every physical source still stays reachable: a late amplifying fragment's own metadata and
     // the late raw source both remain present, and the raw source extracts byte for byte.
     const test::file *late_fragment = find_file(files, "amp/599.import");
@@ -572,6 +1027,180 @@ TEST_CASE("godot integration: one aggregate alias allowance bounds amplified fra
     REQUIRE(late_original != nullptr);
     CHECK(late_original->compressed_size == static_cast<int64_t>(late_raw.size()));
     CHECK(extract_bytes(*late_original, destination) == as_string(late_raw));
+}
+
+TEST_CASE("godot integration: conventional mappings stop before exceeding the residual alias allowance",
+          "[integration][godot][filename-extension][conventional-budget]")
+{
+    constexpr std::size_t mappings_per_fragment = 128;
+    constexpr std::size_t variants_per_group = 64;
+    constexpr std::size_t conventional_groups = 8;
+    constexpr std::size_t alias_allowance = std::size_t{32} * 1024 * 1024;
+    constexpr std::size_t residual_target = std::size_t{128} * 1024;
+    constexpr std::size_t variant_bytes = 10 * 2 + 90 * 3 + 28 * 4;
+    const std::string long_component(240, 'a');
+
+    const auto amplified_source = [&long_component](const std::size_t index) {
+        return "res://amp/" + std::to_string(index) + "/" + long_component + "/" + long_component + "/" +
+               long_component + "/" + long_component + "/leaf.png";
+    };
+    const auto conventional_source = [&long_component](const std::size_t index) {
+        return "res://conv/" + std::to_string(index) + "/" + long_component + "/" + long_component + "/" +
+               long_component + "/" + long_component + "/leaf.png";
+    };
+
+    const std::size_t virtual_length = amplified_source(0).size() - 6;
+    const std::size_t compiled_length = std::string(".godot/imported/amp0.ctex").size();
+    const std::size_t owned_per_fragment =
+        mappings_per_fragment * (virtual_length + compiled_length + 3 * sizeof(std::string)) + variant_bytes;
+    const std::size_t fragments = (alias_allowance - residual_target) / owned_per_fragment;
+
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    for (std::size_t index = 0; index < fragments; ++index) {
+        options.entries.push_back(entry("res://amp/" + std::to_string(index) + ".import",
+                                        as_u8(amplified_metadata(amplified_source(index), mappings_per_fragment))));
+    }
+    for (std::size_t group = 0; group < conventional_groups; ++group) {
+        const std::string source = conventional_source(group);
+        const std::string hash = md5_hex(source);
+        const std::string metadata = remap_metadata(source, "res://.godot/imported/leaf.png-" + hash + ".v0.ctex");
+        options.entries.push_back(entry(source + ".import", as_u8(metadata)));
+        for (std::size_t variant = 0; variant < variants_per_group; ++variant) {
+            options.entries.push_back(
+                entry("res://.godot/imported/leaf.png-" + hash + ".v" + std::to_string(variant) + ".ctex",
+                      as_u8(compiled_red_texture())));
+        }
+    }
+
+    const temporary_archive archive("godot-conventional-budget", build_godot_pck(options));
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+    const auto destination = archive.path().wstring() + L".out";
+
+    const std::string first_source = conventional_source(0);
+    const std::string first_stem = first_source.substr(6, first_source.size() - 10);
+    CHECK(find_file(files, first_stem + ".v0.png") != nullptr);
+
+    const std::string last_source = conventional_source(conventional_groups - 1);
+    const std::string last_stem = last_source.substr(6, last_source.size() - 10);
+    const test::file *manifest = find_file(files, "name-map.tsv");
+    REQUIRE(manifest != nullptr);
+    const std::string document = extract_bytes(*manifest, destination);
+    std::vector<std::pair<std::string, std::string>> recovered;
+    for (std::size_t start = 0; start < document.size();) {
+        const std::size_t end = document.find('\n', start);
+        REQUIRE(end != std::string::npos);
+        const std::vector<std::string> fields = tab_fields(std::string_view(document).substr(start, end - start));
+        REQUIRE(fields.size() == 3);
+        recovered.emplace_back(unescape_field(fields[1]), unescape_field(fields[2]));
+        start = end + 1;
+    }
+    const auto recovered_path = [&recovered](const std::string_view physical) {
+        const auto found =
+            std::ranges::find_if(recovered, [physical](const auto &row) { return row.first == physical; });
+        return found == recovered.end() ? std::string{} : found->second;
+    };
+
+    for (std::size_t group = 0; group < conventional_groups; ++group) {
+        const std::string hash = md5_hex(conventional_source(group));
+        for (std::size_t variant = 0; variant < variants_per_group; ++variant) {
+            CAPTURE(group, variant);
+            const std::string stored = ".godot/imported/leaf.png-" + hash + ".v" + std::to_string(variant) + ".ctex";
+            const std::string final_path = recovered_path(stored);
+            REQUIRE(!final_path.empty());
+            const test::file *view = find_file(files, final_path);
+            REQUIRE(view != nullptr);
+            CHECK(decode_png_rgba(extract_bytes(*view, destination)) ==
+                  std::vector<std::byte>{std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255}});
+        }
+    }
+
+    for (std::size_t variant = 0; variant < variants_per_group; ++variant) {
+        CAPTURE(variant);
+        CHECK(find_file(files, last_stem + ".v" + std::to_string(variant) + ".png") == nullptr);
+    }
+}
+
+TEST_CASE("godot integration: conflicting conventional directories fall back to metadata aliases",
+          "[integration][godot][filename-extension][conventional-ambiguous]")
+{
+    const std::string source_path = "res://art/dual.png";
+    const std::string hash = md5_hex(source_path);
+    const std::string body_target = "res://.godot/imported/from-body.ctex";
+    const std::string metadata = remap_metadata(source_path, body_target);
+
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    options.entries.push_back(entry("res://art/dual.png.import", as_u8(metadata)));
+    options.entries.push_back(entry("res://.godot/imported/dual.png-" + hash + ".ctex", as_u8(compiled_texture())));
+    options.entries.push_back(entry("res://.import/dual.png-" + hash + ".ctex", as_u8(compiled_texture())));
+    options.entries.push_back(entry(body_target, as_u8(compiled_texture())));
+
+    const temporary_archive archive("godot-conventional-ambiguous", build_godot_pck(options));
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+
+    const test::file *alias = find_file(files, "art/dual.png");
+    REQUIRE(alias != nullptr);
+    CHECK(extract_bytes(*alias, archive.path().wstring() + L".out") == as_string(png_bytes(32)));
+}
+
+TEST_CASE("godot integration: extensionless alias roots stay raw without probing",
+          "[integration][godot][filename-extension][alias-no-extension]")
+{
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    options.entries.push_back(
+        entry("res://art/noext.remap", as_u8(remap_metadata("res://art/noext", "res://.godot/imported/noext.ctex"))));
+    options.entries.push_back(entry("res://.godot/imported/noext.ctex", as_u8(compiled_texture())));
+    options.entries.push_back(entry("res://art.dir/name.remap",
+                                    as_u8(remap_metadata("res://art.dir/name", "res://.godot/imported/name.ctex"))));
+    options.entries.push_back(entry("res://.godot/imported/name.ctex", as_u8(compiled_texture())));
+
+    const temporary_archive archive("godot-extensionless-aliases", build_godot_pck(options));
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+    const auto destination = archive.path().wstring() + L".out";
+
+    const test::file *no_extension = find_file(files, "art/noext.ctex");
+    REQUIRE(no_extension != nullptr);
+    CHECK(extract_bytes(*no_extension, destination) == as_string(compiled_texture()));
+    const test::file *dot_before_slash = find_file(files, "art.dir/name.ctex");
+    REQUIRE(dot_before_slash != nullptr);
+    CHECK(extract_bytes(*dot_before_slash, destination) == as_string(compiled_texture()));
+}
+
+TEST_CASE("godot integration: a root source filename with an extension maps its compiled alias",
+          "[integration][godot][filename-extension][root-alias]")
+{
+    const std::string compiled = "res://.godot/imported/custom.ctex";
+    const std::string metadata = remap_metadata("res://picture.png", compiled);
+    const godot_bytes texture = compiled_texture();
+
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    options.entries.push_back(entry("res://picture.png.import", as_u8(metadata)));
+    options.entries.push_back(entry(compiled, texture));
+
+    const temporary_archive archive("godot-root-alias", build_godot_pck(options));
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+    const auto destination = archive.path().wstring() + L".out";
+
+    const test::file *alias = find_file(files, "picture.png");
+    REQUIRE(alias != nullptr);
+    CHECK(alias->compressed_size == static_cast<int64_t>(texture.size()));
+    CHECK(extract_bytes(*alias, destination) == as_string(png_bytes(32)));
+    CHECK(find_file(files, ".godot/imported/custom.ctex") == nullptr);
+
+    const test::file *metadata_file = find_file(files, "picture.png.import");
+    REQUIRE(metadata_file != nullptr);
+    CHECK(extract_bytes(*metadata_file, destination) == metadata);
 }
 
 TEST_CASE("godot integration: a '.remap' fragment maps an alias exactly like a '.import'", "[integration][godot]")
@@ -715,18 +1344,17 @@ TEST_CASE("godot integration: a fragment whose transient peak no longer fits the
     CHECK(extract_bytes(*early, destination) == as_string(png_bytes(32)));
     CHECK(find_file(files, "art/late.png") == nullptr);
 
-    // The metadata pass stops at trip. Every source still has a visible view: metadata and ordinary
-    // files stay byte-exact, while both independently recognised textures appear decoded.
+    // The metadata pass stops at trip. Every source still has a visible view: only the early texture
+    // has an alias, while the late generic compiled name remains byte-exact under its stored name.
     for (const godot_entry_options &stored : options.entries) {
         REQUIRE(stored.path.starts_with("res://"));
-        const bool texture = stored.path.ends_with(".ctex");
-        const std::string path = stored.path == "res://.godot/imported/early.ctex" ? "art/early.png"
-                                 : texture                                         ? ".godot/imported/late.png"
-                                                                                   : stored.path.substr(6);
+        const bool early_texture = stored.path == "res://.godot/imported/early.ctex";
+        const std::string path = early_texture ? "art/early.png" : stored.path.substr(6);
         const test::file *view = find_file(files, path);
         REQUIRE(view != nullptr);
         CHECK(view->compressed_size == static_cast<int64_t>(stored.payload.size()));
-        CHECK(extract_bytes(*view, destination) == (texture ? as_string(png_bytes(32)) : as_string(stored.payload)));
+        CHECK(extract_bytes(*view, destination) ==
+              (early_texture ? as_string(png_bytes(32)) : as_string(stored.payload)));
     }
 }
 
@@ -802,10 +1430,11 @@ TEST_CASE("godot integration: synthetic QOA resources restore omitted engine def
     };
     for (const expected_wave &expected : cases) {
         CAPTURE(expected.stem);
-        const std::string path = "audio/" + std::string(expected.stem);
+        const std::string path = ".godot/imported/" + std::string(expected.stem);
         const test::file *converted = find_file(files, path + ".wav");
         REQUIRE(converted != nullptr);
-        CHECK(find_file(files, path + ".sample") == nullptr);
+        const std::string source_path = "res://audio/" + std::string(expected.stem) + ".wav";
+        CHECK(find_file(files, path + ".wav-" + md5_hex(source_path) + ".sample") == nullptr);
         CHECK(converted->compressed_size == expected.packed_size);
         const std::string output = extract_bytes(*converted, destination);
         REQUIRE(output.size() == 44 + static_cast<std::size_t>(expected.channels) * 2);
@@ -824,4 +1453,176 @@ TEST_CASE("godot integration: synthetic QOA resources restore omitted engine def
             CHECK(byte(offset + 1) == 0);
         }
     }
+}
+
+TEST_CASE("godot integration: a hashed imported filename supplies the decoded name without reading its body",
+          "[integration][godot][filename-extension][lazy-payload]")
+{
+    const std::string hash = "00112233445566778899aabbccddeeff";
+    const std::string source_path = "res://.godot/imported/picture.png-" + hash + ".ctex";
+    const godot_bytes texture = compiled_texture();
+
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    // Push the target body beyond the locator's 128 KiB analysis prefix so the lock below
+    // isolates payload reads from pack recognition.
+    options.entries.push_back(entry("res://padding/keep.bin", godot_bytes(std::size_t{160} * 1024, 0x5A)));
+    options.entries.push_back(entry(source_path, texture));
+
+    const godot_bytes packed = build_godot_pck(options);
+    const std::uint64_t body_offset = payload_offset(packed, texture);
+    const temporary_archive archive("godot-filename-lazy", packed);
+    const test::observer plugin;
+
+    const auto files = [&] {
+        const locked_file_range lock(archive.path(), body_offset, texture.size());
+        return plugin.list_files(archive.path());
+    }();
+
+    CHECK(find_file(files, "padding/keep.bin") != nullptr);
+    const test::file *converted = find_file(files, ".godot/imported/picture.png");
+    REQUIRE(converted != nullptr);
+    CHECK(find_file(files, ".godot/imported/picture.png-" + hash + ".ctex") == nullptr);
+    CHECK(converted->compressed_size == static_cast<int64_t>(texture.size()));
+    CHECK(extract_bytes(*converted, archive.path().wstring() + L".out") == as_string(png_bytes(32)));
+}
+
+TEST_CASE("godot integration: a conventional import and its media body stay unread during listing",
+          "[integration][godot][filename-extension][conventional-fast-path]")
+{
+    const std::string source_path = "res://art/picture.png";
+    const std::string hash = md5_hex(source_path);
+    const std::string compiled_path = "res://.godot/imported/picture.png-" + hash + ".ctex";
+    const std::string metadata = remap_metadata(source_path, compiled_path);
+    const godot_bytes texture = compiled_texture();
+
+    godot_pck_options options;
+    options.version = 4;
+    options.engine_version = {4, 0, 0};
+    options.entries.push_back(entry("res://padding/keep.bin", godot_bytes(std::size_t{160} * 1024, 0x5A)));
+    options.entries.push_back(entry("res://art/picture.png.import", as_u8(metadata)));
+    options.entries.push_back(entry(compiled_path, texture));
+
+    const godot_bytes packed = build_godot_pck(options);
+    const std::uint64_t metadata_offset = payload_offset(packed, as_u8(metadata));
+    const std::uint64_t media_offset = payload_offset(packed, texture);
+    REQUIRE(metadata_offset > std::uint64_t{128} * 1024);
+    REQUIRE(media_offset > std::uint64_t{128} * 1024);
+
+    const temporary_archive archive("godot-conventional-fast", packed);
+    const test::observer plugin;
+    const auto files = [&] {
+        const locked_file_range metadata_lock(archive.path(), metadata_offset, metadata.size());
+        const locked_file_range media_lock(archive.path(), media_offset, texture.size());
+        return plugin.list_files(archive.path());
+    }();
+
+    // The exact conventional name/hash pair restores the original path without reading either
+    // body. The imported metadata and the compiled body remain byte-exact after the locks release.
+    const test::file *converted = find_file(files, "art/picture.png");
+    REQUIRE(converted != nullptr);
+    CHECK(find_file(files, ".godot/imported/picture.png-" + hash + ".ctex") == nullptr);
+    CHECK(converted->compressed_size == static_cast<int64_t>(texture.size()));
+    const auto destination = archive.path().wstring() + L".out";
+    CHECK(extract_bytes(*converted, destination) == as_string(png_bytes(32)));
+    const test::file *stored_metadata = find_file(files, "art/picture.png.import");
+    REQUIRE(stored_metadata != nullptr);
+    CHECK(extract_bytes(*stored_metadata, destination) == metadata);
+}
+
+TEST_CASE("godot integration: filename candidates reject malformed suffixes and defer corrupt bodies",
+          "[integration][godot][filename-extension][corrupt-deferred]")
+{
+    const std::string hash = "00112233445566778899aabbccddeeff";
+    const godot_bytes texture = compiled_texture();
+    const godot_bytes corrupt = {'G', 'S', 'T', '2', 1, 0, 0, 0, 0, 0, 0, 0};
+
+    godot_pck_options options;
+    options.version = 4;
+    options.entries.push_back(entry("res://.godot/imported/Upper.PNG-" + hash + ".ctex", texture));
+    options.entries.push_back(entry("res://.godot/imported/bad.PNG-nothex.ctex", texture));
+    options.entries.push_back(entry("res://.godot/imported/broken.png-" + hash + ".ctex", corrupt));
+    options.entries.push_back(entry("res://.godot/imported/picture.svg-" + hash + ".ctex", texture));
+    options.entries.push_back(entry("res://.godot/imported/unknown.res", as_u8(plain_resource())));
+
+    const temporary_archive archive("godot-filename-shapes", build_godot_pck(options));
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+    const auto destination = archive.path().wstring() + L".out";
+
+    // Case is matched without inventing a second spelling of the same source suffix.
+    const test::file *upper = find_file(files, ".godot/imported/Upper.PNG");
+    if (upper == nullptr) {
+        upper = find_file(files, ".godot/imported/Upper.png");
+    }
+    REQUIRE(upper != nullptr);
+    CHECK(extract_bytes(*upper, destination) == as_string(png_bytes(32)));
+
+    // A source suffix is recognized only immediately before a complete 32-digit hash. A malformed
+    // name keeps the complete stored name and is never rescued by probing its healthy body.
+    const test::file *malformed = find_file(files, ".godot/imported/bad.PNG-nothex.ctex");
+    REQUIRE(malformed != nullptr);
+    CHECK(extract_bytes(*malformed, destination) == as_string(texture));
+
+    // A syntactically valid source name is enough to expose the converted path. Its corrupt body
+    // is deferred to extraction, so it cannot make the whole listing fail.
+    const test::file *broken = find_file(files, ".godot/imported/broken.png");
+    REQUIRE(broken != nullptr);
+    CHECK(find_file(files, ".godot/imported/broken.png-" + hash + ".ctex") == nullptr);
+
+    // SVG is not a truthful output encoding for this stored texture.
+    CHECK(find_file(files, ".godot/imported/picture.svg") == nullptr);
+    CHECK(find_file(files, ".godot/imported/picture.svg.png") == nullptr);
+
+    // A compiled .res without an embedded source suffix stays raw and byte-exact.
+    const test::file *unknown = find_file(files, ".godot/imported/unknown.res");
+    REQUIRE(unknown != nullptr);
+    CHECK(extract_bytes(*unknown, destination) == as_string(plain_resource()));
+}
+
+TEST_CASE("godot integration: an import alias drives the output name from its original suffix",
+          "[integration][godot][filename-extension][import-alias]")
+{
+    const std::string hash = "00112233445566778899aabbccddeeff";
+    const std::string compiled = "res://.godot/imported/opaque-" + hash + ".ctex";
+    const std::string metadata = remap_metadata("res://art/Renamed.PNG", compiled);
+
+    godot_pck_options options;
+    options.version = 4;
+    options.entries.push_back(entry("res://art/Renamed.PNG.import", as_u8(metadata)));
+    options.entries.push_back(entry(compiled, compiled_texture()));
+
+    const temporary_archive archive("godot-filename-alias", build_godot_pck(options));
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+    const auto destination = archive.path().wstring() + L".out";
+
+    const test::file *alias = find_file(files, "art/Renamed.PNG");
+    REQUIRE(alias != nullptr);
+    CHECK(extract_bytes(*alias, destination) == as_string(png_bytes(32)));
+    const test::file *metadata_file = find_file(files, "art/Renamed.PNG.import");
+    REQUIRE(metadata_file != nullptr);
+    CHECK(extract_bytes(*metadata_file, destination) == metadata);
+}
+
+TEST_CASE("godot integration: a PNG source name does not expose a WebP body as a WebP conversion",
+          "[integration][godot][filename-extension][encoding-mismatch]")
+{
+    const std::string hash = "00112233445566778899aabbccddeeff";
+    const std::string source_path = "res://.godot/imported/mismatch.png-" + hash + ".ctex";
+
+    godot_pck_options options;
+    options.version = 4;
+    options.entries.push_back(entry(source_path, compiled_webp_texture()));
+
+    const temporary_archive archive("godot-filename-mismatch", build_godot_pck(options));
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+
+    // The filename chooses the conversion candidate and output name. Stored WebP cannot silently
+    // replace that selection; the extraction-side codec must either produce PNG or reject the
+    // mismatch instead of writing RIFF bytes under the selected .png name.
+    CHECK(find_file(files, ".godot/imported/mismatch.png") != nullptr);
+    CHECK(find_file(files, ".godot/imported/mismatch.webp") == nullptr);
 }

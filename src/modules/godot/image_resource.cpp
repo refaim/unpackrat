@@ -2,6 +2,7 @@
 
 #include "core/codecs/bc_codec.h"
 #include "core/codecs/png_codec.h"
+#include "core/codecs/webp_codec.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -776,46 +777,57 @@ namespace unpackrat::godot
             sink(source->preserved);
         }
     }
-    void write_raw_image_streaming(const io::byte_source &top_mip, const std::uint32_t engine_major,
-                                   const std::uint32_t wire_format, const std::uint32_t width,
-                                   const std::uint32_t height, const io::byte_sink &sink, const image_limits &limits)
+    namespace
     {
-        const format_descriptor *const descriptor = lookup_wire(engine_major, wire_format);
-        if (descriptor == nullptr) {
-            throw image_error("unsupported raw image format");
-        }
-        if (width == 0 || height == 0) {
-            throw image_error("image dimensions must be non-zero");
-        }
-        check_raw_budget(width, height, limits);
-        if (!raw_base_convertible(*descriptor, width, height, top_mip.size)) {
-            throw image_error("raw image length does not match the format");
-        }
-        const std::uint64_t stored_row_bytes = descriptor->block_compressed
-                                                   ? level_bytes(width, 4, *descriptor)
-                                                   : static_cast<std::uint64_t>(width) * descriptor->element_bytes;
-        if constexpr (sizeof(std::size_t) < sizeof(std::uint64_t)) {
-            if (stored_row_bytes > (std::numeric_limits<std::size_t>::max)()) {
-                throw image_error("image source row is not addressable");
+        const format_descriptor &validated_raw_format(const io::byte_source &top_mip, const std::uint32_t engine_major,
+                                                      const std::uint32_t wire_format, const std::uint32_t width,
+                                                      const std::uint32_t height, const image_limits &limits)
+        {
+            const format_descriptor *const descriptor = lookup_wire(engine_major, wire_format);
+            if (descriptor == nullptr) {
+                throw image_error("unsupported raw image format");
             }
+            if (width == 0 || height == 0) {
+                throw image_error("image dimensions must be non-zero");
+            }
+            check_raw_budget(width, height, limits);
+            if (!raw_base_convertible(*descriptor, width, height, top_mip.size)) {
+                throw image_error("raw image length does not match the format");
+            }
+            return *descriptor;
         }
-        std::vector<std::byte> stored_row(static_cast<std::size_t>(stored_row_bytes));
-        rgba_image decoded_strip;
-        std::uint32_t cached_strip = (std::numeric_limits<std::uint32_t>::max)();
-        codecs::encode_png_rows(
-            width, height,
-            [&](const std::uint32_t row, const std::span<std::byte> rgba) {
-                if (descriptor->block_compressed) {
+
+        class raw_row_reader final
+        {
+          public:
+            raw_row_reader(const io::byte_source &top_mip, const format_descriptor &descriptor,
+                           const std::uint32_t width, const std::uint32_t height, const image_limits &limits)
+                : top_mip_(top_mip), descriptor_(descriptor), width_(width), height_(height), limits_(limits),
+                  stored_row_bytes_(descriptor.block_compressed
+                                        ? level_bytes(width, 4, descriptor)
+                                        : static_cast<std::uint64_t>(width) * descriptor.element_bytes)
+            {
+                if constexpr (sizeof(std::size_t) < sizeof(std::uint64_t)) {
+                    if (stored_row_bytes_ > (std::numeric_limits<std::size_t>::max)()) {
+                        throw image_error("image source row is not addressable");
+                    }
+                }
+                stored_row_.resize(static_cast<std::size_t>(stored_row_bytes_));
+            }
+
+            void read(const std::uint32_t row, const std::span<std::byte> rgba)
+            {
+                if (descriptor_.block_compressed) {
                     const std::uint32_t strip = row / 4;
-                    if (strip != cached_strip) {
-                        top_mip.read(static_cast<std::uint64_t>(strip) * stored_row_bytes, stored_row);
-                        const std::uint32_t rows = (std::min)(std::uint32_t{4}, height - strip * 4);
-                        decoded_strip = codecs::decode_bc(stored_row, descriptor->bc, width, rows, limits);
-                        cached_strip = strip;
+                    if (strip != cached_strip_) {
+                        top_mip_.read(static_cast<std::uint64_t>(strip) * stored_row_bytes_, stored_row_);
+                        const std::uint32_t rows = (std::min)(std::uint32_t{4}, height_ - strip * 4);
+                        decoded_strip_ = codecs::decode_bc(stored_row_, descriptor_.bc, width_, rows, limits_);
+                        cached_strip_ = strip;
                     }
                     const std::size_t offset = static_cast<std::size_t>(row % 4) * rgba.size();
-                    std::copy_n(decoded_strip.pixels.data() + offset, rgba.size(), rgba.data());
-                    if (descriptor->alpha_to_green) {
+                    std::copy_n(decoded_strip_.pixels.data() + offset, rgba.size(), rgba.data());
+                    if (descriptor_.alpha_to_green) {
                         // Godot's RA->RG conversion preserves R, copies A into G and expands RG8.
                         for (std::size_t index = 0; index < rgba.size(); index += 4) {
                             rgba[index + 1] = rgba[index + 3];
@@ -823,20 +835,77 @@ namespace unpackrat::godot
                             rgba[index + 3] = std::byte{0xFF};
                         }
                     }
-                } else {
-                    top_mip.read(static_cast<std::uint64_t>(row) * stored_row_bytes, stored_row);
-                    for (std::uint32_t column = 0; column < width; ++column) {
-                        std::uint8_t quad[4]{};
-                        descriptor->read(
-                            stored_row.data() + static_cast<std::size_t>(column) * descriptor->element_bytes, quad);
-                        for (std::size_t channel = 0; channel < 4; ++channel) {
-                            rgba[static_cast<std::size_t>(column) * 4 + channel] =
-                                static_cast<std::byte>(quad[channel]);
-                        }
+                    return;
+                }
+                top_mip_.read(static_cast<std::uint64_t>(row) * stored_row_bytes_, stored_row_);
+                for (std::uint32_t column = 0; column < width_; ++column) {
+                    std::uint8_t quad[4]{};
+                    descriptor_.read(stored_row_.data() + static_cast<std::size_t>(column) * descriptor_.element_bytes,
+                                     quad);
+                    for (std::size_t channel = 0; channel < 4; ++channel) {
+                        rgba[static_cast<std::size_t>(column) * 4 + channel] = static_cast<std::byte>(quad[channel]);
                     }
                 }
-            },
-            sink, limits);
+            }
+
+          private:
+            const io::byte_source &top_mip_;
+            const format_descriptor &descriptor_;
+            std::uint32_t width_;
+            std::uint32_t height_;
+            const image_limits &limits_;
+            std::uint64_t stored_row_bytes_;
+            std::vector<std::byte> stored_row_;
+            rgba_image decoded_strip_;
+            std::uint32_t cached_strip_ = (std::numeric_limits<std::uint32_t>::max)();
+        };
+
+        std::string lower_extension(const std::string_view extension)
+        {
+            std::string output(extension);
+            std::ranges::transform(output, output.begin(), [](const char value) {
+                return value >= 'A' && value <= 'Z' ? static_cast<char>(value - 'A' + 'a') : value;
+            });
+            return output;
+        }
+    } // namespace
+
+    void write_raw_image_streaming(const io::byte_source &top_mip, const std::uint32_t engine_major,
+                                   const std::uint32_t wire_format, const std::uint32_t width,
+                                   const std::uint32_t height, const io::byte_sink &sink, const image_limits &limits)
+    {
+        const format_descriptor &descriptor =
+            validated_raw_format(top_mip, engine_major, wire_format, width, height, limits);
+        raw_row_reader reader(top_mip, descriptor, width, height, limits);
+        codecs::encode_png_rows(
+            width, height,
+            [&reader](const std::uint32_t row, const std::span<std::byte> rgba) { reader.read(row, rgba); }, sink,
+            limits);
+    }
+
+    rgba_image decode_raw_image(const io::byte_source &top_mip, const std::uint32_t engine_major,
+                                const std::uint32_t wire_format, const std::uint32_t width, const std::uint32_t height,
+                                const image_limits &limits)
+    {
+        const format_descriptor &descriptor =
+            validated_raw_format(top_mip, engine_major, wire_format, width, height, limits);
+        const std::uint64_t bytes = static_cast<std::uint64_t>(width) * height * rgba_channels;
+        if constexpr (sizeof(std::size_t) < sizeof(std::uint64_t)) {
+            if (bytes > (std::numeric_limits<std::size_t>::max)()) {
+                throw image_error("decoded image is not addressable");
+            }
+        }
+        rgba_image image;
+        image.width = width;
+        image.height = height;
+        image.pixels.resize(static_cast<std::size_t>(bytes));
+        const std::size_t row_bytes = static_cast<std::size_t>(width) * static_cast<std::size_t>(rgba_channels);
+        raw_row_reader reader(top_mip, descriptor, width, height, limits);
+        for (std::uint32_t row = 0; row < height; ++row) {
+            reader.read(
+                row, std::span<std::byte>(image.pixels.data() + static_cast<std::size_t>(row) * row_bytes, row_bytes));
+        }
+        return image;
     }
 
     void write_image_resource_streaming(const binary_resource &metadata, const io::byte_source &logical,
@@ -860,6 +929,59 @@ namespace unpackrat::godot
         write_raw_image_streaming(base, source->engine_major, source->wire_format, source->width, source->height, sink,
                                   limits);
     }
+
+    void write_image_resource_as_streaming(const binary_resource &metadata, const io::byte_source &logical,
+                                           const std::string_view target_extension, const io::byte_sink &sink,
+                                           const image_limits &limits)
+    {
+        const auto source = resolve(metadata, limits, true);
+        if (!source.has_value()) {
+            throw image_error("unsupported image resource");
+        }
+        if (source->media_offset > logical.size || source->media_bytes > logical.size - source->media_offset) {
+            throw image_error("image payload exceeds its logical source");
+        }
+        const std::string target = lower_extension(target_extension);
+        const auto base_source = [&]() {
+            return io::byte_source{source->top_mip_bytes,
+                                   [&](const std::uint64_t offset, const std::span<std::byte> bytes) {
+                                       logical.read(source->media_offset + offset, bytes);
+                                   }};
+        };
+        if (!source->raw) {
+            if (target == lower_extension(source->extension)) {
+                io::copy_byte_range(logical, source->media_offset + source->media_skip, source->preserved_bytes, sink);
+                return;
+            }
+            if (source->preserved_bytes > limits.max_input_bytes) {
+                throw image_error("preserved image exceeds the configured input budget");
+            }
+            std::vector<std::byte> encoded(static_cast<std::size_t>(source->preserved_bytes));
+            logical.read(source->media_offset + source->media_skip, encoded);
+            if (source->extension == extension_png && target == ".webp") {
+                codecs::encode_webp_lossless(codecs::decode_png(encoded, limits), sink, limits);
+                return;
+            }
+            if (source->extension == extension_webp && target == ".png") {
+                codecs::encode_png(codecs::decode_webp(encoded, limits), sink, limits);
+                return;
+            }
+            throw image_error("requested image encoding is not supported");
+        }
+        if (target == ".png") {
+            write_raw_image_streaming(base_source(), source->engine_major, source->wire_format, source->width,
+                                      source->height, sink, limits);
+            return;
+        }
+        if (target == ".webp") {
+            codecs::encode_webp_lossless(decode_raw_image(base_source(), source->engine_major, source->wire_format,
+                                                          source->width, source->height, limits),
+                                         sink, limits);
+            return;
+        }
+        throw image_error("requested image encoding is not supported");
+    }
+
     bool supports_image_resource_class(const std::string_view class_name) noexcept
     {
         return class_name == "Image" || class_name == "ImageTexture";

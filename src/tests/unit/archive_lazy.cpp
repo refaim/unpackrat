@@ -771,7 +771,7 @@ TEST_CASE("archive lazy: an indexed catalogue drives both metadata routes and a 
     {
         static const std::string &retained_path(const std::size_t index)
         {
-            static const std::array<std::string, 2> paths{"retained-0", "retained-1"};
+            static const std::array<std::string, 4> paths{"retained-0", "retained-1", "retained-2", "retained-3"};
             return paths[index];
         }
 
@@ -781,23 +781,26 @@ TEST_CASE("archive lazy: an indexed catalogue drives both metadata routes and a 
 
         [[nodiscard]] std::size_t count() const noexcept override
         {
-            return 2;
+            return 4;
         }
 
         [[nodiscard]] extractor::file_metadata metadata(const std::size_t index) const override
         {
-            if (index >= 2) {
+            if (index >= 4) {
                 throw extractor::read_error();
             }
-            return {retained_path(index), 10 + static_cast<std::int64_t>(index),
-                    20 + static_cast<std::int64_t>(index)};
+            return {retained_path(index), 10 + static_cast<std::int64_t>(index), 20 + static_cast<std::int64_t>(index)};
         }
 
         [[nodiscard]] std::optional<column> path_into(const std::size_t index,
                                                       const std::span<char> buffer) const override
         {
-            if (index >= 2) {
+            if (index >= 4) {
                 throw extractor::read_error();
+            }
+            if (index == 3) {
+                // Simulate a malformed producer that claims one byte beyond the caller buffer.
+                return column{buffer.size() + 1, 300, 400};
             }
             const std::string path = "lazy-" + std::to_string(index);
             if (buffer.size() < path.size()) {
@@ -849,6 +852,23 @@ TEST_CASE("archive lazy: an indexed catalogue drives both metadata routes and a 
     REQUIRE(fallback.path == "retained-1");
     REQUIRE(fallback.size == 11);
     REQUIRE(fallback.packed_size == 21);
+
+    // A buffer that exactly fits the materialised path is accepted.
+    std::array<char, 6> exact_buffer{};
+    extractor::file_metadata exact;
+    subject.get_metadata_into(2, exact_buffer, exact);
+    REQUIRE(exact.path == "lazy-2");
+    REQUIRE(exact.path.data() == exact_buffer.data());
+    REQUIRE(exact.size == 102);
+    REQUIRE(exact.packed_size == 202);
+
+    // A malformed column that claims more bytes than the caller buffer can hold, including a
+    // non-zero claim for a zero-sized span, is rejected before a path view is exposed.
+    std::array<char, 64> oversized_buffer{};
+    extractor::file_metadata oversized;
+    CHECK_THROWS_AS(subject.get_metadata_into(3, oversized_buffer, oversized), extractor::read_error);
+    CHECK_THROWS_AS(subject.get_metadata_into(3, std::span<char>{oversized_buffer.data(), 0}, oversized),
+                    extractor::read_error);
 
     // The retained route is also reachable directly through get_metadata for a lazy catalogue.
     const extractor::file_metadata direct = subject.get_metadata(1);

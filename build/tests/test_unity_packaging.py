@@ -26,7 +26,7 @@ import main  # noqa: E402
 
 UNITY = "unity"
 UNITY_VERSION = "1.0.1"
-MODULES_UNDER_TEST = ("renpy", "rpgmaker", "zanzarah", "godot")
+MODULES_UNDER_TEST = ("renpy", "rpgmaker", "zanzarah", "godot", "wolfrpg")
 
 UNITY_SO_X86 = b"\x7fELF unity shared object x86 fixture\n"
 UNITY_SO_X64 = b"\x7fELF unity shared object x64 fixture\n"
@@ -114,7 +114,7 @@ class UnityPackageSelectionTests(UnityFixtureCase):
     def test_unity_joins_the_package_selection_but_not_the_default_module_selection(self) -> None:
         self.assertIn(UNITY, main.PACKAGE_MODULES, "unity must be a selectable package module")
         self.assertNotIn(UNITY, main.MODULES, "unity must stay out of the native coverage/analyzer set")
-        self.assertEqual(main.MODULES, MODULES_UNDER_TEST, "the four shipped modules must be unchanged")
+        self.assertEqual(main.MODULES, MODULES_UNDER_TEST, "the five shipped native modules must be unchanged")
         self.assertEqual(main.MODULE_BINARIES.get(UNITY), "unity.so")
 
     def test_unity_registers_its_gpl_and_third_party_notices(self) -> None:
@@ -194,6 +194,7 @@ class UnityCliTests(UnityFixtureCase):
         created = sorted(path.name for path in self.output.glob("*.zip"))
         self.assertFalse([name for name in created if name.startswith(f"{UNITY}-")], created)
         self.assertIn("renpy-1.2.3-bin-x64.zip", created)
+        self.assertIn("wolfrpg-1.2.3-bin-x64.zip", created)
 
     def test_cli_selects_unity_by_name(self) -> None:
         repository = self.make_repository()

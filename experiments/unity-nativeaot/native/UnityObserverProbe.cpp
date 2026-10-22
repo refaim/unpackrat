@@ -115,359 +115,395 @@
 #include <string_view>
 #include <vector>
 
-namespace {
+namespace
+{
 
-// ---- exit codes ----------------------------------------------------------
-enum ExitCode : int {
-    kPass = 0,
-    kUsage = 2,
-    kLoad = 3,
-    kMissingExport = 7,
-    kLoadRejected = 8,
-    kApiVersion = 9,
-    kNullContract = 10,
-    kOpenFixture = 11,
-    kEnumerate = 12,
-    kLayout = 13,
-    kBadIndexAfter = 14,
-    kBadIndexNegative = 15,
-    kExtract = 17,
-    kExpectedMismatch = 18,
-    kCancel = 19,
-    kRepeatAfterCancel = 20,
-    kCloseReopen = 21,
-    kSizePolicy = 22,
-    kPrepareRepeat = 23,
-    kWriteError = 24,
-    kInvalidInput = 25,
-    kPngValidation = 27,
-    kCallbackProtocol = 28,
-    kCapExceeded = 29,
-    kEntryBound = 30,
-    kLogUnavailable = 31,
-};
+    // ---- exit codes ----------------------------------------------------------
+    enum ExitCode : int
+    {
+        kPass = 0,
+        kUsage = 2,
+        kLoad = 3,
+        kMissingExport = 7,
+        kLoadRejected = 8,
+        kApiVersion = 9,
+        kNullContract = 10,
+        kOpenFixture = 11,
+        kEnumerate = 12,
+        kLayout = 13,
+        kBadIndexAfter = 14,
+        kBadIndexNegative = 15,
+        kExtract = 17,
+        kExpectedMismatch = 18,
+        kCancel = 19,
+        kRepeatAfterCancel = 20,
+        kCloseReopen = 21,
+        kSizePolicy = 22,
+        kPrepareRepeat = 23,
+        kWriteError = 24,
+        kInvalidInput = 25,
+        kPngValidation = 27,
+        kCallbackProtocol = 28,
+        kCapExceeded = 29,
+        kEntryBound = 30,
+        kLogUnavailable = 31,
+    };
 
-constexpr int kMaxEntries = 200000;
-constexpr int64_t kMaxBytesPerFile = 256LL * 1024 * 1024;  // 256 MiB
+    constexpr int kMaxEntries = 200000;
+    constexpr int64_t kMaxBytesPerFile = 256LL * 1024 * 1024; // 256 MiB
 
-// Fail is defined after the logging helpers below so its message is mirrored
-// into the optional persistent log.
-void Fail(const wchar_t* stage, const wchar_t* detail);
+    // Fail is defined after the logging helpers below so its message is mirrored
+    // into the optional persistent log.
+    void Fail(const wchar_t *stage, const wchar_t *detail);
 
-// ---- small string helpers ------------------------------------------------
+    // ---- small string helpers ------------------------------------------------
 
-bool IsAbsolutePath(const wchar_t* path) {
-    if (path == nullptr || path[0] == L'\0') {
+    bool IsAbsolutePath(const wchar_t *path)
+    {
+        if (path == nullptr || path[0] == L'\0') {
+            return false;
+        }
+        if (path[0] == L'\\' && path[1] == L'\\') {
+            return true; // UNC
+        }
+        if (path[0] == L'\\' || path[0] == L'/') {
+            return true; // rooted
+        }
+        if (path[1] == L':' && (path[2] == L'\\' || path[2] == L'/')) {
+            return true; // drive-absolute
+        }
         return false;
     }
-    if (path[0] == L'\\' && path[1] == L'\\') {
-        return true;  // UNC
-    }
-    if (path[0] == L'\\' || path[0] == L'/') {
-        return true;  // rooted
-    }
-    if (path[1] == L':' && (path[2] == L'\\' || path[2] == L'/')) {
-        return true;  // drive-absolute
-    }
-    return false;
-}
 
-std::wstring WStrFromFixed(const wchar_t* buffer, std::size_t capacity) {
-    std::size_t length = 0;
-    while (length < capacity && buffer[length] != L'\0') {
-        ++length;
+    std::wstring WStrFromFixed(const wchar_t *buffer, std::size_t capacity)
+    {
+        std::size_t length = 0;
+        while (length < capacity && buffer[length] != L'\0') {
+            ++length;
+        }
+        return std::wstring(buffer, length);
     }
-    return std::wstring(buffer, length);
-}
 
-std::wstring ToLower(std::wstring value) {
-    std::transform(value.begin(), value.end(), value.begin(),
-                   [](wchar_t c) { return static_cast<wchar_t>(::towlower(c)); });
-    return value;
-}
-
-std::string ToUtf8(const std::wstring& value) {
-    if (value.empty()) {
-        return {};
+    std::wstring ToLower(std::wstring value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](wchar_t c) { return static_cast<wchar_t>(::towlower(c)); });
+        return value;
     }
-    const int needed = ::WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr,
-                                             0, nullptr, nullptr);
-    if (needed <= 0) {
-        return {};
+
+    std::string ToUtf8(const std::wstring &value)
+    {
+        if (value.empty()) {
+            return {};
+        }
+        const int needed = ::WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0,
+                                                 nullptr, nullptr);
+        if (needed <= 0) {
+            return {};
+        }
+        std::string out(static_cast<std::size_t>(needed), '\0');
+        ::WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), out.data(), needed, nullptr,
+                              nullptr);
+        return out;
     }
-    std::string out(static_cast<std::size_t>(needed), '\0');
-    ::WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), out.data(), needed, nullptr,
-                          nullptr);
-    return out;
-}
 
-// ---- logging -------------------------------------------------------------
-// Optional sixth argument: a persistent log file. It captures both stdout and
-// stderr, plus milestone lines flushed before each risky step, so an XP crash
-// is diagnosable. Plain CRT file I/O only: no framework and no command or
-// shell execution, and no change to the test semantics.
+    // ---- logging -------------------------------------------------------------
+    // Optional sixth argument: a persistent log file. It captures both stdout and
+    // stderr, plus milestone lines flushed before each risky step, so an XP crash
+    // is diagnosable. Plain CRT file I/O only: no framework and no command or
+    // shell execution, and no change to the test semantics.
 
-struct Logger {
-    std::FILE* file = nullptr;
-    Logger() = default;
-    Logger(const Logger&) = delete;
-    Logger& operator=(const Logger&) = delete;
-    ~Logger() {
-        if (file != nullptr) {
-            std::fclose(file);
+    struct Logger
+    {
+        std::FILE *file = nullptr;
+        Logger() = default;
+        Logger(const Logger &) = delete;
+        Logger &operator=(const Logger &) = delete;
+        ~Logger()
+        {
+            if (file != nullptr) {
+                std::fclose(file);
+            }
+        }
+        bool active() const
+        {
+            return file != nullptr;
+        }
+        void write(const wchar_t *text)
+        {
+            if (file == nullptr || text == nullptr) {
+                return;
+            }
+            const std::string bytes = ToUtf8(text);
+            if (!bytes.empty()) {
+                std::fwrite(bytes.data(), 1, bytes.size(), file);
+            }
+            std::fflush(file);
+        }
+    };
+
+    Logger *g_logger = nullptr;
+
+    std::wstring FormatWide(const wchar_t *format, va_list args)
+    {
+        wchar_t buffer[2048];
+        const int written = _vsnwprintf_s(buffer, _countof(buffer), _TRUNCATE, format, args);
+        if (written < 0) {
+            buffer[_countof(buffer) - 1] = L'\0';
+        }
+        return std::wstring(buffer);
+    }
+
+    void EmitLine(bool to_stderr, const wchar_t *format, va_list args)
+    {
+        const std::wstring line = FormatWide(format, args);
+        std::FILE *console = to_stderr ? stderr : stdout;
+        std::fwprintf(console, L"%ls", line.c_str());
+        std::fflush(console);
+        if (g_logger != nullptr) {
+            g_logger->write(line.c_str());
         }
     }
-    bool active() const { return file != nullptr; }
-    void write(const wchar_t* text) {
-        if (file == nullptr || text == nullptr) {
+
+    void Out(const wchar_t *format, ...)
+    {
+        va_list args;
+        va_start(args, format);
+        EmitLine(false, format, args);
+        va_end(args);
+    }
+
+    void Err(const wchar_t *format, ...)
+    {
+        va_list args;
+        va_start(args, format);
+        EmitLine(true, format, args);
+        va_end(args);
+    }
+
+    // Log-only diagnostic milestone, flushed every time.
+    void MilestoneF(const wchar_t *format, ...)
+    {
+        if (g_logger == nullptr) {
             return;
         }
-        const std::string bytes = ToUtf8(text);
-        if (!bytes.empty()) {
-            std::fwrite(bytes.data(), 1, bytes.size(), file);
-        }
-        std::fflush(file);
-    }
-};
-
-Logger* g_logger = nullptr;
-
-std::wstring FormatWide(const wchar_t* format, va_list args) {
-    wchar_t buffer[2048];
-    const int written = _vsnwprintf_s(buffer, _countof(buffer), _TRUNCATE, format, args);
-    if (written < 0) {
-        buffer[_countof(buffer) - 1] = L'\0';
-    }
-    return std::wstring(buffer);
-}
-
-void EmitLine(bool to_stderr, const wchar_t* format, va_list args) {
-    const std::wstring line = FormatWide(format, args);
-    std::FILE* console = to_stderr ? stderr : stdout;
-    std::fwprintf(console, L"%ls", line.c_str());
-    std::fflush(console);
-    if (g_logger != nullptr) {
+        va_list args;
+        va_start(args, format);
+        const std::wstring line = FormatWide(format, args);
+        va_end(args);
         g_logger->write(line.c_str());
     }
-}
 
-void Out(const wchar_t* format, ...) {
-    va_list args;
-    va_start(args, format);
-    EmitLine(false, format, args);
-    va_end(args);
-}
-
-void Err(const wchar_t* format, ...) {
-    va_list args;
-    va_start(args, format);
-    EmitLine(true, format, args);
-    va_end(args);
-}
-
-// Log-only diagnostic milestone, flushed every time.
-void MilestoneF(const wchar_t* format, ...) {
-    if (g_logger == nullptr) {
-        return;
+    void Fail(const wchar_t *stage, const wchar_t *detail)
+    {
+        Err(L"UnityObserverProbe: FAIL [%ls] %ls\n", stage, detail);
     }
-    va_list args;
-    va_start(args, format);
-    const std::wstring line = FormatWide(format, args);
-    va_end(args);
-    g_logger->write(line.c_str());
-}
 
-void Fail(const wchar_t* stage, const wchar_t* detail) {
-    Err(L"UnityObserverProbe: FAIL [%ls] %ls\n", stage, detail);
-}
-
-std::string JsonEscape(std::string_view value) {
-    std::string out;
-    out.reserve(value.size() + 8);
-    for (char raw : value) {
-        switch (raw) {
-        case '"':
-            out += "\\\"";
-            break;
-        case '\\':
-            out += "\\\\";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        case '\r':
-            out += "\\r";
-            break;
-        case '\t':
-            out += "\\t";
-            break;
-        default: {
-            const unsigned char byte = static_cast<unsigned char>(raw);
-            if (byte < 0x20) {
-                char buffer[8];
-                std::snprintf(buffer, sizeof(buffer), "\\u%04x", byte);
-                out += buffer;
-            } else {
-                out += raw;
+    std::string JsonEscape(std::string_view value)
+    {
+        std::string out;
+        out.reserve(value.size() + 8);
+        for (char raw : value) {
+            switch (raw) {
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            default: {
+                const unsigned char byte = static_cast<unsigned char>(raw);
+                if (byte < 0x20) {
+                    char buffer[8];
+                    std::snprintf(buffer, sizeof(buffer), "\\u%04x", byte);
+                    out += buffer;
+                } else {
+                    out += raw;
+                }
+                break;
             }
-            break;
+            }
         }
+        return out;
+    }
+
+    std::string JsonStr(const std::wstring &value)
+    {
+        return "\"" + JsonEscape(ToUtf8(value)) + "\"";
+    }
+
+    // ---- file helpers --------------------------------------------------------
+
+    bool ReadFileCapped(const std::wstring &path, std::vector<unsigned char> &out, int64_t cap, bool &too_big)
+    {
+        too_big = false;
+        std::ifstream in(std::filesystem::path(path), std::ios::binary);
+        if (!in) {
+            return false;
         }
-    }
-    return out;
-}
-
-std::string JsonStr(const std::wstring& value) { return "\"" + JsonEscape(ToUtf8(value)) + "\""; }
-
-// ---- file helpers --------------------------------------------------------
-
-bool ReadFileCapped(const std::wstring& path, std::vector<unsigned char>& out, int64_t cap, bool& too_big) {
-    too_big = false;
-    std::ifstream in(std::filesystem::path(path), std::ios::binary);
-    if (!in) {
-        return false;
-    }
-    in.seekg(0, std::ios::end);
-    const std::streamoff size = in.tellg();
-    if (size < 0) {
-        return false;
-    }
-    if (static_cast<int64_t>(size) > cap) {
-        too_big = true;
-        return false;
-    }
-    in.seekg(0, std::ios::beg);
-    out.resize(static_cast<std::size_t>(size));
-    if (!out.empty()) {
-        in.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(out.size()));
-    }
-    return in.good() || in.eof();
-}
-
-bool WriteUtf8File(const std::wstring& path, std::string_view text) {
-    std::ofstream out(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
-    if (!out) {
-        return false;
-    }
-    out.write(text.data(), static_cast<std::streamsize>(text.size()));
-    return out.good();
-}
-
-bool FileExists(const std::wstring& path) {
-    std::error_code error;
-    return std::filesystem::exists(std::filesystem::path(path), error);
-}
-
-// Structural PNG check only: signature, a first IHDR chunk of length 13, and
-// positive width/height. No decoding and no image viewer is involved.
-bool ValidatePngStructure(const std::vector<unsigned char>& bytes) {
-    static const unsigned char kSignature[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-    if (bytes.size() < 8 + 8 + 13) {
-        return false;
-    }
-    if (std::memcmp(bytes.data(), kSignature, sizeof(kSignature)) != 0) {
-        return false;
-    }
-    const unsigned char* chunk = bytes.data() + 8;
-    const std::uint32_t length = (static_cast<std::uint32_t>(chunk[0]) << 24) |
-                                 (static_cast<std::uint32_t>(chunk[1]) << 16) |
-                                 (static_cast<std::uint32_t>(chunk[2]) << 8) |
-                                 static_cast<std::uint32_t>(chunk[3]);
-    if (length != 13) {
-        return false;
-    }
-    if (std::memcmp(chunk + 4, "IHDR", 4) != 0) {
-        return false;
-    }
-    const unsigned char* ihdr = chunk + 8;
-    const std::uint32_t width = (static_cast<std::uint32_t>(ihdr[0]) << 24) |
-                                (static_cast<std::uint32_t>(ihdr[1]) << 16) |
-                                (static_cast<std::uint32_t>(ihdr[2]) << 8) |
-                                static_cast<std::uint32_t>(ihdr[3]);
-    const std::uint32_t height = (static_cast<std::uint32_t>(ihdr[4]) << 24) |
-                                 (static_cast<std::uint32_t>(ihdr[5]) << 16) |
-                                 (static_cast<std::uint32_t>(ihdr[6]) << 8) |
-                                 static_cast<std::uint32_t>(ihdr[7]);
-    return width > 0 && height > 0;
-}
-
-// ---- module / storage RAII ----------------------------------------------
-
-struct ModuleHandle {
-    HMODULE handle = nullptr;
-    ModuleHandle() = default;
-    ModuleHandle(const ModuleHandle&) = delete;
-    ModuleHandle& operator=(const ModuleHandle&) = delete;
-    ~ModuleHandle() {
-        if (handle != nullptr) {
-            ::FreeLibrary(handle);
+        in.seekg(0, std::ios::end);
+        const std::streamoff size = in.tellg();
+        if (size < 0) {
+            return false;
         }
-    }
-};
-
-struct ObserverApi {
-    LoadSubModuleFunc load = nullptr;
-    UnloadSubModuleFunc unload = nullptr;
-    module_cbs cbs{};
-    DWORD module_version = 0;
-    DWORD api_version = 0;
-};
-
-struct StorageHandle {
-    const module_cbs* cbs = nullptr;
-    HANDLE handle = nullptr;
-    StorageHandle() = default;
-    StorageHandle(const StorageHandle&) = delete;
-    StorageHandle& operator=(const StorageHandle&) = delete;
-    ~StorageHandle() { Close(); }
-    void Close() {
-        if (handle != nullptr && cbs != nullptr && cbs->CloseStorage != nullptr) {
-            cbs->CloseStorage(handle);
+        if (static_cast<int64_t>(size) > cap) {
+            too_big = true;
+            return false;
         }
-        handle = nullptr;
+        in.seekg(0, std::ios::beg);
+        out.resize(static_cast<std::size_t>(size));
+        if (!out.empty()) {
+            in.read(reinterpret_cast<char *>(out.data()), static_cast<std::streamsize>(out.size()));
+        }
+        return in.good() || in.eof();
     }
-};
 
-// ---- progress callback ---------------------------------------------------
-
-// `mode` picks accept(0) or cancel-on-first-callback(1). The bookkeeping lives
-// in the test-only policy helper so the same decisions are proven by the
-// standalone harness. The callback is noexcept so no C++ exception can cross
-// the Observer ABI; malformed protocol is recorded rather than thrown.
-using ProgressSink = probe::SinkState;
-
-static_assert(kMaxBytesPerFile == probe::kMaxBytesPerFile, "host and helper caps must agree");
-
-int CALLBACK ProgressCallback(HANDLE context, __int64 bytes) noexcept {
-    ProgressSink* sink = static_cast<ProgressSink*>(context);
-    if (sink == nullptr) {
-        return 0;
+    bool WriteUtf8File(const std::wstring &path, std::string_view text)
+    {
+        std::ofstream out(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return false;
+        }
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        return out.good();
     }
-    return probe::SinkInvoke(*sink, static_cast<std::int64_t>(bytes));
-}
 
-// ---- catalog records -----------------------------------------------------
+    bool FileExists(const std::wstring &path)
+    {
+        std::error_code error;
+        return std::filesystem::exists(std::filesystem::path(path), error);
+    }
 
-struct EntryRec {
-    int index = 0;
-    std::wstring path;
-    std::wstring label;  // name portion, recorded as metadata only
-    std::wstring ext;    // the leaf's output extension, e.g. "png", "bin", "ttf", "mp4"
-    probe::ResourceKind kind = probe::kResourceNone;
-    int64_t size = 0;
-    int64_t packed = 0;
-    int extract_rc = INT_MIN;
-    int64_t bytes = -1;
-};
+    // Structural PNG check only: signature, a first IHDR chunk of length 13, and
+    // positive width/height. No decoding and no image viewer is involved.
+    bool ValidatePngStructure(const std::vector<unsigned char> &bytes)
+    {
+        static const unsigned char kSignature[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        if (bytes.size() < 8 + 8 + 13) {
+            return false;
+        }
+        if (std::memcmp(bytes.data(), kSignature, sizeof(kSignature)) != 0) {
+            return false;
+        }
+        const unsigned char *chunk = bytes.data() + 8;
+        const std::uint32_t length = (static_cast<std::uint32_t>(chunk[0]) << 24) |
+                                     (static_cast<std::uint32_t>(chunk[1]) << 16) |
+                                     (static_cast<std::uint32_t>(chunk[2]) << 8) | static_cast<std::uint32_t>(chunk[3]);
+        if (length != 13) {
+            return false;
+        }
+        if (std::memcmp(chunk + 4, "IHDR", 4) != 0) {
+            return false;
+        }
+        const unsigned char *ihdr = chunk + 8;
+        const std::uint32_t width = (static_cast<std::uint32_t>(ihdr[0]) << 24) |
+                                    (static_cast<std::uint32_t>(ihdr[1]) << 16) |
+                                    (static_cast<std::uint32_t>(ihdr[2]) << 8) | static_cast<std::uint32_t>(ihdr[3]);
+        const std::uint32_t height = (static_cast<std::uint32_t>(ihdr[4]) << 24) |
+                                     (static_cast<std::uint32_t>(ihdr[5]) << 16) |
+                                     (static_cast<std::uint32_t>(ihdr[6]) << 8) | static_cast<std::uint32_t>(ihdr[7]);
+        return width > 0 && height > 0;
+    }
 
-std::wstring OutputNameFor(const EntryRec& entry) { return std::to_wstring(entry.index) + L"-" + entry.ext; }
+    // ---- module / storage RAII ----------------------------------------------
 
-}  // namespace
+    struct ModuleHandle
+    {
+        HMODULE handle = nullptr;
+        ModuleHandle() = default;
+        ModuleHandle(const ModuleHandle &) = delete;
+        ModuleHandle &operator=(const ModuleHandle &) = delete;
+        ~ModuleHandle()
+        {
+            if (handle != nullptr) {
+                ::FreeLibrary(handle);
+            }
+        }
+    };
 
-int wmain(int argc, wchar_t** argv) {
+    struct ObserverApi
+    {
+        LoadSubModuleFunc load = nullptr;
+        UnloadSubModuleFunc unload = nullptr;
+        module_cbs cbs{};
+        DWORD module_version = 0;
+        DWORD api_version = 0;
+    };
+
+    struct StorageHandle
+    {
+        const module_cbs *cbs = nullptr;
+        HANDLE handle = nullptr;
+        StorageHandle() = default;
+        StorageHandle(const StorageHandle &) = delete;
+        StorageHandle &operator=(const StorageHandle &) = delete;
+        ~StorageHandle()
+        {
+            Close();
+        }
+        void Close()
+        {
+            if (handle != nullptr && cbs != nullptr && cbs->CloseStorage != nullptr) {
+                cbs->CloseStorage(handle);
+            }
+            handle = nullptr;
+        }
+    };
+
+    // ---- progress callback ---------------------------------------------------
+
+    // `mode` picks accept(0) or cancel-on-first-callback(1). The bookkeeping lives
+    // in the test-only policy helper so the same decisions are proven by the
+    // standalone harness. The callback is noexcept so no C++ exception can cross
+    // the Observer ABI; malformed protocol is recorded rather than thrown.
+    using ProgressSink = probe::SinkState;
+
+    static_assert(kMaxBytesPerFile == probe::kMaxBytesPerFile, "host and helper caps must agree");
+
+    int CALLBACK ProgressCallback(HANDLE context, __int64 bytes) noexcept
+    {
+        ProgressSink *sink = static_cast<ProgressSink *>(context);
+        if (sink == nullptr) {
+            return 0;
+        }
+        return probe::SinkInvoke(*sink, static_cast<std::int64_t>(bytes));
+    }
+
+    // ---- catalog records -----------------------------------------------------
+
+    struct EntryRec
+    {
+        int index = 0;
+        std::wstring path;
+        std::wstring label; // name portion, recorded as metadata only
+        std::wstring ext;   // the leaf's output extension, e.g. "png", "bin", "ttf", "mp4"
+        probe::ResourceKind kind = probe::kResourceNone;
+        int64_t size = 0;
+        int64_t packed = 0;
+        int extract_rc = INT_MIN;
+        int64_t bytes = -1;
+    };
+
+    std::wstring OutputNameFor(const EntryRec &entry)
+    {
+        return std::to_wstring(entry.index) + L"-" + entry.ext;
+    }
+
+} // namespace
+
+int wmain(int argc, wchar_t **argv)
+{
     if (argc < 4 || argc > 6) {
-        Fail(L"usage",
-             L"UnityObserverProbe.exe <dll> <input> <outputDir> [expectedRawBinFile] [logFile]");
+        Fail(L"usage", L"UnityObserverProbe.exe <dll> <input> <outputDir> [expectedRawBinFile] [logFile]");
         return kUsage;
     }
 
@@ -489,7 +525,7 @@ int wmain(int argc, wchar_t** argv) {
     // during DLL load still leaves a diagnosable trail on disk.
     Logger logger;
     if (argc == 6) {
-        std::FILE* opened = nullptr;
+        std::FILE *opened = nullptr;
         if (_wfopen_s(&opened, log_path.c_str(), L"wb") != 0 || opened == nullptr) {
             Fail(L"log", L"cannot create log file");
             return kLogUnavailable;
@@ -515,7 +551,7 @@ int wmain(int argc, wchar_t** argv) {
         Fail(L"load", L"LoadLibraryExW failed");
         return kLoad;
     }
-    MilestoneF(L"milestone: post DLL load handle=%p\n", static_cast<void*>(module.handle));
+    MilestoneF(L"milestone: post DLL load handle=%p\n", static_cast<void *>(module.handle));
     ObserverApi api;
     api.load = reinterpret_cast<LoadSubModuleFunc>(::GetProcAddress(module.handle, "LoadSubModule"));
     api.unload = reinterpret_cast<UnloadSubModuleFunc>(::GetProcAddress(module.handle, "UnloadSubModule"));
@@ -527,8 +563,8 @@ int wmain(int argc, wchar_t** argv) {
         Fail(L"exports", L"UnloadSubModule export missing");
         return kMissingExport;
     }
-    MilestoneF(L"milestone: exports resolved load=%p unload=%p\n", reinterpret_cast<void*>(api.load),
-               reinterpret_cast<void*>(api.unload));
+    MilestoneF(L"milestone: exports resolved load=%p unload=%p\n", reinterpret_cast<void *>(api.load),
+               reinterpret_cast<void *>(api.unload));
 
     // LoadSubModule(nullptr) is a validated common-code contract: reject quietly.
     if (api.load(nullptr) != FALSE) {
@@ -568,7 +604,7 @@ int wmain(int argc, wchar_t** argv) {
     {
         StorageGeneralInfo info{};
         HANDLE handle = nullptr;
-        const wchar_t* const valid_path = input_path.c_str();
+        const wchar_t *const valid_path = input_path.c_str();
 
         // Only FilePath is invalid.
         StorageOpenParams null_path{};
@@ -606,8 +642,7 @@ int wmain(int argc, wchar_t** argv) {
             Fail(L"prepare-contract", L"PrepareFiles(nullptr) did not return FALSE");
             return kNullContract;
         }
-        const std::wstring invalid_path =
-            (std::filesystem::path(output_dir) / L"__no_such_input__.assets").wstring();
+        const std::wstring invalid_path = (std::filesystem::path(output_dir) / L"__no_such_input__.assets").wstring();
         StorageOpenParams invalid{};
         invalid.StructSize = sizeof(StorageOpenParams);
         invalid.FilePath = invalid_path.c_str();
@@ -700,8 +735,7 @@ int wmain(int argc, wchar_t** argv) {
             Fail(L"index", L"index at count not answered with NOMOREITEMS");
             return kBadIndexAfter;
         }
-        if (api.cbs.GetItem(storage.handle, static_cast<int>(entries.size()) + 1000, &item) !=
-            GET_ITEM_NOMOREITEMS) {
+        if (api.cbs.GetItem(storage.handle, static_cast<int>(entries.size()) + 1000, &item) != GET_ITEM_NOMOREITEMS) {
             Fail(L"index", L"far index not answered with NOMOREITEMS");
             return kBadIndexAfter;
         }
@@ -714,14 +748,14 @@ int wmain(int argc, wchar_t** argv) {
     // ---- extraction ----
     MilestoneF(L"milestone: extraction start\n");
     int first_raw_bin_index = -1;
-    for (const EntryRec& entry : entries) {
+    for (const EntryRec &entry : entries) {
         if (entry.kind == probe::kResourceRawBin) {
             first_raw_bin_index = entry.index;
             break;
         }
     }
 
-    auto extract_entry = [&](int index, const std::wstring& destination, int mode, ProgressSink& sink) {
+    auto extract_entry = [&](int index, const std::wstring &destination, int mode, ProgressSink &sink) {
         sink.mode = mode;
         ExtractOperationParams op{};
         op.ItemIndex = index;
@@ -735,11 +769,11 @@ int wmain(int argc, wchar_t** argv) {
 
     std::vector<unsigned char> first_raw_bin_bytes;
     bool first_raw_bin_captured = false;
-    std::vector<unsigned char> reference_bytes;  // first successful non-empty export
+    std::vector<unsigned char> reference_bytes; // first successful non-empty export
     int allowed_read_failures = 0;
     int recorded_successes = 0;
 
-    for (EntryRec& entry : entries) {
+    for (EntryRec &entry : entries) {
         const std::wstring destination = (std::filesystem::path(output_dir) / OutputNameFor(entry)).wstring();
         ProgressSink sink;
         const int rc = extract_entry(entry.index, destination, 0, sink);
@@ -802,7 +836,7 @@ int wmain(int argc, wchar_t** argv) {
     std::vector<std::int64_t> probe_bytes;
     probe_results.reserve(entries.size());
     probe_bytes.reserve(entries.size());
-    for (const EntryRec& entry : entries) {
+    for (const EntryRec &entry : entries) {
         probe_results.push_back(entry.extract_rc);
         probe_bytes.push_back(entry.bytes);
     }
@@ -834,7 +868,7 @@ int wmain(int argc, wchar_t** argv) {
     // image and the transformed font/video/audio/mesh/movie binaries) is exempt:
     // its PackedSize is the source payload, not the converted output, so the two
     // must never be equated.
-    for (const EntryRec& entry : entries) {
+    for (const EntryRec &entry : entries) {
         if (!probe::RequiresPackedEqualsExported(entry.kind) || entry.extract_rc != SER_SUCCESS) {
             continue;
         }
@@ -854,10 +888,10 @@ int wmain(int argc, wchar_t** argv) {
         std::vector<probe::SourceSize> current;
         listing.reserve(entries.size());
         current.reserve(entries.size());
-        for (const EntryRec& entry : entries) {
+        for (const EntryRec &entry : entries) {
             listing.push_back(probe::SourceSize{entry.size, entry.packed});
         }
-        for (const EntryRec& entry : entries) {
+        for (const EntryRec &entry : entries) {
             StorageItemInfo item{};
             if (api.cbs.GetItem(storage.handle, entry.index, &item) != GET_ITEM_OK) {
                 Fail(L"metadata", L"GetItem failed after extraction");
@@ -1030,7 +1064,7 @@ int wmain(int argc, wchar_t** argv) {
     report += "  \"packed_semantics\": \"source payload length or 0 (never encoded PNG)\",\n";
     report += "  \"entries\": [\n";
     for (std::size_t i = 0; i < entries.size(); ++i) {
-        const EntryRec& entry = entries[i];
+        const EntryRec &entry = entries[i];
         report += "    {";
         report += "\"index\": " + std::to_string(entry.index);
         report += ", \"path\": " + JsonStr(entry.path);
@@ -1066,8 +1100,7 @@ int wmain(int argc, wchar_t** argv) {
             entries.size(), recorded_successes, allowed_read_failures);
     } else {
         Out(L"UnityObserverProbe: PASS mode=%ls entries=%zu successes=%d failures=%d\n",
-            qualification_mode ? L"qualification" : L"game", entries.size(), recorded_successes,
-            allowed_read_failures);
+            qualification_mode ? L"qualification" : L"game", entries.size(), recorded_successes, allowed_read_failures);
     }
     MilestoneF(L"milestone: done exit=0\n");
     return kPass;

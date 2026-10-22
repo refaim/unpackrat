@@ -1,0 +1,148 @@
+{
+  "_comment": [
+    "Raw ScanCode detections for the curated false positives and references,",
+    "copied verbatim from out/license-audit/dependencies-scancode-adjudication.json",
+    "(raw_license_ref_or_nonstandard_gpl_records) for the 2026-10-16 source audit.",
+    "Paths carry the exact archive top-directory prefix the real ORT 97 evaluator",
+    "reported, matching the package configurations.",
+    "The bcdec and drlibs paths record the reviewed mapping onto the real producer member",
+    "names. The raw header bytes, ScanCode rules, scores and line matches are unchanged and",
+    "were verified byte-identical, but license-prepare preserves the raw vcpkg resource",
+    "download filename (git-commit-prefixed), so the real member is bcdec-80859ed3....h /",
+    "dr_libs-dfe83776...-dr_mp3.h rather than the shortened bcdec.h / dr_mp3.h the original",
+    "audit used. This is a reviewed mapping, not a claim that the original audit scan itself",
+    "reported these names.",
+    "A curation must quote the complete raw_expression of its record."
+  ],
+  "records": [
+    {
+      "package": "bcdec",
+      "path": "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h",
+      "start_lines": 1459,
+      "end_lines": 1462,
+      "raw_expression": "GPL-2.0-only OR Apache-2.0",
+      "score": 10.81,
+      "rule": "gpl-2.0_or_apache-2.0_5.RULE"
+    },
+    {
+      "package": "bcdec",
+      "path": "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h",
+      "start_lines": 48,
+      "end_lines": 48,
+      "raw_expression": "LicenseRef-scancode-unknown-license-reference",
+      "score": 100.0,
+      "rule": "unknown-license-reference_321.RULE"
+    },
+    {
+      "package": "zlib",
+      "path": "zlib-ng-2.3.3/cmake/detect-install-dirs.cmake",
+      "start_lines": 3,
+      "end_lines": 3,
+      "raw_expression": "LicenseRef-scancode-proprietary-license AND Apache-2.0",
+      "score": 11.11,
+      "rule": "proprietary-license_and_apache-2.0_3.RULE"
+    },
+    {
+      "package": "zlib",
+      "path": "zlib-ng-2.3.3/cmake/detect-install-dirs.cmake",
+      "start_lines": 3,
+      "end_lines": 3,
+      "raw_expression": "LicenseRef-scancode-unknown-license-reference",
+      "score": 100.0,
+      "rule": "unknown-license-reference_see-license_1.RULE"
+    },
+    {
+      "package": "zlib",
+      "path": "zlib-ng-2.3.3/FAQ.zlib",
+      "start_lines": 172,
+      "end_lines": 172,
+      "raw_expression": "GPL-1.0-or-later",
+      "score": 90.0,
+      "rule": "gpl-1.0-plus_343.RULE"
+    },
+    {
+      "package": "mbedtls",
+      "path": "mbedtls-4.1.1/tf-psa-crypto/include/psa/crypto_config.h",
+      "start_lines": 1625,
+      "end_lines": 1625,
+      "raw_expression": "GPL-2.0-or-later",
+      "score": 100.0,
+      "rule": "gpl-2.0-plus_525.RULE"
+    },
+    {
+      "package": "drlibs",
+      "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_mp3.h",
+      "start_lines": 2,
+      "end_lines": 2,
+      "raw_expression": "LicenseRef-scancode-unknown-license-reference",
+      "score": 100.0,
+      "rule": "unknown-license-reference_see-license_1.RULE"
+    },
+    {
+      "package": "drlibs",
+      "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_wav.h",
+      "start_lines": 2,
+      "end_lines": 2,
+      "raw_expression": "LicenseRef-scancode-unknown-license-reference",
+      "score": 100.0,
+      "rule": "unknown-license-reference_see-license_1.RULE"
+    }
+  ],
+  "webp_review": {
+    "package_id": "SpdxDocumentFile:vcpkg:libwebp:1.6.0#3",
+    "source_sha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+    "source_sha512": "298e0ad4c09392213baf5abb69d330c6203b618800073fe2df91d01d35034197c5d3e29a74573b06971473c52c74514f0e6e0f6c8162f923e2dd15cb1a692aef",
+    "source_artifact_url": "http://127.0.0.1:8765/sources/93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136.tar.gz",
+    "scanner": {
+      "name": "ScanCode",
+      "version": "32.5.0",
+      "configuration": "--copyright --license --info --strip-root --timeout 300 --json"
+    },
+    "findings": [
+      {
+        "license": "BSD-3-Clause AND LicenseRef-scancode-google-patent-license-webm",
+        "location": {
+          "path": "libwebp-1.6.0/src/enc/vp8l_enc.c",
+          "start_line": 3,
+          "end_line": 7
+        },
+        "score": 90.0
+      },
+      {
+        "license": "GPL-3.0-or-later WITH Autoconf-exception-macro",
+        "location": {
+          "path": "libwebp-1.6.0/m4/ax_pthread.m4",
+          "start_line": 59,
+          "end_line": 83
+        },
+        "score": 100.0
+      },
+      {
+        "license": "LicenseRef-scancode-google-patent-license-webm",
+        "location": {
+          "path": "libwebp-1.6.0/PATENTS",
+          "start_line": 1,
+          "end_line": 23
+        },
+        "score": 100.0
+      },
+      {
+        "license": "NOASSERTION",
+        "location": {
+          "path": "libwebp-1.6.0/CONTRIBUTING.md",
+          "start_line": 6,
+          "end_line": 16
+        },
+        "score": 100.0
+      }
+    ],
+    "upstream_lf_sha256": {
+      "COPYING": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "PATENTS": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
+    },
+    "upstream_lf_sizes": {
+      "COPYING": 1496,
+      "PATENTS": 1436
+    }
+  }
+}

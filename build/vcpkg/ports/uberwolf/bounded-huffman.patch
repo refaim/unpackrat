@@ -1,0 +1,919 @@
+diff --git a/3rdParty/DXLib/Huffman.cpp b/3rdParty/DXLib/Huffman.cpp
+index 5563737..88922ae 100644
+--- a/3rdParty/DXLib/Huffman.cpp
++++ b/3rdParty/DXLib/Huffman.cpp
+@@ -11,6 +11,7 @@
+ 
+ // include --------------------------------------
+ #include "Huffman.h"
++#include "Archive/BoundedHuffman.hpp"
+ #include <stdio.h>
+ #include <malloc.h>
+ #include <string.h>
+@@ -498,378 +499,73 @@ u64 Huffman_Encode( void *Src, u64 SrcSize, void *Dest )
+ // 圧縮データを解凍
+ //
+ // 戻り値:解凍後のサイズ  0 はエラー  Dest に NULL を入れると解凍データ格納に必要なサイズが返る
+-u64 Huffman_Decode( void *Press, void *Dest )
++//
++// This entry point keeps the original void*/void* signature for callers that cannot supply an
++// encoded extent or a decoded-size ceiling.  It drives the one shared bounded_huffman context in
++// ``opaque`` mode, reading the caller's buffer one byte at a time exactly like the original
++// byte-at-a-time reader, so its behaviour on valid input is unchanged while the 256-entry weight
++// table is no longer over-read and the payload no longer relies on the unchecked lookahead.
++namespace
+ {
+-    // 結合データと数値データ、０～２５５までが数値データ
+-    HUFFMAN_NODE Node[256 + 255] ;
+-
+-    u64 PressSizeCounter, DestSizeCounter, DestSize ;
+-    unsigned char *PressPoint, *DestPoint ;
+-	u64 OriginalSize ;
+-	u64 PressSize ;
+-	u64 HeadSize ;
+-	u16 Weight[ 256 ] ;
+-    int i ;
+-
+-    // void 型のポインタではアドレスの操作が出来ないので unsigned char 型のポインタにする
+-    PressPoint = ( unsigned char * )Press ;
+-    DestPoint = ( unsigned char * )Dest ;
+-
+-    // 圧縮データの情報を取得する
++	struct HuffmanRawSource
+ 	{
+-		BIT_STREAM BitStream ;
+-		u8 BitNum ;
+-		u8 Minus ;
+-		u16 SaveData ;
+-
+-		BitStream_Init( &BitStream, PressPoint, true ) ;
+-
+-		OriginalSize = BitStream_Read( &BitStream, ( u8 )( BitStream_Read( &BitStream, 6 ) + 1 ) ) ;
+-		PressSize    = BitStream_Read( &BitStream, ( u8 )( BitStream_Read( &BitStream, 6 ) + 1 ) ) ;
+-
+-		// 出現頻度のテーブルを復元する
+-		BitNum      = ( u8 )( BitStream_Read( &BitStream, 3 ) + 1 ) * 2 ;
+-		Minus       = ( u8 )BitStream_Read( &BitStream, 1 ) ;
+-		SaveData    = ( u16 )BitStream_Read( &BitStream, BitNum ) ;
+-		Weight[ 0 ] = SaveData ;
+-        for( i = 1 ; i < 256 ; i ++ )
+-        {
+-			BitNum      = ( u8 )( BitStream_Read( &BitStream, 3 ) + 1 ) * 2 ;
+-			Minus       = ( u8 )BitStream_Read( &BitStream, 1 ) ;
+-			SaveData    = ( u16 )BitStream_Read( &BitStream, BitNum ) ;
+-			Weight[ i ] = Minus == 1 ? Weight[ i - 1 ] - SaveData : Weight[ i - 1 ] + SaveData ;
+-        }
++		const unsigned char *base ;
++		std::size_t position ;
++	} ;
+ 
+-		HeadSize = BitStream_GetBytes( &BitStream ) ;
++	// The opaque context always requests exactly one byte per call, so the copy can never step past
++	// the byte the traversal has actually reached.
++	std::size_t HuffmanRawPull( void *context, unsigned char *destination, std::size_t capacity )
++	{
++		HuffmanRawSource *source = static_cast< HuffmanRawSource * >( context ) ;
++		memcpy( destination, source->base + source->position, capacity ) ;
++		source->position += capacity ;
++		return capacity ;
+ 	}
+-    
+-    // Dest が NULL の場合は 解凍後のデータのサイズを返す
+-    if( Dest == NULL )
+-        return OriginalSize ;
+-
+-    // 解凍後のデータのサイズを取得する
+-    DestSize = OriginalSize ;
+-
+-    // 各数値の結合データを構築する
+-    {
+-        int NodeIndex, MinNode1, MinNode2 ;
+-        int NodeNum, DataNum ;
+-
+-        // 数値データを初期化する
+-        for( i = 0 ; i < 256 + 255 ; i ++ )
+-        {
+-            Node[i].Weight = Weight[i] ;    // 出現数は保存しておいたデータからコピー
+-            Node[i].ChildNode[0] = -1 ;    // 数値データが終点なので -1 をセットする
+-            Node[i].ChildNode[1] = -1 ;    // 数値データが終点なので -1 をセットする
+-            Node[i].ParentNode = -1 ;      // まだどの要素とも結合されていないので -1 をセットする
+-        }
++} // namespace
+ 
+-        // 出現数の少ない数値データ or 結合データを繋いで
+-        // 新しい結合データを作成、全ての要素を繋いで残り１個になるまで繰り返す
+-        // (圧縮時と同じコードです)
+-        DataNum = 256 ; // 残り要素数
+-        NodeNum = 256 ; // 次に新しく作る結合データの要素配列のインデックス
+-        while( DataNum > 1 )
+-        {
+-            // 出現数値の低い要素二つを探す
+-            {
+-                MinNode1 = -1 ;
+-                MinNode2 = -1 ;
+-                
+-                // 残っている要素全てを調べるまでループ
+-                NodeIndex = 0 ;
+-                for( i = 0 ; i < DataNum ; NodeIndex ++ )
+-                {
+-                    // もう既に何処かの要素と結合されている場合は対象外
+-                    if( Node[NodeIndex].ParentNode != -1 ) continue ;
+-                    
+-                    i ++ ;
+-                    
+-                    // まだ有効な要素をセットしていないか、より出現数値の
+-                    // 少ない要素が見つかったら更新
+-                    if( MinNode1 == -1 || Node[MinNode1].Weight > Node[NodeIndex].Weight )
+-                    {
+-                        // 今まで一番出現数値が少なかったと思われた
+-                        // 要素は二番目に降格
+-                        MinNode2 = MinNode1 ;
+-
+-                        // 新しい一番の要素の要素配列のインデックスを保存
+-                        MinNode1 = NodeIndex ;
+-                    }
+-                    else
+-                    {
+-                        // 一番よりは出現数値が多くても、二番目よりは出現数値が
+-                        // 少ないかもしれないので一応チェック(又は二番目に出現数値の
+-                        // 少ない要素がセットされていなかった場合もセット)
+-                        if( MinNode2 == -1 || Node[MinNode2].Weight > Node[NodeIndex].Weight )
+-                        {
+-                            MinNode2 = NodeIndex ;
+-                        }
+-                    }
+-                }
+-            }
+-            
+-            // 二つの要素を繋いで新しい要素(結合データ)を作る
+-            Node[NodeNum].ParentNode = -1 ;  // 新しいデータは当然まだ何処とも繋がっていないので -1 
+-            Node[NodeNum].Weight = Node[MinNode1].Weight + Node[MinNode2].Weight ;    // 出現数値は二つの数値を足したものをセットする
+-            Node[NodeNum].ChildNode[0] = MinNode1 ;    // この結合部で 0 を選んだら出現数値が一番少ない要素に繋がる
+-            Node[NodeNum].ChildNode[1] = MinNode2 ;    // この結合部で 1 を選んだら出現数値が二番目に少ない要素に繋がる
+-
+-            // 結合された要素二つに、自分達に何の値が割り当てられたかをセットする
+-            Node[MinNode1].Index = 0 ;    // 一番出現数値が少ない要素は 0 番
+-            Node[MinNode2].Index = 1 ;    // 二番目に出現数値が少ない要素は 1 番
+-
+-            // 結合された要素二つに、自分達を結合した結合データの要素配列インデックスをセットする
+-            Node[MinNode1].ParentNode = NodeNum ;
+-            Node[MinNode2].ParentNode = NodeNum ;
+-
+-            // 要素の数を一個増やす
+-            NodeNum ++ ;
+-
+-            // 残り要素の数は、一つ要素が新しく追加された代わりに
+-            // 二つの要素が結合されて検索の対象から外れたので
+-            // 結果 1 - 2 で -1 
+-            DataNum -- ;
+-        }
+-
+-        // 各数値の圧縮時のビット列を割り出す
+-        {
+-            unsigned char TempBitArray[32] ;
+-            int TempBitIndex, TempBitCount, BitIndex, BitCount ;
+-        
+-            // 数値データと結合データの数だけ繰り返す
+-            for( i = 0 ; i < 256 + 254 ; i ++ )
+-            {
+-                // 数値データから結合データを上へ上へと辿ってビット数を数える
+-                {
+-                    // ビット数を初期化しておく
+-                    Node[i].BitNum = 0 ;
+-                    
+-                    // 一時的に数値データから遡っていったときのビット列を保存する処理の準備
+-                    TempBitIndex = 0 ;
+-                    TempBitCount = 0 ;
+-                    TempBitArray[TempBitIndex] = 0 ;
+-                    
+-                    // 何処かと結合されている限りカウントし続ける(天辺は何処とも結合されていないので終点だと分かる)
+-                    for( NodeIndex = ( int )i ; Node[NodeIndex].ParentNode != -1 ; NodeIndex = Node[NodeIndex].ParentNode )
+-                    {
+-                        // 配列要素一つに入るビットデータは８個なので、同じ配列要素に
+-                        // 既に８個保存していたら次の配列要素に保存先を変更する
+-                        if( TempBitCount == 8 )
+-                        {
+-                            TempBitCount = 0 ;
+-                            TempBitIndex ++ ;
+-                            TempBitArray[TempBitIndex] = 0 ;
+-                        }
+-                        
+-                        // 新しく書き込む情報で今までのデータを上書きしてしまわないように１ビット左にシフトする
+-                        TempBitArray[TempBitIndex] <<= 1 ;
+-
+-                        // 結合データに割り振られたインデックスを最下位ビット(一番右側のビット)に書き込む
+-                        TempBitArray[TempBitIndex] |= (unsigned char)Node[NodeIndex].Index ;
++u64 Huffman_Decode( void *Press, void *Dest )
++{
++	HuffmanRawSource source ;
++	source.base     = static_cast< const unsigned char * >( Press ) ;
++	source.position = 0 ;
+ 
+-                        // 保存したビット数を増やす
+-                        TempBitCount ++ ;
++	uberwolf::archive::bounded_huffman decoder ;
+ 
+-                        // ビット数を増やす
+-                        Node[i].BitNum ++ ;
+-                    }
+-                }
+-				
+-                // TempBitArray に溜まったデータは数値データから結合データを天辺に向かって
+-                // 上へ上へと遡っていった時のビット列なので、逆さまにしないと圧縮後のビット
+-                // 配列として使えない(展開時に天辺の結合データから数値データまで辿ることが
+-                // 出来ない)ので、順序を逆さまにしたものを数値データ内のビット列バッファに保存する
+-                {
+-                    BitCount = 0 ;
+-                    BitIndex = 0 ;
+-                    
+-                    // 最初のバッファを初期化しておく
+-                    // (全部 論理和(or)演算 で書き込むので、最初から１になっている
+-                    // ビットに０を書き込んでも１のままになってしまうため)
+-                    Node[i].BitArray[BitIndex] = 0 ;
+-                    
+-                    // 一時的に保存しておいたビット列の最初まで遡る
+-                    while( TempBitIndex >= 0 )
+-                    {
+-                        // 書き込んだビット数が一つの配列要素に入る８ビットに
+-                        // 達してしまったら次の配列要素に移る
+-                        if( BitCount == 8 )
+-                        {
+-                            BitCount = 0 ;
+-                            BitIndex ++ ;
+-                            Node[i].BitArray[BitIndex] = 0 ;
+-                        }
++	if( decoder.init( &HuffmanRawPull, &source, uberwolf::archive::huffman_size_mode::opaque, 0, 0 )
++		!= uberwolf::archive::huffman_status::ok )
++	{
++		return 0 ;
++	}
+ 
+-                        // まだ何も書き込まれていないビットアドレスに１ビット書き込む
+-                        Node[i].BitArray[BitIndex] |= (unsigned char)( ( TempBitArray[TempBitIndex] & 1 ) << BitCount ) ;
+-						
+-                        // 書き込み終わったビットはもういらないので次のビットを
+-                        // 書き込めるように１ビット右にシフトする
+-                        TempBitArray[TempBitIndex] >>= 1 ;
+-                        
+-                        // １ビット書き込んだので残りビット数を１個減らす
+-                        TempBitCount -- ;
+-                        
+-                        // もし現在書き込み元となっている配列要素に書き込んでいない
+-                        // ビット情報が無くなったら次の配列要素に移る
+-                        if( TempBitCount == 0 )
+-                        {
+-                            TempBitIndex -- ;
+-                            TempBitCount = 8 ;
+-                        }
+-                        
+-                        // 書き込んだビット数を増やす
+-                        BitCount ++ ;
+-                    }
+-                }
+-            }
+-		}
+-    }
++	// Dest が NULL の場合は 解凍後のデータのサイズを返す
++	if( Dest == NULL )
++	{
++		return decoder.original_size() ;
++	}
+ 
+-    // 解凍処理
+-    {
+-        unsigned char *PressData ;
+-        int PressBitCounter, PressBitData, Index, NodeIndex ;
+-		int NodeIndexTable[ 512 ] ;
+-		int j ;
++	unsigned char *DestPoint = static_cast< unsigned char * >( Dest ) ;
++	const u64 DestSize = decoder.original_size() ;
++	u64 DestSizeCounter = 0 ;
+ 
+-		// 各ビット配列がどのノードに繋がるかのテーブルを作成する
++	// 解凍したデータの格納アドレスを最後まで埋めるまで、共有コンテキストから順番に取り出す
++	while( DestSizeCounter < DestSize )
++	{
++		std::size_t chunk = 0 ;
++		const u64 request = DestSize - DestSizeCounter ;
++		const std::size_t capacity = request < 0x10000ull ? static_cast< std::size_t >( request )
++														 : static_cast< std::size_t >( 0x10000ull ) ;
++		if( decoder.read( DestPoint + DestSizeCounter, capacity, &chunk )
++			!= uberwolf::archive::huffman_status::ok )
+ 		{
+-			u16 BitMask[ 9 ] ;
+-
+-			for( i = 0 ; i < 9 ; i ++ )
+-			{
+-				BitMask[ i ] = ( u16 )( ( 1 << ( i + 1 ) ) - 1 ) ;
+-			}
+-
+-			for( i = 0 ; i < 512 ; i ++ )
+-			{
+-				NodeIndexTable[ i ] = -1 ;
+-
+-				// ビット列に適合したノードを探す
+-				for( j = 0 ; j < 256 + 254 ; j ++ )
+-				{
+-					u16 BitArray01 ;
+-
+-					if( Node[ j ].BitNum > 9 )
+-					{
+-						continue ;
+-					}
+-
+-					BitArray01 = ( u16 )Node[ j ].BitArray[ 0 ] | ( Node[ j ].BitArray[ 1 ] << 8 ) ;
+-					if( ( i & BitMask[ Node[ j ].BitNum - 1 ] ) == ( BitArray01 & BitMask[ Node[ j ].BitNum - 1 ] ) )
+-					{
+-						NodeIndexTable[ i ] = j ;
+-						break ;
+-					}
+-				}
+-			}
++			return 0 ;
+ 		}
++		// The loop only runs while output is outstanding, so capacity is at least one, and read()
++		// reports ok only after filling the requested capacity, so an ok chunk is always positive;
++		// a failed read has already returned above.
++		DestSizeCounter += chunk ;
++	}
+ 
+-        // 圧縮データ本体の先頭アドレスをセット
+-        // (圧縮データ本体は元のサイズ、圧縮後のサイズ、各数値の出現数等を
+-        // 格納するデータ領域の後にある)
+-        PressData = PressPoint + HeadSize ;
+-
+-        // 解凍したデータの格納アドレスを初期化
+-        DestSizeCounter = 0 ;
+-        
+-        // 圧縮データの参照アドレスを初期化
+-        PressSizeCounter = 0 ;
+-        
+-        // 圧縮ビットデータのカウンタを初期化
+-        PressBitCounter = 0 ;
+-        
+-        // 圧縮データの１バイト目をセット
+-        PressBitData = PressData[PressSizeCounter] ;
+-
+-        // 圧縮前のデータサイズになるまで解凍処理を繰り返す
+-        for( DestSizeCounter = 0 ; DestSizeCounter < DestSize ; DestSizeCounter ++ )
+-        {
+-            // ビット列から数値データを検索する
+-            {
+-				// 最後の17byte分のデータは天辺から探す( 最後の次のバイトを読み出そうとしてメモリの不正なアクセスになる可能性があるため )
+-				if( DestSizeCounter >= DestSize - 17 )
+-				{
+-					// 結合データの天辺は一番最後の結合データが格納される５１０番目(０番から数える)
+-					// 天辺から順に下に降りていく
+-					NodeIndex = 510 ;
+-				}
+-				else
+-				{
+-					// それ以外の場合はテーブルを使用する
+-
+-                    // もし PressBitData に格納されている全ての
+-                    // ビットデータを使い切ってしまった場合は次の
+-                    // ビットデータをセットする
+-                    if( PressBitCounter == 8 )
+-                    {
+-                        PressSizeCounter ++ ;
+-                        PressBitData = PressData[PressSizeCounter] ;
+-                        PressBitCounter = 0 ;
+-                    }
+-
+-					// 圧縮データを9bit分用意する
+-					PressBitData = ( PressBitData | ( PressData[ PressSizeCounter + 1 ] << ( 8 - PressBitCounter ) ) ) & 0x1ff ;
+-
+-					// テーブルから最初の結合データを探す
+-					NodeIndex = NodeIndexTable[ PressBitData ] ;
+-
+-					// 使った分圧縮データのアドレスを進める
+-					PressBitCounter += Node[ NodeIndex ].BitNum ;
+-					if( PressBitCounter >= 16 )
+-					{
+-						PressSizeCounter += 2 ;
+-						PressBitCounter -= 16 ;
+-						PressBitData = PressData[PressSizeCounter] >> PressBitCounter ;
+-					}
+-					else
+-					if( PressBitCounter >= 8 )
+-					{
+-						PressSizeCounter ++ ;
+-						PressBitCounter -= 8 ;
+-						PressBitData = PressData[PressSizeCounter] >> PressBitCounter ;
+-					}
+-					else
+-					{
+-						PressBitData >>= Node[ NodeIndex ].BitNum ;
+-					}
+-				}
+-                
+-                // 数値データに辿り着くまで結合データを下りていく
+-                while( NodeIndex > 255 )
+-                {
+-                    // もし PressBitData に格納されている全ての
+-                    // ビットデータを使い切ってしまった場合は次の
+-                    // ビットデータをセットする
+-                    if( PressBitCounter == 8 )
+-                    {
+-                        PressSizeCounter ++ ;
+-                        PressBitData = PressData[PressSizeCounter] ;
+-                        PressBitCounter = 0 ;
+-                    }
+-                    
+-                    // １ビット取得する
+-                    Index = PressBitData & 1 ;
+-                    
+-                    // 使用した１ビット分だけ右にシフトする
+-                    PressBitData >>= 1 ;
+-                    
+-                    // 使用したビット数を一個増やす
+-                    PressBitCounter ++ ;
+-                    
+-                    // 次の要素(結合データか数値データかはまだ分からない)に移る
+-                    NodeIndex = Node[NodeIndex].ChildNode[Index] ;
+-                }
+-            }
+-
+-            // 辿り着いた数値データを出力
+-            DestPoint[DestSizeCounter] = (unsigned char)NodeIndex ;
+-        }
+-    }
+-
+-    // 解凍後のサイズを返す
+-    return OriginalSize ;
++	// 解凍後のサイズを返す
++	return DestSize ;
+ }
+-
+diff --git a/UberWolfLib/Archive/BoundedHuffman.hpp b/UberWolfLib/Archive/BoundedHuffman.hpp
+new file mode 100644
+index 0000000..04b99c5
+--- /dev/null
++++ b/UberWolfLib/Archive/BoundedHuffman.hpp
+@@ -0,0 +1,466 @@
++#pragma once
++
++// ============================================================================
++//  Shared bounded Huffman decoder for the DXLib "Huffman" stream.
++//
++//  This is the single decoder implementation for Wolf RPG archives.  It
++//  reproduces the header parse, weight reconstruction, tree build and
++//  root-to-leaf payload traversal of the original DXLib Huffman_Decode
++//  (3rdParty/DXLib/Huffman.cpp) while validating every extent and arithmetic
++//  operation before it is used:
++//
++//    * the original initialisation loop walked 256 + 255 nodes while only 256
++//      weights exist, reading Weight[256 .. 510] out of bounds on valid input.
++//      Here the leaves are exactly 256 and the internal nodes exactly 255.
++//    * the header, the weight table and the payload are pulled through a
++//      bounded, resumable source that never over-reads and latches end of
++//      input, instead of reading a raw pointer without a length.
++//    * a reconstructed weight that leaves [0, 65535] is rejected rather than
++//      wrapping through a u16.
++//    * payload traversal is a plain root-to-leaf walk, so it never relies on
++//      the original "last 17 bytes" lookahead that underflowed for short
++//      outputs and read ahead of the buffer.
++//    * a byte source that reports more bytes than the destination can hold
++//      violates the pull contract and is rejected as a source failure before its
++//      claim can index past the fixed 8 KiB window.
++//
++//  The decoder is header-only, allocation free (fixed arrays) and resumable:
++//  read() may be called repeatedly with caller-owned output buffers, and at
++//  most one 8 KiB source window is buffered.  No exception may cross the byte
++//  source callback; a callback that cannot continue returns source_failed.
++// ============================================================================
++
++#include <cstddef>
++#include <cstdint>
++
++namespace uberwolf
++{
++namespace archive
++{
++    enum class huffman_status : std::uint8_t
++    {
++        ok = 0,
++        header_truncated,
++        original_exceeds_bound,
++        original_mismatch,
++        weight_out_of_range,
++        payload_exceeds_extent,
++        trailing_bytes,
++        empty_with_payload,
++        payload_truncated,
++        payload_not_consumed,
++        source_failure,
++    };
++
++    enum class huffman_size_mode : std::uint8_t
++    {
++        // The caller knows the exact decoded size; a differing header original is rejected.
++        exact = 0,
++        // The caller gives a decoded-size ceiling; a larger header original is rejected as soon as
++        // it has been decoded, before a single weight or payload byte is requested.
++        bounded,
++        // Legacy pointer API: neither the encoded extent nor the decoded size is known, so the
++        // stream's own header sizes are trusted and the source is read one byte at a time.
++        opaque,
++    };
++
++    class bounded_huffman
++    {
++      public:
++        // Fills destination[0, capacity) and returns the number of bytes written, which must be at
++        // most capacity, 0 at end of input, or source_failed when the source cannot continue.  The
++        // callback must not throw.
++        using pull_fn = std::size_t (*)(void *context, unsigned char *destination, std::size_t capacity);
++
++        static constexpr std::size_t source_failed = static_cast<std::size_t>(-1);
++        static constexpr std::size_t leaf_count = 256;
++        static constexpr std::size_t node_count = 256 + 255;
++        static constexpr std::int32_t root_index = static_cast<std::int32_t>(node_count - 1);
++        static constexpr std::size_t window_size = 8192;
++
++        bounded_huffman() = default;
++
++        // Parses and validates the stream header, reconstructs the 256 weights and builds the tree.
++        // ``encoded_size`` is the declared encoded extent (header plus payload) for the exact and
++        // bounded modes; the opaque mode ignores it.
++        //
++        // Lifecycle: a context is initialised exactly once. init runs on a freshly constructed
++        // context and must return ok before any read(); read() requires that successful init. init
++        // does not reset the window, counters or status, so it is not a re-initialisation entry
++        // point and one stream needs one context. The pull callback is called synchronously from
++        // init and read, must not re-enter this context, and must not throw.
++        huffman_status init(pull_fn pull, void *context, huffman_size_mode mode, std::uint64_t encoded_size,
++                            std::uint64_t expected_size) noexcept;
++
++        // Decodes up to ``capacity`` bytes into ``destination`` and stores the count in ``written``.
++        // Resumable: a count below ``capacity`` means the declared output has been produced.
++        huffman_status read(unsigned char *destination, std::size_t capacity, std::size_t *written) noexcept;
++
++        [[nodiscard]] std::uint64_t original_size() const noexcept
++        {
++            return original_size_;
++        }
++
++        [[nodiscard]] std::uint64_t produced() const noexcept
++        {
++            return produced_;
++        }
++
++        [[nodiscard]] std::uint64_t remaining() const noexcept
++        {
++            return original_size_ - produced_;
++        }
++
++      private:
++        bool read_msb(unsigned count, std::uint64_t &value) noexcept;
++        int next_byte(huffman_status truncation) noexcept;
++        int next_payload_bit() noexcept;
++        int load_payload_byte() noexcept;
++        void build_tree() noexcept;
++
++        pull_fn pull_ = nullptr;
++        void *context_ = nullptr;
++        bool extent_known_ = false;
++        bool probe_ = false;
++        huffman_status pending_ = huffman_status::ok;
++
++        std::uint64_t encoded_size_ = 0;
++        std::uint64_t original_size_ = 0;
++        std::uint64_t produced_ = 0;
++        std::uint64_t fetched_ = 0;
++        std::uint64_t consumed_ = 0;
++        std::uint64_t payload_remaining_ = 0;
++
++        std::size_t buffer_pos_ = 0;
++        std::size_t buffer_len_ = 0;
++        unsigned char buffer_[window_size]{};
++
++        std::uint8_t msb_byte_ = 0;
++        unsigned msb_bits_ = 0;
++        std::uint8_t lsb_byte_ = 0;
++        unsigned lsb_bits_ = 0;
++
++        std::uint32_t weights_[leaf_count]{};
++        std::int32_t child0_[node_count]{};
++        std::int32_t child1_[node_count]{};
++    };
++
++    inline bool bounded_huffman::read_msb(unsigned count, std::uint64_t &value) noexcept
++    {
++        value = 0;
++        for (unsigned i = 0; i < count; ++i)
++        {
++            if (msb_bits_ == 0)
++            {
++                const int next = next_byte(huffman_status::header_truncated);
++                if (next < 0)
++                {
++                    return false;
++                }
++                msb_byte_ = static_cast<std::uint8_t>(next);
++                msb_bits_ = 8;
++            }
++            value = (value << 1) | static_cast<std::uint64_t>(msb_byte_ >> 7);
++            msb_byte_ = static_cast<std::uint8_t>(msb_byte_ << 1);
++            --msb_bits_;
++        }
++        return true;
++    }
++
++    inline int bounded_huffman::next_byte(huffman_status truncation) noexcept
++    {
++        // Every caller returns the instant a fetch fails and the source can never re-enter this
++        // context, so next_byte only runs while pending_ is still ok. A failed fetch is therefore
++        // the last thing the running parser will see, and storing the status directly is the same
++        // as the former "if (pending_ == ok)" guard without its always-true branch.
++        if (buffer_pos_ == buffer_len_)
++        {
++            if (extent_known_ && fetched_ >= encoded_size_)
++            {
++                pending_ = truncation;
++                return -1;
++            }
++
++            const std::uint64_t limit =
++                extent_known_ ? (encoded_size_ - fetched_) : static_cast<std::uint64_t>(window_size);
++            std::uint64_t capacity = limit < static_cast<std::uint64_t>(window_size) ? limit
++                                                                                      : static_cast<std::uint64_t>(window_size);
++            if (probe_ && capacity > 1)
++            {
++                // Until the header's original size has been validated against the caller's ceiling,
++                // pull exactly one byte per call so a bound violation is detected as soon as the size
++                // is known, without ever handing a normally filling source a request large enough to
++                // carry weight or payload bytes.
++                capacity = 1;
++            }
++
++            const std::size_t want = static_cast<std::size_t>(capacity);
++            const std::size_t got = pull_(context_, buffer_, want);
++            if (got == source_failed)
++            {
++                pending_ = huffman_status::source_failure;
++                return -1;
++            }
++            if (got > want)
++            {
++                // The source claimed more bytes than the destination can hold. The fixed window
++                // would overflow and buffer_len_ would describe bytes that were never written, so
++                // the whole stream is abandoned as a source failure rather than trusted.
++                pending_ = huffman_status::source_failure;
++                return -1;
++            }
++            if (got == 0)
++            {
++                // End of input. No further byte can ever appear, and the caller returns before it can
++                // ask again, so this truncation status is the latched one.
++                pending_ = truncation;
++                return -1;
++            }
++            fetched_ += got;
++            buffer_len_ = got;
++            buffer_pos_ = 0;
++        }
++        ++consumed_;
++        return static_cast<int>(buffer_[buffer_pos_++]);
++    }
++
++    inline int bounded_huffman::load_payload_byte() noexcept
++    {
++        if (payload_remaining_ == 0)
++        {
++            // The declared payload is spent before the declared output is complete, so the stream is
++            // truncated. Only reached with pending_ == ok, for the reason given in next_byte.
++            pending_ = huffman_status::payload_truncated;
++            return -1;
++        }
++        const int value = next_byte(huffman_status::payload_truncated);
++        if (value < 0)
++        {
++            return -1;
++        }
++        --payload_remaining_;
++        return value;
++    }
++
++    inline int bounded_huffman::next_payload_bit() noexcept
++    {
++        if (lsb_bits_ == 0)
++        {
++            const int value = load_payload_byte();
++            if (value < 0)
++            {
++                return -1;
++            }
++            lsb_byte_ = static_cast<std::uint8_t>(value);
++            lsb_bits_ = 8;
++        }
++        const int bit = lsb_byte_ & 1;
++        lsb_byte_ = static_cast<std::uint8_t>(lsb_byte_ >> 1);
++        --lsb_bits_;
++        return bit;
++    }
++
++    inline void bounded_huffman::build_tree() noexcept
++    {
++        std::int32_t parent[node_count];
++        std::uint32_t weight[node_count];
++        for (std::size_t i = 0; i < node_count; ++i)
++        {
++            parent[i] = -1;
++            child0_[i] = -1;
++            child1_[i] = -1;
++        }
++        for (std::size_t i = 0; i < leaf_count; ++i)
++        {
++            weight[i] = weights_[i];
++        }
++
++        std::size_t roots = leaf_count;
++        std::size_t next = leaf_count;
++        while (roots > 1)
++        {
++            std::int32_t first = -1;
++            std::int32_t second = -1;
++            std::size_t index = 0;
++            std::size_t seen = 0;
++            while (seen < roots)
++            {
++                if (parent[index] != -1)
++                {
++                    ++index;
++                    continue;
++                }
++                ++seen;
++                if (first < 0 || weight[static_cast<std::size_t>(first)] > weight[index])
++                {
++                    second = first;
++                    first = static_cast<std::int32_t>(index);
++                }
++                else if (second < 0 || weight[static_cast<std::size_t>(second)] > weight[index])
++                {
++                    second = static_cast<std::int32_t>(index);
++                }
++                ++index;
++            }
++
++            weight[next] = weight[static_cast<std::size_t>(first)] + weight[static_cast<std::size_t>(second)];
++            child0_[next] = first;
++            child1_[next] = second;
++            parent[static_cast<std::size_t>(first)] = static_cast<std::int32_t>(next);
++            parent[static_cast<std::size_t>(second)] = static_cast<std::int32_t>(next);
++            ++next;
++            --roots;
++        }
++    }
++
++    inline huffman_status bounded_huffman::init(pull_fn pull, void *context, huffman_size_mode mode,
++                                                std::uint64_t encoded_size, std::uint64_t expected_size) noexcept
++    {
++        pull_ = pull;
++        context_ = context;
++        extent_known_ = mode != huffman_size_mode::opaque;
++        // The exact mode knows the encoded extent, so it can buffer normally from the first byte.
++        // The bounded mode probes one byte at a time until the original size is validated, then
++        // buffers normally.  The opaque mode has no extent at all and therefore stays byte-at-a-time
++        // for the whole stream, exactly like the original pointer reader.
++        probe_ = mode != huffman_size_mode::exact;
++        encoded_size_ = encoded_size;
++
++        std::uint64_t field = 0;
++        if (!read_msb(6, field))
++        {
++            return pending_;
++        }
++        std::uint64_t original = 0;
++        if (!read_msb(static_cast<unsigned>(field + 1), original))
++        {
++            return pending_;
++        }
++        // The original size is now known: the bounded-mode one-byte probe is done and the caller's
++        // ceiling can be enforced before a single weight or payload byte is requested.
++        if (mode == huffman_size_mode::bounded)
++        {
++            probe_ = false;
++        }
++        original_size_ = original;
++        if (mode == huffman_size_mode::bounded)
++        {
++            if (original > expected_size)
++            {
++                return huffman_status::original_exceeds_bound;
++            }
++        }
++        else if (mode == huffman_size_mode::exact)
++        {
++            if (original != expected_size)
++            {
++                return huffman_status::original_mismatch;
++            }
++        }
++
++        if (!read_msb(6, field))
++        {
++            return pending_;
++        }
++        std::uint64_t pressed = 0;
++        if (!read_msb(static_cast<unsigned>(field + 1), pressed))
++        {
++            return pending_;
++        }
++
++        std::int64_t previous = 0;
++        for (std::size_t i = 0; i < leaf_count; ++i)
++        {
++            std::uint64_t width_field = 0;
++            if (!read_msb(3, width_field))
++            {
++                return pending_;
++            }
++            const unsigned width = static_cast<unsigned>(width_field + 1) * 2u;
++            std::uint64_t negative = 0;
++            if (!read_msb(1, negative))
++            {
++                return pending_;
++            }
++            std::uint64_t magnitude = 0;
++            if (!read_msb(width, magnitude))
++            {
++                return pending_;
++            }
++            const std::int64_t signed_magnitude = static_cast<std::int64_t>(magnitude);
++            const std::int64_t value = i == 0
++                                           ? signed_magnitude
++                                           : (negative != 0 ? previous - signed_magnitude
++                                                            : previous + signed_magnitude);
++            if (value < 0 || value > 0xFFFF)
++            {
++                return huffman_status::weight_out_of_range;
++            }
++            weights_[i] = static_cast<std::uint32_t>(value);
++            previous = value;
++        }
++
++        if (extent_known_)
++        {
++            // The declared stream is exactly the header plus the declared payload: no byte may sit
++            // outside the pressed extent, and no declared payload byte may be missing.
++            const std::uint64_t payload_capacity = encoded_size_ - consumed_;
++            if (pressed > payload_capacity)
++            {
++                return huffman_status::payload_exceeds_extent;
++            }
++            if (pressed < payload_capacity)
++            {
++                return huffman_status::trailing_bytes;
++            }
++            if (original_size_ == 0 && pressed != 0)
++            {
++                return huffman_status::empty_with_payload;
++            }
++        }
++        payload_remaining_ = pressed;
++        build_tree();
++        return huffman_status::ok;
++    }
++
++    inline huffman_status bounded_huffman::read(unsigned char *destination, std::size_t capacity,
++                                                std::size_t *written) noexcept
++    {
++        if (pending_ != huffman_status::ok)
++        {
++            *written = 0;
++            return pending_;
++        }
++
++        std::size_t count = 0;
++        while (count < capacity && produced_ < original_size_)
++        {
++            std::int32_t node = root_index;
++            // Every child index is strictly below its parent, so the walk terminates after at most
++            // 255 steps and can never cycle back into a non-leaf.
++            while (node > static_cast<std::int32_t>(leaf_count - 1))
++            {
++                const int bit = next_payload_bit();
++                if (bit < 0)
++                {
++                    *written = count;
++                    return pending_;
++                }
++                node = bit != 0 ? child1_[static_cast<std::size_t>(node)]
++                                : child0_[static_cast<std::size_t>(node)];
++            }
++            destination[count] = static_cast<unsigned char>(node);
++            ++count;
++            ++produced_;
++        }
++
++        if (produced_ == original_size_ && extent_known_ && payload_remaining_ != 0)
++        {
++            *written = count;
++            return huffman_status::payload_not_consumed;
++        }
++        *written = count;
++        return huffman_status::ok;
++    }
++} // namespace archive
++} // namespace uberwolf

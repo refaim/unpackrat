@@ -1,0 +1,11 @@
+{
+  "resolutions": {
+    "rule_violations": [
+      {
+        "message": "\\AThe dependency 'SpdxDocumentFile:vcpkg:libwebp:1\\.6\\.0#3' is licensed under the ScanCode 'patent-license' categorized license LicenseRef-scancode-google-patent-license-webm\\. This requires approval\\.\\Z",
+        "reason": "PATENT_GRANT_EXCEPTION",
+        "comment": "Roma approved on 2026-10-21 the Google WebM patent grant for libwebp 1.6.0#3, source SHA-256 93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136. Complete COPYING and PATENTS are retained; PATENTS and source findings remain scanned. This exact package/version/license message resolution relies on the pinned source artifact and package configuration for source binding; the message itself carries no archive hash."
+      }
+    ]
+  }
+}

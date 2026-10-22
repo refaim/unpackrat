@@ -1,14 +1,129 @@
 #include "../../core/godot/key_recovery.h"
+#include "../support/godot_fixtures.h"
 #include "../support/godot_key_fixtures.h"
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <sstream>
+#include <string>
+#include <vector>
 namespace
 {
     std::string as_string(const std::vector<std::byte> &bytes)
     {
         return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+    }
+
+    // Wraps an in-memory PE image and records the largest single ``read`` request the
+    // recovery scan issues, so bounded-window reads can be asserted directly.
+    class counting_stream final
+    {
+      public:
+        explicit counting_stream(std::vector<std::byte> image)
+            : buffer_(std::string(reinterpret_cast<const char *>(image.data()), image.size()), std::ios::in),
+              stream_(&buffer_)
+        {
+        }
+        std::istream &stream()
+        {
+            return stream_;
+        }
+        std::size_t max_single_read() const
+        {
+            return buffer_.max_read;
+        }
+
+      private:
+        class counting_buffer final : public std::stringbuf
+        {
+          public:
+            using std::stringbuf::stringbuf;
+            std::size_t max_read = 0;
+
+          protected:
+            std::streamsize xsgetn(char *destination, std::streamsize count) override
+            {
+                max_read = std::max(max_read, static_cast<std::size_t>(count));
+                return std::stringbuf::xsgetn(destination, count);
+            }
+        };
+        counting_buffer buffer_;
+        std::istream stream_;
+    };
+
+    // A generated x64 PE with a 512 KiB executable section whose key consumer sits one
+    // byte before the 64 KiB window boundary and whose key reference is only reachable
+    // through a call into a second executable section.
+    std::vector<std::byte> build_large_pe()
+    {
+        using test::support::godot_bytes;
+        constexpr std::uint64_t base = 0x140000000ULL;
+        constexpr std::uint32_t text_rva = 0x1000, data_rva = 0x200000, text2_rva = 0x300000;
+        constexpr std::size_t text_size = 0x80000, data_size = 0x1000;
+        constexpr std::size_t text_offset = 0x200, data_offset = 0x200 + text_size;
+        constexpr std::size_t text2_offset = data_offset + data_size;
+        godot_bytes bytes(0x200 + text_size + 2 * data_size, 0xcc);
+        bytes[0] = 'M';
+        bytes[1] = 'Z';
+        test::support::patch_u32(bytes, 0x3c, 0x80);
+        test::support::patch_u32(bytes, 0x80, 0x4550);
+        test::support::patch_u16(bytes, 0x84, 0x8664);
+        test::support::patch_u16(bytes, 0x86, 3);
+        test::support::patch_u16(bytes, 0x94, 0xf0);
+        test::support::patch_u16(bytes, 0x98, 0x20b);
+        test::support::patch_u64(bytes, 0xb0, base);
+        const auto section = [&](std::size_t at, const char *name, std::uint32_t rva, std::uint32_t raw,
+                                 std::uint32_t raw_size, std::uint32_t virtual_size, std::uint32_t flags) {
+            for (std::size_t i = 0; name[i] != '\0'; ++i)
+                bytes[at + i] = static_cast<std::uint8_t>(name[i]);
+            test::support::patch_u32(bytes, at + 8, virtual_size);
+            test::support::patch_u32(bytes, at + 12, rva);
+            test::support::patch_u32(bytes, at + 16, raw_size);
+            test::support::patch_u32(bytes, at + 20, raw);
+            test::support::patch_u32(bytes, at + 36, flags);
+        };
+        section(0x188, ".text", text_rva, 0x200, text_size, text_size, 0x60000020);
+        section(0x1b0, ".rdata", data_rva, static_cast<std::uint32_t>(data_offset), data_size, data_size, 0x40000040);
+        section(0x1d8, ".text2", text2_rva, static_cast<std::uint32_t>(text2_offset), data_size, data_size, 0x60000020);
+        for (std::size_t i = 0; i < 32; ++i)
+            bytes[data_offset + i] = static_cast<std::uint8_t>(i + 1);
+        std::size_t cursor = text_offset + 0xffff;
+        const auto emit = [&](std::initializer_list<std::uint8_t> code) {
+            for (const auto value : code)
+                bytes[cursor++] = value;
+        };
+        const auto u32 = [&](std::uint32_t value) {
+            test::support::patch_u32(bytes, cursor, value);
+            cursor += 4;
+        };
+        const auto relative = [&](std::uint64_t instruction_address, std::size_t length, std::uint64_t target) {
+            u32(static_cast<std::uint32_t>(static_cast<std::int64_t>(target) -
+                                           static_cast<std::int64_t>(instruction_address + length)));
+        };
+        // .text: anchor whose 'GDPC' literal and decoding instruction cross the 64 KiB boundary.
+        emit({0x3d, 0x47, 0x44, 0x50, 0x43, 0xba, 0x20, 0, 0, 0});
+        {
+            const auto call_offset = static_cast<std::uint64_t>(cursor - text_offset);
+            emit({0xe8});
+            relative(base + text_rva + call_offset, 5, base + text2_rva);
+        }
+        emit({0xc3});
+        // .text2: call target whose window carries the only key reference.
+        cursor = text2_offset;
+        emit({0xba, 0x20, 0, 0, 0});
+        {
+            const auto lea_offset = static_cast<std::uint64_t>(cursor - text2_offset);
+            emit({0x48, 0x8d, 0x0d});
+            relative(base + text2_rva + lea_offset, 7, base + data_rva);
+        }
+        emit({0x0f, 0xb6, 0x01, 0xc3});
+        std::vector<std::byte> image(bytes.size());
+        for (std::size_t i = 0; i < bytes.size(); ++i)
+            image[i] = static_cast<std::byte>(bytes[i]);
+        return image;
     }
 } // namespace
 TEST_CASE("godot key recovery: recognizes bounded scalar and SIMD constant patterns", "[godot][key-recovery]")
@@ -291,4 +406,21 @@ TEST_CASE("godot key recovery: unbacked initializer targets are retained under a
     }
     fixture.image[cursor] = std::byte{0xc3};
     CHECK(recover(fixture).empty());
+}
+
+TEST_CASE("godot key recovery: window reads stay bounded for a large executable section",
+          "[godot][key-recovery][key-window-bound]")
+{
+    const auto image = build_large_pe();
+    counting_stream stream(image);
+    unpackrat::godot::key_recovery_budget budget;
+    const auto keys = unpackrat::godot::recover_key_candidates(stream.stream(), budget);
+    unpackrat::codecs::key256 expected{};
+    for (std::size_t i = 0; i < 32; ++i)
+        expected[i] = static_cast<std::byte>(i + 1);
+    // The key is only reachable through the call into the second executable section, and its
+    // anchor literal crosses the first cache boundary.
+    CHECK(std::ranges::find(keys, expected) != keys.end());
+    // No single source read may pull in a whole executable section.
+    CHECK(stream.max_single_read() <= std::size_t{64} * 1024);
 }

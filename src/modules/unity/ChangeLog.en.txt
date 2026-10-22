@@ -2,6 +2,7 @@ Version 1.0.1
 -------------
 
  * Structural duplicate filter: exact source, rectangle, canvas and orientation matches are collapsed, preferring Sprite over an equivalent full Texture. Unknown tight/transformed Sprite data remains listed; opening does not decode PNG pixels.
+ * Validates source-returned path lengths against the shared Observer metadata bound.
 
 Version 1.0.0
 -------------

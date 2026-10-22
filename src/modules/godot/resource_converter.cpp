@@ -2,6 +2,8 @@
 
 #include "core/codecs/audio_types.h"
 #include "core/codecs/image_types.h"
+#include "core/codecs/png_codec.h"
+#include "core/codecs/webp_codec.h"
 #include "core/godot/audio_resource.h"
 #include "core/godot/binary_resource.h"
 #include "core/godot/font_resource.h"
@@ -36,6 +38,25 @@ namespace unpackrat::godot
     namespace
     {
         constexpr std::size_t copy_chunk_bytes = std::size_t{64} * 1024;
+        // A single conversion may decode or emit a bounded image. The two ceilings cover the
+        // decoded RGBA buffer (pixels * 4) and either encoded stream without admitting an archive
+        // entry that would drive an unbounded allocation.
+        constexpr std::uint64_t max_transcode_pixels = std::uint64_t{64} * 1024 * 1024;
+        constexpr std::uint64_t max_transcode_bytes = max_transcode_pixels * 4;
+
+        codecs::image_limits transcode_limits() noexcept
+        {
+            return codecs::image_limits{max_transcode_pixels, max_transcode_bytes, max_transcode_bytes};
+        }
+
+        std::string lower_extension(const std::string_view extension)
+        {
+            std::string output(extension);
+            std::ranges::transform(output, output.begin(), [](const char value) {
+                return value >= 'A' && value <= 'Z' ? static_cast<char>(value - 'A' + 'a') : value;
+            });
+            return output;
+        }
 
         [[noreturn]] void throw_source()
         {
@@ -65,7 +86,11 @@ namespace unpackrat::godot
         class resource_reader final
         {
           public:
-            explicit resource_reader(std::istream &stream) : stream_(stream)
+            // ``known_size`` is the caller's authoritative length of ``stream``. When it is given,
+            // validating a source window performs no end-of-stream scan; the listing probe path
+            // supplies one length that covers every probed entry of the same stream.
+            explicit resource_reader(std::istream &stream, const std::optional<std::uint64_t> known_size = std::nullopt)
+                : stream_(stream), size_(known_size)
             {
             }
 
@@ -194,10 +219,16 @@ namespace unpackrat::godot
             return std::nullopt;
         }
 
-        std::optional<resource_descriptor> probe_texture_resource(resource_reader &input, const byte_range &source)
+        std::optional<resource_descriptor> probe_texture_resource(resource_reader &input, const byte_range &source,
+                                                                  const std::optional<std::uint64_t> known_size)
         {
             try {
-                const texture_payload payload = probe_texture(input.borrow_stream(), source, texture_limits{});
+                texture_payload payload;
+                if (known_size.has_value()) {
+                    payload = probe_texture(input.borrow_stream(), source, texture_limits{}, *known_size);
+                } else {
+                    payload = probe_texture(input.borrow_stream(), source, texture_limits{});
+                }
                 return resource_descriptor{resource_kind::texture, texture_extension(payload.encoding)};
             } catch (const texture_source_error &) {
                 throw_source();
@@ -289,7 +320,25 @@ namespace unpackrat::godot
             }
         }
 
-        void convert_texture(resource_reader &input, const byte_range &source,
+        std::vector<std::byte> read_encoded_body(resource_reader &input, const byte_range &range,
+                                                 const codecs::image_limits &limits)
+        {
+            if (range.size > limits.max_input_bytes) {
+                throw codecs::image_error("encoded image exceeds the configured input budget");
+            }
+            std::vector<std::byte> bytes(static_cast<std::size_t>(range.size));
+            input.read_at(range.offset, bytes);
+            return bytes;
+        }
+
+        void require_dimensions(const std::uint32_t width, const std::uint32_t height, const texture_payload &payload)
+        {
+            if (width != payload.width || height != payload.height) {
+                throw resource_error("decoded image dimensions do not match the texture header");
+            }
+        }
+
+        void convert_texture(resource_reader &input, const byte_range &source, const std::string_view target_extension,
                              const std::function<void(std::span<const std::byte>)> &sink)
         {
             texture_payload payload;
@@ -298,17 +347,63 @@ namespace unpackrat::godot
             } catch (const texture_source_error &) {
                 throw_source();
             }
-            if (payload.encoding != texture_encoding::raw) {
+            const std::string target = lower_extension(target_extension);
+            if (target != ".png" && target != ".webp") {
+                throw resource_error("the selected output is not an image encoding");
+            }
+            const codecs::image_limits limits = transcode_limits();
+            if (payload.encoding == texture_encoding::raw) {
+                const io::byte_source base{payload.body.size,
+                                           [&](const std::uint64_t offset, const std::span<std::byte> target_bytes) {
+                                               // The row writer validates the exact mip geometry and reads only its
+                                               // rows.
+                                               input.read_at(payload.body.offset + offset, target_bytes);
+                                           }};
+                if (target == ".png") {
+                    write_raw_image_streaming(base, payload.engine_major, payload.wire_image_format, payload.width,
+                                              payload.height, sink, limits);
+                } else {
+                    codecs::encode_webp_lossless(decode_raw_image(base, payload.engine_major, payload.wire_image_format,
+                                                                  payload.width, payload.height, limits),
+                                                 sink, limits);
+                }
+                return;
+            }
+            if ((payload.encoding == texture_encoding::png && target == ".png") ||
+                (payload.encoding == texture_encoding::webp && target == ".webp")) {
                 stream_range(input, payload.body, sink);
                 return;
             }
-            const io::byte_source base{payload.body.size,
-                                       [&](const std::uint64_t offset, const std::span<std::byte> target) {
-                                           // The row writer validates the exact mip geometry and reads only its rows.
-                                           input.read_at(payload.body.offset + offset, target);
-                                       }};
-            write_raw_image_streaming(base, payload.engine_major, payload.wire_image_format, payload.width,
-                                      payload.height, sink, codecs::image_limits{});
+            const std::vector<std::byte> encoded = read_encoded_body(input, payload.body, limits);
+            if (payload.encoding == texture_encoding::webp) {
+                const codecs::rgba_image image = codecs::decode_webp(encoded, limits);
+                require_dimensions(image.width, image.height, payload);
+                codecs::encode_png(image, sink, limits);
+                return;
+            }
+            const codecs::rgba_image image = codecs::decode_png(encoded, limits);
+            require_dimensions(image.width, image.height, payload);
+            codecs::encode_webp_lossless(image, sink, limits);
+        }
+
+        void convert_audio(const binary_resource &metadata, const io::byte_source &logical,
+                           const std::string_view target, const std::function<void(std::span<const std::byte>)> &sink)
+        {
+            const auto info = inspect_audio_resource_metadata(metadata);
+            if (!info.has_value() || target != "." + lower_extension(info->extension)) {
+                throw codecs::audio_error("godot audio source no longer matches its descriptor");
+            }
+            write_audio_resource_streaming(metadata, logical, sink);
+        }
+
+        void convert_font(const binary_resource &metadata, const io::byte_source &logical,
+                          const std::string_view target, const std::function<void(std::span<const std::byte>)> &sink)
+        {
+            const auto info = inspect_font_resource(metadata);
+            if (!info.has_value() || target != "." + lower_extension(info->extension)) {
+                throw font_error("godot font source no longer matches its descriptor");
+            }
+            io::copy_byte_range(logical, info->byte_offset, info->byte_length, sink);
         }
 
         void convert_binary(resource_reader &input, const byte_range &source, const resource_descriptor &descriptor,
@@ -319,48 +414,88 @@ namespace unpackrat::godot
             if (kind != wire_kind::rsrc && kind != wire_kind::rscc) {
                 throw resource_error("godot converted source is not a binary resource");
             }
-            with_binary_metadata(
-                input, source, kind == wire_kind::rsrc,
-                [&](const binary_resource &metadata, const io::byte_source &logical) {
-                    if (descriptor.kind == resource_kind::font) {
-                        const auto info = inspect_font_resource(metadata);
-                        if (!info.has_value() || descriptor.extension != "." + info->extension) {
-                            throw font_error("godot font source no longer matches its descriptor");
-                        }
-                        io::copy_byte_range(logical, info->byte_offset, info->byte_length, sink);
-                        return;
-                    }
-                    if (descriptor.kind == resource_kind::audio) {
-                        const auto info = inspect_audio_resource_metadata(metadata);
-                        if (!info.has_value() || descriptor.extension != "." + std::string(info->extension)) {
-                            throw codecs::audio_error("godot audio source no longer matches its descriptor");
-                        }
-                        write_audio_resource_streaming(metadata, logical, sink);
-                        return;
-                    }
-                    const auto image = inspect_image_resource_metadata(metadata, codecs::image_limits{});
-                    if (!image.has_value() || descriptor.extension != image->extension) {
-                        throw codecs::image_error("godot image source no longer matches its descriptor");
-                    }
-                    write_image_resource_streaming(metadata, logical, sink, codecs::image_limits{});
-                });
+            with_binary_metadata(input, source, kind == wire_kind::rsrc,
+                                 [&](const binary_resource &metadata, const io::byte_source &logical) {
+                                     const std::string target = lower_extension(descriptor.extension);
+                                     if (descriptor.kind == resource_kind::auto_detect) {
+                                         const codecs::image_limits limits = transcode_limits();
+                                         if (inspect_image_resource_metadata(metadata, limits).has_value()) {
+                                             write_image_resource_as_streaming(metadata, logical, target, sink, limits);
+                                             return;
+                                         }
+                                         if (inspect_audio_resource_metadata(metadata).has_value()) {
+                                             convert_audio(metadata, logical, target, sink);
+                                             return;
+                                         }
+                                         if (inspect_font_resource(metadata).has_value()) {
+                                             convert_font(metadata, logical, target, sink);
+                                             return;
+                                         }
+                                         throw resource_error("godot converted source is not a supported resource");
+                                     }
+                                     if (descriptor.kind == resource_kind::font) {
+                                         convert_font(metadata, logical, target, sink);
+                                         return;
+                                     }
+                                     if (descriptor.kind == resource_kind::audio) {
+                                         convert_audio(metadata, logical, target, sink);
+                                         return;
+                                     }
+                                     const codecs::image_limits limits = transcode_limits();
+                                     const auto image = inspect_image_resource_metadata(metadata, limits);
+                                     if (!image.has_value()) {
+                                         throw codecs::image_error(
+                                             "godot image source no longer matches its descriptor");
+                                     }
+                                     if (target == lower_extension(image->extension)) {
+                                         write_image_resource_streaming(metadata, logical, sink, limits);
+                                     } else {
+                                         write_image_resource_as_streaming(metadata, logical, target, sink, limits);
+                                     }
+                                 });
+        }
+
+        // Shared body of both probe entry points. ``known_size`` is absent for the scanning
+        // overload and authoritative for the length-supplying overload. When it is supplied, a
+        // window the length cannot contain is a source fault before the magic is inspected and the
+        // length never reaches the reader as a wider-than-representable offset; the scanning
+        // overload keeps its previous "inspect first, validate on the binary path" behaviour.
+        std::optional<resource_descriptor> probe_resource_window(std::istream &stream, const byte_range source,
+                                                                 const std::optional<std::uint64_t> known_size)
+        {
+            resource_reader input(stream, known_size);
+            if (known_size.has_value()) {
+                // The supplied length is authoritative, so a window it cannot contain is a source
+                // fault before any magic is inspected. A length no standard stream offset can
+                // represent is rejected rather than narrowed by an implementation-defined cast.
+                if (*known_size > static_cast<std::uint64_t>((std::numeric_limits<std::streamoff>::max)())) {
+                    throw resource_source_error("godot source length is not representable");
+                }
+                input.validate_source_window(source);
+            }
+            switch (sniff(input, source)) {
+            case wire_kind::texture:
+                return probe_texture_resource(input, source, known_size);
+            case wire_kind::rsrc:
+                return classify_binary(input, source, true);
+            case wire_kind::rscc:
+                return classify_binary(input, source, false);
+            case wire_kind::none:
+                break;
+            }
+            return std::nullopt;
         }
     } // namespace
 
     std::optional<resource_descriptor> probe_resource(std::istream &stream, const byte_range source)
     {
-        resource_reader input(stream);
-        switch (sniff(input, source)) {
-        case wire_kind::texture:
-            return probe_texture_resource(input, source);
-        case wire_kind::rsrc:
-            return classify_binary(input, source, true);
-        case wire_kind::rscc:
-            return classify_binary(input, source, false);
-        case wire_kind::none:
-            break;
-        }
-        return std::nullopt;
+        return probe_resource_window(stream, source, std::nullopt);
+    }
+
+    std::optional<resource_descriptor> probe_resource(std::istream &stream, const byte_range source,
+                                                      const std::uint64_t stream_size)
+    {
+        return probe_resource_window(stream, source, stream_size);
     }
 
     void write_resource(std::istream &stream, const byte_range source, const resource_descriptor &descriptor,
@@ -371,8 +506,21 @@ namespace unpackrat::godot
             input.invalidate();
             sink(bytes);
         };
+        if (descriptor.kind == resource_kind::auto_detect) {
+            input.validate_source_window(source);
+            const wire_kind kind = sniff(input, source);
+            if (kind == wire_kind::texture) {
+                convert_texture(input, source, descriptor.extension, guarded_sink);
+                return;
+            }
+            if (kind == wire_kind::rsrc || kind == wire_kind::rscc) {
+                convert_binary(input, source, descriptor, guarded_sink);
+                return;
+            }
+            throw resource_error("godot converted source is not a recognised resource");
+        }
         if (descriptor.kind == resource_kind::texture) {
-            convert_texture(input, source, guarded_sink);
+            convert_texture(input, source, descriptor.extension, guarded_sink);
             return;
         }
         convert_binary(input, source, descriptor, guarded_sink);

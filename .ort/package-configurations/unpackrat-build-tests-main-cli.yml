@@ -1,0 +1,15 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-main-cli:36ef3008c7f78d4990c9e55ab58d7ac2441032e6233e917adc36a06980182977",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/36ef3008c7f78d4990c9e55ab58d7ac2441032e6233e917adc36a06980182977.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_main_cli.py",
+      "start_lines": "196,458",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 196,458 share the identifier GPL-3.0-only; line 196 is, for example, `for name in (\"Observer.txt\", \"GPL-3.0.txt\", \"rpatool.txt\", \"serde-pickle.txt\", \"zlib.txt\", \"zlib-...`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    }
+  ]
+}

@@ -4,7 +4,7 @@
 ``build/main.py`` to a pinned AssetRipper preparation, the MSVC Observer static library,
 an ordinary SDK NativeAOT publish with the vcpkg YY-Thunks XP object, and a final stage of
 one ``unity.so`` and ``unity.pdb`` per architecture under ``out/native/bin/<arch>/Release``.
-The default build and the four native modules stay untouched.
+The default build and the five native modules stay untouched.
 
 Every external boundary is a double: the checked ``main.run`` records each tool argv, the
 binary ``gh`` zipball download is faked through ``subprocess.run`` and the tool lookups are
@@ -515,6 +515,9 @@ class RealGitPatchTests(unittest.TestCase):
         source = self.vendor / main.UNITY_VENDOR_SOURCE
         source.mkdir(parents=True)
         (source / "A.cs").write_bytes(self.ORIGINAL)
+        # The fixture owns its line-ending contract instead of inheriting host Git config.
+        (self.repo / ".gitattributes").write_text(
+            "* text=auto eol=lf\n", encoding="utf-8")
         (self.repo / main.UNITY_PATCH).parent.mkdir(parents=True)
         (self.repo / main.UNITY_PATCH).write_bytes(self.PATCH_BODY.encode("ascii"))
         (self.repo / main.UNITY_UPSTREAM).write_text(json.dumps({
@@ -522,6 +525,11 @@ class RealGitPatchTests(unittest.TestCase):
             "sourceRevision": UPSTREAM_REVISION,
         }), encoding="utf-8")
         subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        # Reproduce the hosted runner's EOL policy inside this isolated fixture.
+        subprocess.run(
+            ["git", "config", "--local", "core.autocrlf", "true"],
+            cwd=self.repo, check=True,
+        )
 
     def _write_receipt(self) -> None:
         (self.vendor / main.UNITY_VENDOR_RECEIPT).write_text(json.dumps({

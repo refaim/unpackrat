@@ -132,6 +132,30 @@ TEST_CASE("godot session: owns a validated standalone source and releases its re
     CHECK(!(error));
 }
 
+TEST_CASE("godot session: the source length is cached from the exact leased source at open")
+{
+    // The probe path trusts the cached length instead of re-measuring the stream, so it must be the
+    // length of the very file this session opened.
+    const test::support::temporary_directory folder("godot-session-length");
+    const auto pack = folder.path() / "direct.pck";
+    const auto pack_bytes = plain_pack();
+    write_file(pack, pack_bytes);
+    const archive_session direct(pack);
+    CHECK(direct.source_size() == pack_bytes.size());
+
+    // The sidecar fallback must cache the length of the *.pck it actually opened, never the
+    // executable that led to it.
+    const auto executable = folder.path() / "app.EXE";
+    const auto sidecar = folder.path() / "app.pck";
+    write_file(sidecar, pack_bytes);
+    const auto executable_bytes = test::support::minimal_pe_without_pack();
+    write_file(executable, executable_bytes);
+    REQUIRE(executable_bytes.size() != pack_bytes.size());
+    const archive_session fallback(executable);
+    CHECK(fallback.source_path() == sidecar);
+    CHECK(fallback.source_size() == pack_bytes.size());
+}
+
 TEST_CASE("godot session: EXE resolves an exact-stem sidecar only when no embedded pack exists")
 {
     const test::support::temporary_directory folder("godot-session-sidecar");

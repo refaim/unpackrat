@@ -106,5 +106,12 @@ namespace unpackrat::godot
     // so the caller can map it to a source read error while still catching it as texture_error.
     [[nodiscard]] texture_payload probe_texture(std::istream &stream, byte_range source,
                                                 const texture_limits &limits = {});
+
+    // As above, but ``known_size`` is the caller's authoritative length of ``stream`` (for example
+    // the open file length), so the prober does not seek to the stream end to size its bounded
+    // window. A ``known_size`` smaller than the window reports the same texture_source_error a
+    // scan would; the value is otherwise used exactly like the scanned length.
+    [[nodiscard]] texture_payload probe_texture(std::istream &stream, byte_range source, const texture_limits &limits,
+                                                std::uint64_t known_size);
 } // namespace unpackrat::godot
 #endif

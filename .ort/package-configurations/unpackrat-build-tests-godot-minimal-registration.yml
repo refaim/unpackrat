@@ -1,0 +1,15 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-godot-minimal-registration:400179e08a3580f4a824e9e51dea71db7d0ab55596e2e52ad05cf0a14e2a756a",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/400179e08a3580f4a824e9e51dea71db7d0ab55596e2e52ad05cf0a14e2a756a.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_godot_minimal_registration.py",
+      "start_lines": "69,87,217",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 69,87,217 share the identifier GPL-3.0-only; line 69 is, for example, `\"GPL-3.0.txt\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    }
+  ]
+}

@@ -3,9 +3,11 @@
 #include "../../core/archive_limits.h"
 #include "../../core/godot/pck.h"
 #include "../support/archive_fixtures.h"
+#include "../support/archive_lazy_fixtures.h"
 #include "../support/godot_crypto_fixtures.h"
 #include "../support/godot_fixtures.h"
 #include "../support/godot_texture_fixtures.h"
+#include "../support/zlib_fixture.h"
 
 #include <algorithm>
 #include <array>
@@ -322,33 +324,6 @@ namespace test
         HANDLE storage_ = nullptr;
     };
 
-    class temporary_output_file final
-    {
-      public:
-        explicit temporary_output_file(std::filesystem::path path) : path_(std::move(path))
-        {
-            std::error_code error;
-            std::filesystem::remove(path_, error);
-        }
-
-        ~temporary_output_file()
-        {
-            std::error_code error;
-            std::filesystem::remove(path_, error);
-        }
-
-        temporary_output_file(const temporary_output_file &) = delete;
-        temporary_output_file &operator=(const temporary_output_file &) = delete;
-
-        [[nodiscard]] const std::filesystem::path &path() const noexcept
-        {
-            return path_;
-        }
-
-      private:
-        std::filesystem::path path_;
-    };
-
     namespace
     {
         // The Observer ABI declares StorageItemInfo and StorageGeneralInfo inside
@@ -416,6 +391,7 @@ namespace test
         struct built_pak final
         {
             support::byte_buffer bytes;
+            std::size_t body_offset = 0;
             std::vector<std::size_t> offset_fields;
             std::vector<std::size_t> size_fields;
         };
@@ -440,6 +416,7 @@ namespace test
                 append_u32(pak.bytes, static_cast<std::uint32_t>(blocks[index].size()));
                 offset += static_cast<std::uint32_t>(blocks[index].size());
             }
+            pak.body_offset = pak.bytes.size();
             for (const auto &block : blocks) {
                 append_bytes(pak.bytes, block);
             }
@@ -469,7 +446,7 @@ namespace test
         extraction_record extract_zanzarah_entry(c_module &loaded, const std::filesystem::path &archive_path,
                                                  const int index, const std::string_view expected_name)
         {
-            StorageItemInfo item{};
+            alignas(std::max_align_t) StorageItemInfo item{};
             REQUIRE(loaded.api().GetItem(loaded.storage(), index, &item) == GET_ITEM_OK);
             REQUIRE(item.Size == item.PackedSize);
             REQUIRE(std::wstring(item.Path) == widen(expected_name));
@@ -507,6 +484,16 @@ namespace test
             c_module loaded("zanzarah.so");
             REQUIRE(loaded.open(archive.path()));
             REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
+        }
+
+        void overwrite_archive(const std::filesystem::path &path, const support::byte_buffer &contents)
+        {
+            std::ofstream output(path, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::binary) |
+                                                                            static_cast<unsigned>(std::ios::trunc)));
+            REQUIRE(output.is_open());
+            output.write(reinterpret_cast<const char *>(contents.data()),
+                         static_cast<std::streamsize>(contents.size()));
+            REQUIRE(output.good());
         }
 
         constexpr const char *fixture_key_hex = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
@@ -723,6 +710,245 @@ namespace test
 
         std::error_code error;
         std::filesystem::remove(invalid_archive_path, error);
+    }
+
+    namespace
+    {
+        class rpa1_pair final
+        {
+          public:
+            rpa1_pair()
+            {
+                const auto fixtures = std::filesystem::path(__FILE__).parent_path().parent_path() / "data/renpy";
+                std::filesystem::copy_file(fixtures / "rpa1-split.rpa", data);
+                std::filesystem::copy_file(fixtures / "rpa1-split.rpi", index);
+            }
+
+            support::temporary_directory directory{"rpa1"};
+            std::filesystem::path data = directory.path() / L"архив.extra.rpa";
+            std::filesystem::path index = directory.path() / L"архив.extra.rpi";
+        };
+
+        void write_rpa1_bytes(const std::filesystem::path &path, const std::span<const std::byte> bytes)
+        {
+            std::ofstream output(path, std::ios::binary);
+            REQUIRE(output.is_open());
+            output.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+            REQUIRE(output.good());
+        }
+
+        void write_rpa1_pickle(const std::filesystem::path &path, const std::string_view pickle)
+        {
+            write_rpa1_bytes(path, support::compress_zlib_fixture(std::as_bytes(std::span(pickle))));
+        }
+    } // namespace
+
+    TEST_CASE("module ABI: RPA1 requires the exact adjacent index and data extension", "[contract][rpa1]")
+    {
+        const auto scenario = GENERATE(0, 1, 2, 3);
+        CAPTURE(scenario);
+        rpa1_pair pair;
+        if (scenario == 0) {
+            REQUIRE(std::filesystem::remove(pair.index));
+        } else if (scenario == 1) {
+            std::filesystem::rename(pair.index, pair.directory.path() / "other.rpi");
+        } else if (scenario == 2) {
+            auto renamed = pair.data;
+            renamed.replace_extension(".bin");
+            std::filesystem::rename(pair.data, renamed);
+            pair.data = renamed;
+        } else {
+            pair.data = pair.index;
+        }
+        c_module loaded("renpy.so");
+        CHECK(loaded.open(pair.data) == false);
+    }
+
+    TEST_CASE("module ABI: RPA1 rejects unreadable and corrupt sidecars while opening", "[contract][rpa1]")
+    {
+        const auto scenario = GENERATE(0, 1, 2, 3, 4, 5, 6);
+        CAPTURE(scenario);
+        rpa1_pair pair;
+        if (scenario == 0) {
+            write_rpa1_bytes(pair.index, {});
+        } else if (scenario == 1) {
+            std::filesystem::resize_file(pair.index, 5);
+        } else if (scenario == 2) {
+            write_rpa1_pickle(pair.index, "N.");
+        } else if (scenario == 3) {
+            std::filesystem::resize_file(pair.index, 64ULL * 1024 * 1024 + 1);
+        } else if (scenario == 4) {
+            REQUIRE(std::filesystem::remove(pair.index));
+            REQUIRE(std::filesystem::create_directory(pair.index));
+        } else {
+            write_rpa1_pickle(pair.index, scenario == 5 ? "Ibad\n." : "I999999999999999999999999999999\n.");
+        }
+        c_module loaded("renpy.so");
+        CHECK(loaded.open(pair.data) == false);
+    }
+
+    TEST_CASE("module ABI: RPA1 snapshots its index and accepts uppercase data suffixes", "[contract][rpa1]")
+    {
+        rpa1_pair pair;
+        auto renamed = pair.data;
+        renamed.replace_extension(".RPA");
+        std::filesystem::rename(pair.data, renamed);
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(renamed));
+        REQUIRE(std::filesystem::remove(pair.index));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == 2);
+        const auto entry = std::ranges::find_if(files, [](const file &item) { return item.path == L"dir\\hello.txt"; });
+        REQUIRE(entry != files.end());
+        const temporary_output_file output(pair.directory.path() / "output.txt");
+        entry->extract(output.path());
+        std::ifstream input(output.path(), std::ios::binary);
+        const std::string contents{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        CHECK(contents == "first:second:third");
+        CHECK(entry->uncompressed_size == 18);
+        CHECK(entry->compressed_size == 18);
+    }
+
+    TEST_CASE("module ABI: RPA1 permits an empty archive and zero byte data", "[contract][rpa1]")
+    {
+        rpa1_pair pair;
+        write_rpa1_bytes(pair.data, {});
+        write_rpa1_pickle(pair.index, "}.");
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        CHECK(loaded.list_files().empty());
+    }
+
+    TEST_CASE("module ABI: RPA1 streams large fragments and reports exact progress", "[contract][rpa1]")
+    {
+        rpa1_pair pair;
+        const std::string contents(128 * 1024 + 7, 'x');
+        write_rpa1_bytes(pair.data, std::as_bytes(std::span(contents)));
+        std::string pickle = "}U";
+        pickle.push_back(12);
+        pickle.append("файл.txt]I0\nI131079\n")
+            .append("\x86"
+                    "as.");
+        write_rpa1_pickle(pair.index, pickle);
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == 1);
+        CHECK(files.front().path == L"файл.txt");
+        std::int64_t progress = 0;
+        const temporary_output_file output(pair.directory.path() / "output.txt");
+        const auto callback = [](void *context, const int64_t amount) -> int {
+            *static_cast<std::int64_t *>(context) += amount;
+            return TRUE;
+        };
+        CHECK(loaded.extract_file_status(0, output.path(), callback, &progress) == SER_SUCCESS);
+        CHECK(progress == static_cast<std::int64_t>(contents.size()));
+        std::ifstream input(output.path(), std::ios::binary);
+        const std::string actual{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        CHECK(actual == contents);
+    }
+
+    TEST_CASE("module ABI: RPA1 extraction cleans partial output on source and callback failures", "[contract][rpa1]")
+    {
+        const auto scenario = GENERATE(0, 1, 2);
+        CAPTURE(scenario);
+        rpa1_pair pair;
+        if (scenario == 0) {
+            const std::string body(std::size_t{256} * 1024, 'x');
+            write_rpa1_bytes(pair.data, std::as_bytes(std::span(body)));
+            std::string pickle = "}U";
+            pickle.push_back(13);
+            pickle.append("dir/hello.txt]I131072\nI6\n")
+                .append("\x86"
+                        "as.");
+            write_rpa1_pickle(pair.index, pickle);
+        }
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        const auto files = loaded.list_files();
+        const auto entry = std::ranges::find_if(files, [](const file &item) { return item.path == L"dir\\hello.txt"; });
+        REQUIRE(entry != files.end());
+        const auto item_index = static_cast<int>(std::distance(files.begin(), entry));
+        const temporary_output_file output(pair.directory.path() / "output.txt");
+        const auto callback = [](void *context, int64_t) -> int {
+            if (*static_cast<const int *>(context) == 2) {
+                throw std::runtime_error("RPA1 callback failure");
+            }
+            return *static_cast<const int *>(context) == 0 ? TRUE : FALSE;
+        };
+        if (scenario == 0) {
+            const locked_source_range locked(pair.data, 128ULL * 1024, 6);
+            CHECK(loaded.extract_file_status(item_index, output.path(), callback, const_cast<int *>(&scenario)) ==
+                  SER_ERROR_READ);
+        } else {
+            const auto expected = scenario == 1 ? SER_USERABORT : SER_ERROR_SYSTEM;
+            CHECK(loaded.extract_file_status(item_index, output.path(), callback, const_cast<int *>(&scenario)) ==
+                  expected);
+        }
+        CHECK(std::filesystem::exists(output.path()) == false);
+    }
+
+    TEST_CASE("module ABI: modern RPA ignores an adjacent RPA1 index", "[contract][rpa1]")
+    {
+        const auto sidecar = GENERATE(false, true);
+        rpa1_pair pair;
+        const auto contents = support::make_renpy_archive("modern.txt", "modern payload");
+        write_rpa1_bytes(pair.data, std::as_bytes(std::span(contents)));
+        if (sidecar) {
+            write_rpa1_bytes(pair.index, {});
+        } else {
+            REQUIRE(std::filesystem::remove(pair.index));
+        }
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == 1);
+        CHECK(files.front().path == L"modern.txt");
+    }
+
+    TEST_CASE("module ABI: RPA1 payload may begin with a modern signature", "[contract][rpa1][rpa1-collision]")
+    {
+        rpa1_pair pair;
+        const auto contents =
+            GENERATE(std::string("RPA-payload"), std::string("RPA-2.0 0000000000000000\n"),
+                     std::string("RPA-2.0 0000000000000020\n"), [] {
+                         const auto bytes = support::make_renpy_archive_with_index(
+                             support::byte_buffer{'I', 'b', 'a', 'd', '\n', '.'});
+                         return std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+                     }());
+        write_rpa1_bytes(pair.data, std::as_bytes(std::span(contents)));
+        std::string pickle = "}U";
+        pickle.push_back(1);
+        pickle.append("x]I0\nI")
+            .append(std::to_string(contents.size()))
+            .append("\n\x86"
+                    "as.");
+        write_rpa1_pickle(pair.index, pickle);
+        c_module loaded("renpy.so");
+        REQUIRE(loaded.open(pair.data));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == 1);
+        const temporary_output_file output(pair.directory.path() / "output.txt");
+        files.front().extract(output.path());
+        std::ifstream input(output.path(), std::ios::binary);
+        const std::string actual{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        CHECK(actual == contents);
+    }
+
+    TEST_CASE("module ABI: modern RPA rejects a truncated supplied signature", "[contract][rpa1]")
+    {
+        const support::temporary_archive archive("modern-short-hint", support::make_renpy_archive("x", "body"));
+        c_module loaded("renpy.so");
+        const char prefix = 'R';
+        const StorageOpenParams params{.StructSize = sizeof(StorageOpenParams),
+                                       .FilePath = archive.path().c_str(),
+                                       .Password = nullptr,
+                                       .Data = &prefix,
+                                       .DataSize = 1};
+        HANDLE storage = nullptr;
+        StorageGeneralInfo info{};
+        CHECK(loaded.api().OpenStorage(params, &storage, &info) == SOR_INVALID_FILE);
+        CHECK(storage == nullptr);
     }
 
     TEST_CASE("module ABI: malformed RenPy index shapes are rejected", "[contract]")
@@ -1070,7 +1296,7 @@ namespace test
         fixture.mips = {support::png_bytes(32)};
         support::godot_pck_options options;
         support::godot_entry_options source;
-        source.path = "res://hero.ctex";
+        source.path = "res://.godot/imported/hero.png-00112233445566778899aabbccddeeff.ctex";
         source.payload = support::build_gdst(fixture);
         options.entries.push_back(source);
         const support::temporary_archive archive("godot-settings", support::build_godot_pck(options));
@@ -1081,23 +1307,27 @@ namespace test
             REQUIRE(decoded.open(archive.path()));
             auto raw = ordinary.list_files();
             REQUIRE(raw.size() == 1);
-            CHECK(raw.front().path == L"hero.ctex");
+            CHECK(raw.front().path == L".godot\\imported\\hero.png-00112233445566778899aabbccddeeff.ctex");
             auto converted = decoded.list_files();
-            const auto image =
-                std::ranges::find_if(converted, [](const file &entry) { return entry.path == L"hero.png"; });
+            const auto image = std::ranges::find_if(
+                converted, [](const file &entry) { return entry.path == L".godot\\imported\\hero.png"; });
             REQUIRE(image != converted.end());
             CHECK(image->uncompressed_size == image->compressed_size);
-            CHECK(std::ranges::none_of(converted, [](const file &entry) { return entry.path == L"hero.ctex"; }));
+            CHECK(std::ranges::none_of(converted, [](const file &entry) {
+                return entry.path == L".godot\\imported\\hero.png-00112233445566778899aabbccddeeff.ctex";
+            }));
             CHECK(std::ranges::any_of(converted, [](const file &entry) { return entry.path == L"name-map.tsv"; }));
             {
                 c_module disabled("godot.so", L"DecodeResources=0\0");
                 REQUIRE(disabled.open(archive.path()));
-                CHECK(disabled.list_files().front().path == L"hero.ctex");
-                CHECK(decoded.list_files().front().path == L"hero.png");
+                CHECK(disabled.list_files().front().path ==
+                      L".godot\\imported\\hero.png-00112233445566778899aabbccddeeff.ctex");
+                CHECK(decoded.list_files().front().path == L".godot\\imported\\hero.png");
             }
-            CHECK(decoded.list_files().front().path == L"hero.png");
+            CHECK(decoded.list_files().front().path == L".godot\\imported\\hero.png");
         }
-        CHECK(ordinary.list_files().front().path == L"hero.ctex");
+        CHECK(ordinary.list_files().front().path ==
+              L".godot\\imported\\hero.png-00112233445566778899aabbccddeeff.ctex");
     }
 
     TEST_CASE("module ABI: unloading Godot resets the default for subsequent archive opens",
@@ -1110,7 +1340,7 @@ namespace test
         fixture.mips = {support::png_bytes(32)};
         support::godot_pck_options options;
         support::godot_entry_options source;
-        source.path = "res://hero.ctex";
+        source.path = "res://.godot/imported/hero.png-00112233445566778899aabbccddeeff.ctex";
         source.payload = support::build_gdst(fixture);
         options.entries.push_back(source);
         const support::temporary_archive archive("godot-settings-reset", support::build_godot_pck(options));
@@ -1118,12 +1348,12 @@ namespace test
         REQUIRE(loaded.open(archive.path()));
         {
             c_module transient("godot.so");
-            CHECK(loaded.list_files().front().path == L"hero.png");
+            CHECK(loaded.list_files().front().path == L".godot\\imported\\hero.png");
         }
-        CHECK(loaded.list_files().front().path == L"hero.png");
+        CHECK(loaded.list_files().front().path == L".godot\\imported\\hero.png");
         loaded.close_storage();
         REQUIRE(loaded.open(archive.path()));
-        CHECK(loaded.list_files().front().path == L"hero.ctex");
+        CHECK(loaded.list_files().front().path == L".godot\\imported\\hero.png-00112233445566778899aabbccddeeff.ctex");
     }
 
     TEST_CASE("module ABI: Godot requests and accepts a verified hexadecimal key before preparation",
@@ -1264,20 +1494,30 @@ namespace test
         const bool decode = GENERATE(false, true);
         CAPTURE(textures, compatibility, decode);
         const fixture_entry texture_entries[] = {
-            {L"images\\canonical-png.ctex", L"images\\canonical-png.png", 1024, 126, 56, 70},
-            {L"images\\canonical-webp.ctex", L"images\\canonical-webp.webp", 1150, 92, 56, 36},
-            {L"images\\scaled-png.scaledtex", L"images\\scaled-png.png", 1242, 128, 58, 70},
-            {L"images\\scaled-webp.scaledtex", L"images\\scaled-webp.webp", 1370, 94, 58, 36},
-            {L"images\\scaled-raw.scaledtex", L"images\\scaled-raw.png", 1464, 70, 0, 0},
-            {L"images\\normal-ra.ctex", L"images\\normal-ra.png", 1534, 68, 0, 0},
+            {L".godot\\imported\\canonical-png.png-a09a0e7e99c698ccadd2ee13dc92aeb5.ctex",
+             L".godot\\imported\\canonical-png.png", 1024, 126, 56, 70},
+            {L".godot\\imported\\canonical-webp.webp-0a3b20b7961b13f207ee44b67c299e84.ctex",
+             L".godot\\imported\\canonical-webp.webp", 1150, 92, 56, 36},
+            {L".godot\\imported\\scaled-png.png-21a1e7ffee82da7e6ef5d32699ae5819.scaledtex",
+             L".godot\\imported\\scaled-png.png", 1242, 128, 58, 70},
+            {L".godot\\imported\\scaled-webp.webp-21b0f460302aa149080e511101a4612f.scaledtex",
+             L".godot\\imported\\scaled-webp.webp", 1370, 94, 58, 36},
+            {L".godot\\imported\\scaled-raw.png-f17c0330a2b81741f7fad64736d80898.scaledtex",
+             L".godot\\imported\\scaled-raw.png", 1464, 70, 0, 0},
+            {L".godot\\imported\\normal-ra.png-b195ca282657aa973c5572ca041a27cc.ctex",
+             L".godot\\imported\\normal-ra.png", 1534, 68, 0, 0},
         };
         const fixture_entry audio_font_entries[] = {
-            {L"audio\\padded-sample.res", L"audio\\padded-sample.wav", 256, 334, 0, 0},
-            {L"fonts\\generated-font.res", L"fonts\\generated-font.otf", 590, 193, 173, 16},
+            {L".godot\\imported\\padded-sample.wav-4148c31ce360e6aba7d4da9451cbb397.res",
+             L".godot\\imported\\padded-sample.wav", 512, 334, 0, 0},
+            {L".godot\\imported\\generated-font.otf-9321cd5ee26c85c09cd10205dd82dde0.res",
+             L".godot\\imported\\generated-font.otf", 846, 193, 173, 16},
         };
         const fixture_entry compatibility_entries[] = {
-            {L"audio\\legacy-negative-main.sample", L"audio\\legacy-negative-main.wav", 256, 335, 0, 0},
-            {L"audio\\prefixed.mp3", L"audio\\prefixed.mp3", 591, 1861, 185, 1670},
+            {L".godot\\imported\\legacy-negative-main.wav-9294f42b89e1812093754ce0e775a040.sample",
+             L".godot\\imported\\legacy-negative-main.wav", 512, 335, 0, 0},
+            {L".godot\\imported\\prefixed.mp3-f41d2303b60d7740c499a460ecf68363.res", L".godot\\imported\\prefixed.mp3",
+             847, 1861, 185, 1670},
         };
         const std::span<const fixture_entry> entries = textures ? std::span<const fixture_entry>(texture_entries)
                                                        : compatibility
@@ -1386,14 +1626,14 @@ namespace test
         CHECK(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
     }
 
-    TEST_CASE("module ABI: Godot preparation classifies locked metadata and resource bodies",
+    TEST_CASE("module ABI: Godot preparation preserves a locked resource body until extraction",
               "[contract][godot][source-fault]")
     {
         const auto expect_body_read_error = [](const std::string_view label, const std::string_view path,
                                                const std::vector<std::uint8_t> &payload) {
             support::godot_pck_options options;
             // Keep the locked target beyond the filebuf's index-read window. A nearby lock can
-            // fault while reading the index instead of exercising the metadata/probe read below.
+            // fault while reading the index instead of exercising the bounded metadata read below.
             support::godot_entry_options padding;
             padding.path = "res://padding.bin";
             padding.payload.assign(std::size_t{64} * 1024, 0);
@@ -1413,7 +1653,43 @@ namespace test
 
         const std::string metadata = "[remap]\npath=\"res://compiled.ctex\"\n";
         expect_body_read_error("godot-locked-metadata", "res://art/a.png.import", {metadata.begin(), metadata.end()});
-        expect_body_read_error("godot-locked-resource", "res://art/a.ctex", {'G', 'D', 'S', 'T', 0, 0, 0, 0});
+
+        const std::vector<std::uint8_t> payload = {'G', 'D', 'S', 'T', 0, 0, 0, 0};
+        support::godot_pck_options options;
+        support::godot_entry_options padding;
+        padding.path = "res://padding.bin";
+        padding.payload.assign(std::size_t{160} * 1024, 0);
+        options.entries.push_back(std::move(padding));
+        support::godot_entry_options source;
+        source.path = "res://art/a.ctex";
+        source.payload = payload;
+        options.entries.push_back(std::move(source));
+        const support::godot_bytes bytes = support::build_godot_pck(options);
+        const support::temporary_archive archive("godot-locked-resource", bytes);
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+        const std::uint64_t body_offset = bytes.size() - payload.size();
+        REQUIRE(body_offset > std::uint64_t{128} * 1024);
+        const temporary_output_file output(std::filesystem::temp_directory_path() /
+                                           std::format("godot-locked-resource-{}.out", GetCurrentProcessId()));
+        {
+            locked_source_range lock(archive.path(), body_offset, 4);
+            const auto listed = loaded.list_files();
+            const auto raw =
+                std::ranges::find_if(listed, [](const file &entry) { return entry.path == L"art\\a.ctex"; });
+            REQUIRE(raw != listed.end());
+            const int index = static_cast<int>(std::distance(listed.begin(), raw));
+            CHECK(loaded.extract_file_status(index, output.path(), [](void *, int64_t) { return TRUE; }) ==
+                  SER_ERROR_READ);
+            CHECK(!(std::filesystem::exists(output.path())));
+        }
+        const auto listed = loaded.list_files();
+        const auto raw = std::ranges::find_if(listed, [](const file &entry) { return entry.path == L"art\\a.ctex"; });
+        REQUIRE(raw != listed.end());
+        const int index = static_cast<int>(std::distance(listed.begin(), raw));
+        CHECK(loaded.extract_file_status(index, output.path(), [](void *, int64_t) { return TRUE; }) == SER_SUCCESS);
+        CHECK(output_text(output.path()) ==
+              std::string(reinterpret_cast<const char *>(payload.data()), payload.size()));
     }
 
     TEST_CASE("module ABI: Godot converted extraction reports a locked source after listing",
@@ -1427,7 +1703,7 @@ namespace test
         const support::godot_bytes texture = support::build_gdst(fixture);
         support::godot_pck_options options;
         support::godot_entry_options source;
-        source.path = "res://compiled/hero.ctex";
+        source.path = "res://.godot/imported/hero.png-00112233445566778899aabbccddeeff.ctex";
         source.payload = texture;
         options.entries.push_back(std::move(source));
         const support::godot_bytes bytes = support::build_godot_pck(options);
@@ -1437,7 +1713,7 @@ namespace test
         const auto listed = loaded.list_files();
         int converted_index = -1;
         for (std::size_t index = 0; index < listed.size(); ++index) {
-            if (listed[index].path == L"compiled\\hero.png") {
+            if (listed[index].path == L".godot\\imported\\hero.png") {
                 converted_index = static_cast<int>(index);
             }
         }
@@ -1518,6 +1794,340 @@ namespace test
         REQUIRE(loaded.api().GetItem(loaded.storage(), static_cast<int>(entry_count), &item) == GET_ITEM_NOMOREITEMS);
     }
 
+    TEST_CASE("module ABI: Zanzarah listing reads only the TOC and publishes provisional extents",
+              "[contract][zanzarah-framing][zanzarah-lazy]")
+    {
+        const std::string first_payload = "alpha";
+        const std::string second_payload(std::size_t{256} * 1024, 'L');
+        const auto pak =
+            build_zanzarah_pak({"a", "b"}, {make_canonical_block(first_payload), make_canonical_block(second_payload)});
+        const support::temporary_archive archive("zanzarah-listing-toc-only", pak.bytes);
+
+        c_module loaded("zanzarah.so");
+        REQUIRE(loaded.open(archive.path()));
+
+        // Deny the final footer of the second large block, well beyond the TOC, both 128 KiB
+        // analysis prefixes and ordinary stream read-ahead. A listing that only requests TOC
+        // bytes still succeeds even if the CRT buffers a little more than the parser asked for.
+        const auto first_block_size = static_cast<std::size_t>(make_canonical_block(first_payload).size());
+        const auto second_block_size = static_cast<std::size_t>(make_canonical_block(second_payload).size());
+        const auto late_body_offset = pak.body_offset + first_block_size + second_block_size - 4;
+        REQUIRE(late_body_offset + 4 <= pak.bytes.size());
+        {
+            locked_source_range body(archive.path(), late_body_offset, 4);
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_OK);
+            REQUIRE(std::wstring(item.Path) == L"a");
+            REQUIRE(item.Size == static_cast<std::int64_t>(first_payload.size()) + 4);
+            REQUIRE(item.PackedSize == static_cast<std::int64_t>(first_payload.size()) + 4);
+
+            REQUIRE(loaded.api().GetItem(loaded.storage(), 1, &item) == GET_ITEM_OK);
+            REQUIRE(std::wstring(item.Path) == L"b");
+            REQUIRE(item.Size == static_cast<std::int64_t>(second_payload.size()) + 4);
+            REQUIRE(item.PackedSize == static_cast<std::int64_t>(second_payload.size()) + 4);
+        }
+
+        const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+        REQUIRE(record.bytes == first_payload);
+        REQUIRE(record.declared_size == static_cast<std::int64_t>(first_payload.size()) + 4);
+    }
+
+    TEST_CASE("module ABI: Zanzarah classifies the archive once on first extraction and reuses it",
+              "[contract][zanzarah-framing][zanzarah-lazy]")
+    {
+        const std::string payload(300'000, 'C');
+        const std::string other(std::size_t{256} * 1024, 'O');
+        const auto pak = build_zanzarah_pak({"a", "b"}, {make_canonical_block(payload), make_canonical_block(other)});
+        const support::temporary_archive archive("zanzarah-classify-once", pak.bytes);
+        c_module loaded("zanzarah.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+        const auto first = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+        REQUIRE(first.bytes == payload);
+
+        // Deny a late suffix of the OTHER entry after the predicate has run. Re-extracting the
+        // first entry has no reason to touch that range, so only an unwanted global re-probe
+        // would fail. The requested body and the lock stay well apart.
+        const auto first_block_size = static_cast<std::size_t>(make_canonical_block(payload).size());
+        const auto other_suffix_offset =
+            pak.body_offset + first_block_size + static_cast<std::size_t>(make_canonical_block(other).size()) - 4;
+        {
+            locked_source_range suffix(archive.path(), other_suffix_offset, 4);
+            const auto repeated = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(repeated.bytes == payload);
+            REQUIRE(repeated.declared_size == static_cast<std::int64_t>(payload.size()) + 4);
+        }
+    }
+
+    TEST_CASE("module ABI: Zanzarah first-extraction faults are retryable and clean up output",
+              "[contract][zanzarah-framing][zanzarah-lazy]")
+    {
+        const std::string payload(std::size_t{256} * 1024, 'R');
+        const std::string other(std::size_t{256} * 1024, 'S');
+        const auto pak = build_zanzarah_pak({"a", "b"}, {make_canonical_block(payload), make_canonical_block(other)});
+        const support::temporary_archive archive("zanzarah-first-extract-fault", pak.bytes);
+        c_module loaded("zanzarah.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        const temporary_output_file destination(archive.path().wstring() + L".out");
+
+        SECTION("a marker read fault does not cache a framing decision")
+        {
+            // The other entry's suffix sits far beyond the TOC and the analysis prefix. Only the
+            // whole-archive classification reads it, so the requested body stays disjoint.
+            const auto suffix_offset = pak.body_offset +
+                                       static_cast<std::size_t>(make_canonical_block(payload).size()) +
+                                       static_cast<std::size_t>(make_canonical_block(other).size()) - 4;
+            {
+                locked_source_range suffix(archive.path(), suffix_offset, 4);
+                REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) ==
+                        SER_ERROR_READ);
+                REQUIRE(!(std::filesystem::exists(destination.path())));
+            }
+
+            REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) ==
+                    SER_SUCCESS);
+            REQUIRE(output_text(destination.path()) == payload);
+        }
+
+        SECTION("a body read fault keeps the successful classification for the retry")
+        {
+            {
+                locked_source_range middle(archive.path(), pak.body_offset + 4 + std::size_t{64} * 1024, 4);
+                REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) ==
+                        SER_ERROR_READ);
+                REQUIRE(!(std::filesystem::exists(destination.path())));
+            }
+
+            REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) ==
+                    SER_SUCCESS);
+            REQUIRE(output_text(destination.path()) == payload);
+        }
+
+        SECTION("cancellation leaves the archive retryable")
+        {
+            REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return FALSE; }) ==
+                    SER_USERABORT);
+            REQUIRE(!(std::filesystem::exists(destination.path())));
+
+            REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) ==
+                    SER_SUCCESS);
+            REQUIRE(output_text(destination.path()) == payload);
+        }
+    }
+
+    TEST_CASE("module ABI: Zanzarah cancellation reaches classification before marker reads",
+              "[contract][zanzarah-framing][zanzarah-cancellation]")
+    {
+        const std::string payload(std::size_t{256} * 1024, 'A');
+        const std::string other(std::size_t{256} * 1024, 'B');
+        const auto pak = build_zanzarah_pak({"a", "b"}, {make_canonical_block(payload), make_canonical_block(other)});
+        const support::temporary_archive archive("zanzarah-cancel-classification", pak.bytes);
+        c_module loaded("zanzarah.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        const temporary_output_file destination(archive.path().wstring() + L".out");
+
+        const auto first_block_size = static_cast<std::size_t>(make_canonical_block(payload).size());
+        const auto distant_footer =
+            pak.body_offset + first_block_size + static_cast<std::size_t>(make_canonical_block(other).size()) - 4;
+
+        const auto require_provisional_metadata = [&] {
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_OK);
+            REQUIRE(std::wstring(item.Path) == L"a");
+            REQUIRE(item.Size == static_cast<std::int64_t>(payload.size()) + 4);
+            REQUIRE(item.PackedSize == static_cast<std::int64_t>(payload.size()) + 4);
+        };
+        require_provisional_metadata();
+
+        SECTION("an immediate cancellation wins over a blocked distant footer")
+        {
+            progress_state state;
+            {
+                locked_source_range footer(archive.path(), distant_footer, 4);
+                const auto status = loaded.extract_file_status(
+                    0, destination.path(),
+                    [](void *context, int64_t chunk) {
+                        auto &captured = *static_cast<progress_state *>(context);
+                        captured.bytes += chunk;
+                        captured.calls += 1;
+                        return FALSE;
+                    },
+                    &state);
+                REQUIRE(status == SER_USERABORT);
+                CHECK(state.calls >= 1);
+                CHECK(state.bytes == 0);
+                CHECK(!(std::filesystem::exists(destination.path())));
+            }
+
+            REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) ==
+                    SER_SUCCESS);
+            REQUIRE(output_text(destination.path()) == payload);
+            require_provisional_metadata();
+        }
+
+        SECTION("a later zero-byte poll cancels during classification")
+        {
+            progress_state state;
+            {
+                locked_source_range footer(archive.path(), distant_footer, 4);
+                const auto status = loaded.extract_file_status(
+                    0, destination.path(),
+                    [](void *context, int64_t chunk) -> BOOL {
+                        auto &captured = *static_cast<progress_state *>(context);
+                        captured.bytes += chunk;
+                        captured.calls += 1;
+                        return captured.calls < 2 ? TRUE : FALSE;
+                    },
+                    &state);
+                REQUIRE(status == SER_USERABORT);
+                CHECK(state.calls == 2);
+                CHECK(state.bytes == 0);
+                CHECK(!(std::filesystem::exists(destination.path())));
+            }
+
+            REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) ==
+                    SER_SUCCESS);
+            REQUIRE(output_text(destination.path()) == payload);
+            require_provisional_metadata();
+        }
+    }
+
+    TEST_CASE("module ABI: Zanzarah empty extraction offers cancellation",
+              "[contract][zanzarah-framing][zanzarah-cancellation]")
+    {
+        const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block("")});
+        const support::temporary_archive archive("zanzarah-cancel-empty", pak.bytes);
+        c_module loaded("zanzarah.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        const temporary_output_file destination(archive.path().wstring() + L".out");
+
+        progress_state state;
+        const auto status = loaded.extract_file_status(
+            0, destination.path(),
+            [](void *context, int64_t chunk) {
+                auto &captured = *static_cast<progress_state *>(context);
+                captured.bytes += chunk;
+                captured.calls += 1;
+                return FALSE;
+            },
+            &state);
+        REQUIRE(status == SER_USERABORT);
+        CHECK(state.calls >= 1);
+        CHECK(state.bytes == 0);
+        CHECK(!(std::filesystem::exists(destination.path())));
+
+        REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) == SER_SUCCESS);
+        REQUIRE(output_text(destination.path()).empty());
+
+        // The cached framing decision must not bypass the pre-extraction poll: an empty body
+        // still reports its one cancellation opportunity on every later extraction.
+        REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return FALSE; }) ==
+                SER_USERABORT);
+        REQUIRE(!(std::filesystem::exists(destination.path())));
+
+        StorageItemInfo item{};
+        REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_OK);
+        REQUIRE(item.Size == 4);
+        REQUIRE(item.PackedSize == 4);
+    }
+
+    TEST_CASE("module ABI: Zanzarah destination write failures clean up and remain retryable",
+              "[contract][zanzarah-framing][zanzarah-write]")
+    {
+        const std::string payload(std::size_t{256} * 1024, 'W');
+        const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block(payload)});
+        const support::temporary_archive archive("zanzarah-write-failure", pak.bytes);
+        c_module loaded("zanzarah.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        const temporary_output_file destination(archive.path().wstring() + L".out");
+
+        const auto require_provisional_metadata = [&] {
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_OK);
+            REQUIRE(std::wstring(item.Path) == L"a");
+            REQUIRE(item.Size == static_cast<std::int64_t>(payload.size()) + 4);
+            REQUIRE(item.PackedSize == static_cast<std::int64_t>(payload.size()) + 4);
+        };
+        require_provisional_metadata();
+
+        SECTION("a broken destination pipe is a write error without touching the retry file")
+        {
+            const auto pipe_name =
+                std::format(L"\\\\.\\pipe\\unpackrat-zanzarah-write-failure-{}", GetCurrentProcessId());
+            const auto pipe = CreateNamedPipeW(pipe_name.c_str(), PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                                               PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 0, 1, 0, nullptr);
+            REQUIRE(pipe != INVALID_HANDLE_VALUE);
+            std::jthread pipe_server([pipe] {
+                static_cast<void>(ConnectNamedPipe(pipe, nullptr));
+                static_cast<void>(CloseHandle(pipe));
+            });
+            REQUIRE(loaded.extract_file_status(0, pipe_name, [](void *, int64_t) { return TRUE; }) == SER_ERROR_WRITE);
+            REQUIRE(!(std::filesystem::exists(destination.path())));
+        }
+
+        SECTION("an unusable destination path is a write error")
+        {
+            REQUIRE(loaded.extract_file_status(0, std::filesystem::temp_directory_path(),
+                                               [](void *, int64_t) { return TRUE; }) == SER_ERROR_WRITE);
+            REQUIRE(!(std::filesystem::exists(destination.path())));
+        }
+
+        SECTION("a partially written destination is removed before the retry")
+        {
+            progress_state state;
+            REQUIRE(loaded.extract_file_status(
+                        0, destination.path(),
+                        [](void *context, int64_t chunk) {
+                            auto &captured = *static_cast<progress_state *>(context);
+                            captured.bytes += chunk;
+                            captured.calls += 1;
+                            return chunk == 0 ? TRUE : FALSE;
+                        },
+                        &state) == SER_USERABORT);
+            REQUIRE(state.bytes == std::int64_t{128} * 1024);
+            REQUIRE(!(std::filesystem::exists(destination.path())));
+        }
+
+        REQUIRE(loaded.extract_file_status(0, destination.path(), [](void *, int64_t) { return TRUE; }) == SER_SUCCESS);
+        REQUIRE(output_text(destination.path()) == payload);
+        require_provisional_metadata();
+    }
+
+    TEST_CASE("module ABI: Zanzarah framing state ends when the archive is reopened",
+              "[contract][zanzarah-framing][zanzarah-lazy]")
+    {
+        const std::string payload = "hello";
+        const auto canonical = build_zanzarah_pak({"a"}, {make_canonical_block(payload)});
+        support::byte_buffer legacy_payload{payload.begin(), payload.end()};
+        append_u32(legacy_payload, canonical_suffix);
+        const auto legacy = build_zanzarah_pak(
+            {"a"}, {make_legacy_block(std::string_view(reinterpret_cast<const char *>(legacy_payload.data()),
+                                                       legacy_payload.size()))});
+        REQUIRE(canonical.bytes.size() == legacy.bytes.size());
+
+        const support::temporary_archive archive("zanzarah-reopen-framing", canonical.bytes);
+        c_module loaded("zanzarah.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        REQUIRE(extract_zanzarah_entry(loaded, archive.path(), 0, "a").bytes == payload);
+        loaded.close_storage();
+
+        overwrite_archive(archive.path(), legacy.bytes);
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+        REQUIRE(record.bytes == std::string("hello") + std::string("\x02\x02\x00\x00", 4));
+        REQUIRE(record.declared_size == 9);
+    }
+
     TEST_CASE("module ABI: Zanzarah canonical framing trims the prefix and footer", "[contract][zanzarah-framing]")
     {
         const std::string suffix_bytes("\x02\x02\x00\x00", 4);
@@ -1531,11 +2141,12 @@ namespace test
             REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
 
             const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
-            REQUIRE(record.declared_size == 0);
-            REQUIRE(record.declared_packed_size == 0);
+            REQUIRE(record.declared_size == 4);
+            REQUIRE(record.declared_packed_size == 4);
             REQUIRE(record.bytes.empty());
             REQUIRE(record.progress_bytes == 0);
-            REQUIRE(record.progress_calls == 0);
+            // One poll before framing and one before each of the two probes.
+            REQUIRE(record.progress_calls == 3);
 
             StorageItemInfo extra{};
             REQUIRE(loaded.api().GetItem(loaded.storage(), 1, &extra) == GET_ITEM_NOMOREITEMS);
@@ -1551,8 +2162,8 @@ namespace test
             REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
 
             const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
-            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
-            REQUIRE(record.declared_packed_size == static_cast<std::int64_t>(payload.size()));
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()) + 4);
+            REQUIRE(record.declared_packed_size == static_cast<std::int64_t>(payload.size()) + 4);
             REQUIRE(record.bytes == payload);
             REQUIRE(record.progress_bytes == static_cast<std::int64_t>(payload.size()));
         }
@@ -1570,12 +2181,13 @@ namespace test
             REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
 
             const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
-            REQUIRE(record.declared_size == 131'073);
-            REQUIRE(record.declared_packed_size == 131'073);
+            REQUIRE(record.declared_size == 131'077);
+            REQUIRE(record.declared_packed_size == 131'077);
             REQUIRE(record.bytes.size() == 131'073);
             REQUIRE(record.bytes == payload);
             REQUIRE(record.progress_bytes == 131'073);
-            REQUIRE(record.progress_calls == 2);
+            // One pre-framing poll, two marker-probe polls and two positive body chunks.
+            REQUIRE(record.progress_calls == 5);
         }
 
         SECTION("payload bytes that resemble the suffix marker are retained")
@@ -1590,7 +2202,7 @@ namespace test
 
             const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
             REQUIRE(record.bytes == payload);
-            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()) + 4);
         }
 
         SECTION("payload containing suffix and prefix markers is retained")
@@ -1606,7 +2218,7 @@ namespace test
 
             const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
             REQUIRE(record.bytes == payload);
-            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()) + 4);
         }
 
         SECTION("middle markers inside the payload are retained")
@@ -1624,7 +2236,7 @@ namespace test
 
             const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
             REQUIRE(record.bytes == payload);
-            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()) + 4);
         }
     }
 
@@ -1646,13 +2258,13 @@ namespace test
 
             const auto first_record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
             REQUIRE(first_record.bytes == first);
-            REQUIRE(first_record.declared_size == static_cast<std::int64_t>(first.size()));
+            REQUIRE(first_record.declared_size == static_cast<std::int64_t>(first.size()) + 4);
             const auto second_record = extract_zanzarah_entry(loaded, archive.path(), 1, "b");
             REQUIRE(second_record.bytes == second);
-            REQUIRE(second_record.declared_size == static_cast<std::int64_t>(second.size()));
+            REQUIRE(second_record.declared_size == static_cast<std::int64_t>(second.size()) + 4);
             const auto empty_record = extract_zanzarah_entry(loaded, archive.path(), 2, "c");
             REQUIRE(empty_record.bytes.empty());
-            REQUIRE(empty_record.declared_size == 0);
+            REQUIRE(empty_record.declared_size == 4);
         }
 
         SECTION("canonical entries are addressed out of physical order")
@@ -1737,6 +2349,8 @@ namespace test
                 REQUIRE(first_record.bytes == first + suffix_bytes);
                 const auto second_record = extract_zanzarah_entry(loaded, archive.path(), 1, "b");
                 REQUIRE(static_cast<std::size_t>(second_record.declared_size) == short_size - 4);
+                REQUIRE(second_record.bytes ==
+                        std::string(reinterpret_cast<const char *>(second.data() + 4), short_size - 4));
             }
         }
 
@@ -1772,6 +2386,8 @@ namespace test
 
             const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
             REQUIRE(record.bytes == payload);
+            // make_legacy_block stores only the four-byte marker plus this payload, and the
+            // suffix-like bytes are already part of the payload.
             REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
         }
 

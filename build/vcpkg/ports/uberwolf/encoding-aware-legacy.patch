@@ -1,0 +1,49 @@
+--- a/3rdParty/DXLib/DXArchiveVer5.h
++++ b/3rdParty/DXLib/DXArchiveVer5.h
+@@ -19,6 +19,7 @@
+ #include <stdlib.h>
+ #include <string>
+ #include <vector>
++#include <Windows.h>
+ 
+ // define ---------------------------------------
+ 
+@@ -557,9 +558,10 @@
+ 	}
+ 
+ 	// A stored name must be non-empty, not a dot entry, and free of controls and separators.
+-	inline int KernelNameValid( const unsigned char *Name, int Len )
++	inline int KernelNameValid( const unsigned char *Name, int Len, unsigned int CodePage = 932 )
+ 	{
+ 		int I;
++		const unsigned int Page = CodePage == 0 ? 932 : CodePage;
+ 		if( Len <= 0 )
+ 			return 0;
+ 		if( Len == 1 && Name[ 0 ] == '.' )
+@@ -569,6 +571,17 @@
+ 		for( I = 0; I < Len; I ++ )
+ 		{
+ 			unsigned char C = Name[ I ];
++			// Decode a bounded DBCS character before interpreting any trail byte as policy.
++			// The Windows decoder validates the complete pair; truncated or invalid input fails.
++			if( IsDBCSLeadByteEx( Page, C ) )
++			{
++				wchar_t Decoded[ 2 ];
++				if( Len - I < 2 || MultiByteToWideChar( Page, MB_ERR_INVALID_CHARS,
++				        (const char *)Name + I, 2, Decoded, 2 ) != 1 )
++					return 0;
++				I ++;
++				continue;
++			}
+ 			if( C < 0x20 || C == 0x7f || C == ':' || C == '/' || C == '\\' )
+ 				return 0;
+ 		}
+@@ -677,7 +690,7 @@
+ 					NameLen = KernelName( Meta, NameAddress, FileTable, NameBuf, KernelMaxPathBytes );
+ 					if( NameLen < 0 )
+ 						return -1;
+-					if( !KernelNameValid( NameBuf, NameLen ) )
++					if( !KernelNameValid( NameBuf, NameLen, Head->CodePage ) )
+ 						return -1;
+ 
+ 					Produced ++;

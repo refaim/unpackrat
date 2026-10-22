@@ -22,10 +22,17 @@
     <unpackratEnableBrotli>true</unpackratEnableBrotli>
   </PropertyGroup>
   <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\include\uberwolf;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\$(unpackratVcpkgDebugPrefix)lib\manual-link;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">Catch2d.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">Catch2.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- uberwolf.lib is the pinned UberWolf static library the WolfRPG adapter isolates.
+           vcpkg.props omits the auto-link library dirs for the ClangCL toolset that the
+           Coverage and UBSan stages use, so the suite must name uberwolf.lib explicitly in
+           both the Debug and the Release link list. -->
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">uberwolf.lib;Catch2d.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;libwebp.lib;libsharpyuv.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">uberwolf.lib;Catch2.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;libwebp.lib;libsharpyuv.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -53,10 +60,15 @@
     <ClCompile Include="$(RepositoryRoot)src\archive.cpp">
       <ObjectFileName>$(IntDir)archive_core.obj</ObjectFileName>
     </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\dll.cpp">
+      <ObjectFileName>$(IntDir)dll_core.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\common_observer.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\io\bounded_stream.cpp">
       <ObjectFileName>$(IntDir)bounded_stream_core.obj</ObjectFileName>
     </ClCompile>
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\png_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\webp_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\bc_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\image_codecs.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\ogg_codec.cpp" />
@@ -94,9 +106,12 @@
       <ObjectFileName>$(IntDir)pickle_unit.obj</ObjectFileName>
     </ClCompile>
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\zlib.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\renpy_rpa1_index.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\renpy\rpa1_index.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\bounded_stream.cpp">
       <ObjectFileName>$(IntDir)bounded_stream_unit.obj</ObjectFileName>
     </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\zanzarah_pak.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\archive_lazy.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\modules\renpy\pickle.cpp">
       <ObjectFileName>$(IntDir)pickle_parser.obj</ObjectFileName>
@@ -137,6 +152,7 @@
     <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\image_types.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\png_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\webp_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\bc_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\codecs\ogg_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\godot\binary_resource.h" />
@@ -154,7 +170,71 @@
     <ClInclude Include="$(RepositoryRoot)src\tests\support\godot_fixtures.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\support\zlib_fixture.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\zanzarah\pak.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\renpy\pickle.h" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WolfRPG backend adapter and its unit and support fixtures. -->
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\chacha_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\game_context.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\legacy_archive.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\legacy_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\modern_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\pro_keys.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\text_encoding.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\wolfx_archive.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\wolfx_candidates.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\wolfx_game_metadata.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\wolfx_metadata.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\platform\win32\system_codepage.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\wolfrpg_default_mode_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\wolfrpg_modern_archive_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\uberwolf_classic_context.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\uberwolf_file_access.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\uberwolf_mode_selection.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\uberwolf_modern_archive_api.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\uberwolf_modes.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\uberwolf_shared_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\uberwolf_wolfx_file_size.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_adapter.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_archive_source.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_bounded_lz.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_chacha_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_default_modes.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_fixtures.cpp">
+      <!-- Keep the unit fixture object distinct from src\tests\support\wolfrpg_fixtures.obj. -->
+      <ObjectFileName>$(IntDir)wolfrpg_fixtures_unit.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_fuzz_sink.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_game_context_boundary.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_huffman.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_lz.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_modern_archives.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_modern_crypto.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_module.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_pro_keys.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_pro_vendor_api.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_pro_wolfpro.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_recovery_contract.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_recovery_archive_contract.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_recovery_collector.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_recovery_failure_contract.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_recovery_legacy.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_recovery_metadata_io.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_recovery_vendor_contract.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_text_encoding.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\wolfrpg_wolfx.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\archive.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\lz_reader.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\wolfrpg\huffman_reader.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\wolfrpg_fixtures.cpp" />
+    <ClInclude Include="$(RepositoryRoot)src\core\wolfrpg\archive.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\wolfrpg\lz_reader.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\wolfrpg\huffman_reader.h" />
+    <ClInclude Include="$(RepositoryRoot)src\tests\support\wolfrpg_fixtures.h" />
   </ItemGroup>
 
   <ItemGroup>
@@ -177,6 +257,16 @@
     </ProjectReference>
     <ProjectReference Include="godot.vcxproj">
       <Project>{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="wolfrpg.vcxproj">
+      <Project>{709C4932-B3B2-47D3-B035-B5AFE7AB7A34}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="mode-selection-trial-helper.vcxproj">
+      <Project>{0A1E9D6F-DB16-421C-B228-151A47D54B32}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

@@ -1,10 +1,19 @@
+#include "../framework/observer.h"
 #include "../framework/testcase.h"
 #include "../support/archive_fixtures.h"
 
 #include <array>
+#include <fstream>
+#include <iterator>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
+
+TEST_CASE("archives: hermetic RenPy RPA 1.0 sidecar", "[integration][hermetic][rpa1]")
+{
+    const auto archive = std::filesystem::path(__FILE__).parent_path().parent_path() / "data/renpy/rpa1-split.rpa";
+    test::test_archive(archive, {{L"dir\\hello.txt", "first:second:third"}, {L"empty.txt", ""}});
+}
 
 TEST_CASE("archives: hermetic RenPy RPA 2.0", "[integration][hermetic]")
 {
@@ -150,5 +159,21 @@ TEST_CASE("archives: Zanzarah strips frame bytes from payload", "[integration][h
     contents.push_back(0);
     contents.push_back(0);
     const test::support::temporary_archive archive("zanzarah-framing", contents);
-    test::test_archive(archive.path(), {{L"a", "hello"}});
+
+    // Canonical framing keeps the listed size at the approved provisional upper bound while
+    // extraction removes the prefix and suffix. Assert both facts explicitly.
+    const test::observer plugin;
+    const auto files = plugin.list_files(archive.path());
+    REQUIRE(files.size() == 1);
+    REQUIRE(files.front().path == L"a");
+    REQUIRE(files.front().uncompressed_size == 9);
+    REQUIRE(files.front().compressed_size == 9);
+
+    const test::temporary_output_file destination(archive.path().wstring() + L".out");
+    files.front().extract(destination.path());
+    std::ifstream extracted(destination.path(), std::ios::binary);
+    REQUIRE(extracted.is_open());
+    REQUIRE(std::string(std::istreambuf_iterator<char>(extracted), std::istreambuf_iterator<char>()) == "hello");
+    // Close the reader before the RAII destination guard deletes the file.
+    extracted.close();
 }

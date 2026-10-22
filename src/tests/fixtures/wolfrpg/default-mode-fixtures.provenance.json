@@ -1,0 +1,79 @@
+{
+  "fixtures": "WolfRPG classic/legacy default crypt modes (end-to-end, automatic key selection)",
+  "generator": "out/scratch/wolfrpg-default-modes/main.cpp",
+  "oracle": "encode with the mode's encFunc from WolfDec::DefaultCryptModes(), decode with the mode's decFunc, compare every produced path and byte against the owned input tree",
+  "vendor": {
+    "repo": "Sinflower/UberWolf",
+    "release": "0.6.4",
+    "ref": "f4191375d289171b1f29dbc5ca320133b2b4b96a",
+    "port": "build/vcpkg/ports/uberwolf",
+    "accessor": "build/vcpkg/ports/uberwolf/default-crypt-modes.patch (WolfDec::DefaultCryptModes() over the unchanged default table, UberWolfLib/WolfDec.cpp)",
+    "table": "DEFAULT_CRYPT_MODES, UberWolfLib/WolfDec.cpp:57..68, 11 entries",
+    "build": "MSVC 14.44 (VS18 vcvarsall -vcvars_ver=14.44), x64, /MT, UNICODE"
+  },
+  "input_tree": [
+    { "path": "hello.txt", "size": 30, "kind": "literal", "fnv1a64": "0x45cb0322a9a90780" },
+    { "path": "repeat.bin", "size": 8192, "kind": "repetitive \"0123456789abcdef\" x512", "fnv1a64": "0x4966fd4996a59325" },
+    { "path": "nested/leaf.bin", "size": 64, "kind": "xorshift deterministic", "fnv1a64": "0xcc109ff091a993ee" }
+  ],
+  "fixtures_list": [
+    {
+      "index": 0, "name": "Wolf RPG v2.01", "crypt_version": 0, "key_hex": "0f53e13e04371217600f53e1",
+      "container_version": 5, "encoder": "DXArchive_VER5::EncodeArchive", "body": "stored (Press=false)",
+      "file": "default-mode-0.wolf", "file_size": 8676, "file_fnv1a64": "0x01258709fa0b5f80"
+    },
+    {
+      "index": 1, "name": "Wolf RPG v2.10", "crypt_version": 0, "key_hex": "4cd92ab7289bac073e77ec4c",
+      "container_version": 5, "encoder": "DXArchive_VER5::EncodeArchive", "body": "stored (Press=false)",
+      "file": "default-mode-1.wolf", "file_size": 8676, "file_fnv1a64": "0x4529f8920b0474e9"
+    },
+    {
+      "index": 2, "name": "Wolf RPG v2.20", "crypt_version": 0, "key_hex": "38504028724f21703b733538",
+      "container_version": 6, "encoder": "DXArchive_VER6::EncodeArchive",
+      "file": "default-mode-2.wolf", "file_size": 668, "file_fnv1a64": "0x05e1fd768b14ad06"
+    },
+    {
+      "index": 4, "name": "Wolf RPG v3.00", "crypt_version": 300,
+      "key_hex": "0f53e13e8eb54191521655ae34c98f79592f596b95199b1b359a2fdec97c1296c314b50f53e13e8e00",
+      "container_version": 8, "encoder": "DXArchive::EncodeArchiveOneDirectoryWolf",
+      "file": "default-mode-4.wolf", "file_size": 1365, "file_fnv1a64": "0x7bc9d20afb68ada1"
+    },
+    {
+      "index": 5, "name": "Wolf RPG v3.14", "crypt_version": 314,
+      "key_hex": "31f90136a3e38d3c7bc37d25ad6328191bf78e6cc4e5e27682ea4fed61dae0445bb6463b06d5ceb67858d07c8200",
+      "container_version": 8, "encoder": "DXArchive::EncodeArchiveOneDirectoryWolf",
+      "file": "default-mode-5.wolf", "file_size": 1365, "file_fnv1a64": "0x8ac079eaf1c2d3b3"
+    },
+    {
+      "index": 9, "name": "One Way Heroics", "crypt_version": 0, "key_hex": "6e47756939282726313d4033236100",
+      "container_version": 8, "encoder": "DXArchive::EncodeArchiveOneDirectoryWolf",
+      "file": "default-mode-9.wolf", "file_size": 1365, "file_fnv1a64": "0x54c5584b70cf8df0"
+    },
+    {
+      "index": 10, "name": "One Way Heroics Plus", "crypt_version": 0, "key_hex": "50683d58335e5d6f3241282c313d4033236100",
+      "container_version": 8, "encoder": "DXArchive::EncodeArchiveOneDirectoryWolf",
+      "file": "default-mode-10.wolf", "file_size": 1365, "file_fnv1a64": "0xe0c82536c4367641"
+    }
+  ],
+  "mode_3": {
+    "note": "reused, not regenerated: src/tests/fixtures/wolfrpg/classic-dx8-payload.wolf (966 bytes) is the existing mode-3 (Wolf RPG v2.225) golden archive, asserted in src/tests/unit/wolfrpg_adapter.cpp"
+  },
+  "ver5_stored_body": {
+    "modes": [0, 1],
+    "shipped": true,
+    "choice": "the two VER5 fixtures (v2.01, v2.10) are frozen exactly as the vendor encoder produced them with Press=false: the mode's default cipher is applied over a stored (uncompressed) body",
+    "press_true_issue": "the unchanged DXArchive_VER5 compression stage does not terminate with Press=true (bounded at 25-30 s) for both the literal 30-byte and the 8192-byte body; the same EncodeArchive entry point with Press=false returns rc=0 and the unchanged VER5 decoder round-trips the output to the exact input tree, isolating the failure to the VER5 compression stage and leaving the VER5 container/cipher path intact",
+    "scope": "the compression codec itself is exercised by the other default modes (which carry vendor default Press=true bodies) and by the LZ/Huffman suites; no variant is required to round-trip through a compressed body, so the stored-body choice does not weaken this fixture suite"
+  },
+  "deferred_modes": [
+    { "index": 6, "name": "Wolf RPG v3.31", "crypt_version": 331, "probe": "encodes and decodes rc=0 (DX8); deferred to the modern-mode phase" },
+    { "index": 7, "name": "Wolf RPG v3.50", "crypt_version": 350, "probe": "encodes and decodes rc=0 (DX8); deferred to the modern-mode phase" },
+    { "index": 8, "name": "Wolf RPG ChaCha2 v1", "crypt_version": 100, "probe": "encodes and decodes rc=0 (DX8 ChaCha); deferred to the modern-mode phase" }
+  ],
+  "notes": [
+    "The VER5/VER6 EncodeArchiveOneDirectory entry points over-allocate too small a path list under UNICODE (FileNum*(256+sizeof(TCHAR*)) bytes for FileNum*256 TCHAR), so modes 0/1/2 were driven through the same class's EncodeArchive entry point with a correctly sized list; mode 2 round-trips through the unchanged VER6 encoder/decoder with Press=true, and modes 0/1 round-trip through the unchanged VER5 encoder/decoder with Press=false (see ver5_stored_body).",
+    "Modes 0/1/2 were generated in a dedicated pass: out/scratch/wolfrpg-default-modes/bin/gen.exe <scratch> src/tests/fixtures/wolfrpg 0,1 --nopress --all-fixtures for modes 0/1 and the same generator without --nopress for modes 2/4/5/9/10. Each run printed the frozen file_size and file_fnv1a64 shown above.",
+    "Byte-identical regeneration is not achievable with the unchanged encoder: it stamps each DARC_FILEHEAD timestamp from the live file system and the OS bumps LastAccess on every read / directory enumeration, so a re-run produces a different (but structurally identical) compressed blob. The frozen file_size and file_fnv1a64 are the drift control; the decoded payloads are content-deterministic and are re-verified on every oracle run.",
+    "Only each entry's unpacked size and bytes are frozen. The encoded physical extent (stored_size) depends on the vendor container/press layout and is deliberately not re-derived here."
+  ]
+}

@@ -115,7 +115,10 @@ namespace extractor
     struct storage_state
     {
         virtual ~storage_state() = default;
-        [[nodiscard]] virtual indexed_catalogue *indexed_files() noexcept { return nullptr; }
+        [[nodiscard]] virtual indexed_catalogue *indexed_files() noexcept
+        {
+            return nullptr;
+        }
     };
 
     struct archive_info final

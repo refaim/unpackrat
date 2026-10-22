@@ -1,0 +1,42 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-main:b81a901178d4696090dde2848070c73c1ca81c14062bdb6604a1033acc2e3e0b",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/b81a901178d4696090dde2848070c73c1ca81c14062bdb6604a1033acc2e3e0b.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/main.py",
+      "start_lines": "78,81,83,84,86,90,91,92,93,96,101,106,108,109",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 78,81,83,84,86,90,91,92,93,96,101,106,108,109 share the identifier GPL-3.0-only; line 90 is, for example, `\"wolfrpg\": (\"Observer.txt\", \"GPL-3.0.txt\", \"uberwolf.txt\", \"json.txt\", \"YY-Thunks.txt\"),`. These are notice-filename and default-preamble literals plus new Unity-module prose, the LICENSES tuple, and the opt-in preamble in first-party MIT build/test tooling, not grants; the linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
+    },
+    {
+      "path": "build/main.py",
+      "start_lines": "79",
+      "line_count": 1,
+      "detected_license": "LGPL-2.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 79 carries `# text the LGPL incorporates, and then only that module's own third-party notices.`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.0-or-later as a false positive, so the finding is removed."
+    },
+    {
+      "path": "build/main.py",
+      "start_lines": "78,91,100,108",
+      "line_count": 1,
+      "detected_license": "LGPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 78,91,100,108 share the identifier LGPL-3.0-only; line 78 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are the migrated Observer notice comment and default-preamble literals plus new Unity-module prose and the opt-in preamble in first-party MIT build/test tooling, not grants; the linked AssetRipper GPL-3.0 runtime source is recorded as an incorporated component in the inventory. The false-positive finding is removed."
+    },
+    {
+      "path": "build/main.py",
+      "start_lines": "108",
+      "line_count": 2,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 108-109 (line_count 2) are the second ScanCode-observed span in the opt-in Unity preamble prose: line 108 is 'grant, the Observer API header's LGPLv3 notice with the full GPLv3 text, and the' and line 109 is 'GPL-3.0 and runtime third-party notices for that binary.'. This first-party MIT build script describes the retained notices for the AssetRipper-linked GPL-3.0 combined binary, not a new grant; the incorporated AssetRipper GPL-3.0 source is recorded unchanged in the inventory. Only this exact two-line finding is newly removed; the existing single-line 108 and 109 curations stay unchanged, and any three-line span remains unresolved."
+    }
+  ]
+}

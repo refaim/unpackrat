@@ -83,6 +83,16 @@
     {
       "customType": "regex",
       "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"libwebp\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "libwebp",
+      "packageNameTemplate": "webmproject/libwebp",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
       "matchStrings": ["\"name\"\\s*:\\s*\"libogg\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
       "depNameTemplate": "libogg",
       "packageNameTemplate": "xiph/ogg",
@@ -193,6 +203,17 @@
       "packageNameTemplate": "AssetsTools.NET",
       "datasourceTemplate": "nuget",
       "versioningTemplate": "nuget"
+    },
+    {
+      "customType": "regex",
+      "description": "Sinflower/UberWolf is pinned by source revision; an upgrade replaces both the port REF and its SHA512 after a compatibility review.",
+      "managerFilePatterns": ["/^build/vcpkg/ports/uberwolf/portfile\\.cmake$/"],
+      "matchStrings": ["REF\\s+(?<currentDigest>[a-f0-9]{40})"],
+      "depNameTemplate": "uberwolf",
+      "packageNameTemplate": "https://github.com/Sinflower/UberWolf",
+      "datasourceTemplate": "git-refs",
+      "versioningTemplate": "exact",
+      "currentValueTemplate": "main"
     }
   ]
 }

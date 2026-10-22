@@ -1,0 +1,196 @@
+UberWolfLib and the third-party components compiled by the
+unpackrat "uberwolf" overlay port
+
+Upstream: https://github.com/Sinflower/UberWolf
+Revision: f4191375d289171b1f29dbc5ca320133b2b4b96a (release 0.6.4)
+
+This notice combines the copyright and license terms of every component compiled
+into the port. Upstream texts are reproduced below. Where a component carries its
+own notice in the source tree, the file is named with its upstream URL. Terms that
+could not be reproduced from an authoritative file in this repository are marked
+as such instead of being paraphrased.
+
+==============================================================================
+1. UberWolf / UberWolfLib (UberWolfLib/**, including the WolfCrypt wrappers)
+==============================================================================
+MIT License
+
+Copyright (c) 2023 Sinflower
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Individual UberWolfLib source files carry their own MIT copyright year (2023,
+2024, 2025 or 2026, all Sinflower). The WolfCrypt SHA-512 helper
+(UberWolfLib/WolfCrypt/WolfSha512.hpp) carries its own Sinflower MIT year below.
+
+==============================================================================
+2. 3rdParty/DXLib -- DX Library (DXLib) archive reader
+==============================================================================
+Creator: Takumi Yamada
+
+DX Library Copyright (C) 2001-2026 Takumi Yamada.
+
+DXLib is redistributed here as the source it is compiled from. The DX Library
+licensing was reviewed on 2026-10-19 against the official terms at:
+
+    https://dxlib.xsrv.jp/dxlicense.html
+    SHA256: 03c3a813b1ea992c81932a3e701946048489d67b355cbe9455a7cb688eaa7d6c
+
+The general terms permit commercial, free and corporate use without a fee, and
+they disclaim warranty and correction duties. Redistribution of the source or of
+compiled libraries requires the exact credit below together with the notices for
+components that are used:
+
+    DX Library Copyright (C) 2001-2026 Takumi Yamada.
+
+This is an authoritative custom DX Library license rather than an SPDX license
+identifier. Only the DXLib archive-reader translation units are compiled; the
+optional DXLib features that would pull in unrelated third-party codecs and audio
+libraries are unused, so their notices do not apply to anything shipped here.
+
+==============================================================================
+3. 3rdParty/lz4 -- LZ4 block compression library (lz4.c), vendored from upstream
+==============================================================================
+Verbatim copyright and license notice from the pinned 3rdParty/lz4/lz4.h:
+
+/*
+ *  LZ4 - Fast LZ compression algorithm
+ *  Header File
+ *  Copyright (C) 2011-2023, Yann Collet.
+
+   BSD 2-Clause License (http://www.opensource.org/licenses/bsd-license.php)
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are
+   met:
+
+       * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+       * Redistributions in binary form must reproduce the above
+   copyright notice, this list of conditions and the following disclaimer
+   in the documentation and/or other materials provided with the
+   distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+   PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+   You can contact the author at :
+    - LZ4 homepage : http://www.lz4.org
+    - LZ4 source repository : https://github.com/lz4/lz4
+*/
+
+==============================================================================
+4. UberWolfLib/WolfCrypt/WolfSha512.hpp -- SHA-512
+==============================================================================
+MIT License
+
+Copyright (c) 2025 Sinflower
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==============================================================================
+5. UberWolfLib/WolfCrypt/WolfAes.hpp and WolfChaCha20.hpp -- AES-CTR and ChaCha20
+==============================================================================
+The Sinflower WolfCrypt AES-CTR and ChaCha20 headers are MIT-licensed (see
+section 1) and record in their headers that they are derived from public-domain
+sources released under the Unlicense:
+
+    https://github.com/kokke/tiny-AES-c      (Unlicense)
+    https://github.com/Ginurx/chacha20-c     (Unlicense)
+
+Unlicense:
+
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
+software, either in source code form or as a compiled binary, for any purpose,
+commercial or non-commercial, and by any means.
+
+In jurisdictions that recognize copyright laws, the author or authors of this
+software dedicate any and all copyright interest in the software to the public
+domain. We make this dedication for the benefit of the public at large and to
+the detriment of our heirs and successors. We intend this dedication to be an
+overt act of relinquishment in perpetuity of all present and future rights to
+this software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <https://unlicense.org>
+
+==============================================================================
+6. nlohmann/json -- supplied as the separate vcpkg dependency "nlohmann-json"
+   (https://github.com/nlohmann/json)
+==============================================================================
+MIT License
+
+Copyright (c) 2013-2022 Niels Lohmann
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==============================================================================
+Not compiled by this port:
+  * UberWolf/ (GUI), UberWolfCli/ (CLI) and the optional self-updater submodule
+    keep their own upstream notices and are not built here.
+==============================================================================

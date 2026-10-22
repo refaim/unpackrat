@@ -1,0 +1,301 @@
+diff --git a/UberWolfLib/WolfDec.cpp b/UberWolfLib/WolfDec.cpp
+index 093fd68..93cbb6a 100644
+--- a/UberWolfLib/WolfDec.cpp
++++ b/UberWolfLib/WolfDec.cpp
+@@ -37,6 +37,7 @@
+ 
+ #include <algorithm>
+ #include <codecvt>
++#include <cstring>
+ #include <filesystem>
+ #include <format>
+ #include <fstream>
+@@ -73,6 +74,100 @@ const CryptModes& WolfDec::DefaultCryptModes() noexcept
+ 	return DEFAULT_CRYPT_MODES;
+ }
+ 
++size_t WolfDec::ModeCount(const CryptModes& additionalModes) noexcept
++{
++	return DEFAULT_CRYPT_MODES.size() + additionalModes.size();
++}
++
++const CryptMode& WolfDec::ModeAt(const CryptModes& additionalModes, const uint32_t& index)
++{
++	return (index < DEFAULT_CRYPT_MODES.size() ? DEFAULT_CRYPT_MODES.at(index) : additionalModes.at(index - DEFAULT_CRYPT_MODES.size()));
++}
++
++bool WolfDec::SelectMode(const CryptModes& additionalModes, const uint16_t& cryptVersion, uint32_t& modeIndex) noexcept
++{
++	if (cryptVersion == 0)
++		return false;
++
++	for (uint32_t i = 0; i < DEFAULT_CRYPT_MODES.size(); i++)
++	{
++		if (DEFAULT_CRYPT_MODES.at(i).cryptVersion == cryptVersion)
++		{
++			modeIndex = i;
++			return true;
++		}
++	}
++
++	for (uint32_t i = 0; i < additionalModes.size(); i++)
++	{
++		if (additionalModes.at(i).cryptVersion == cryptVersion)
++		{
++			modeIndex = static_cast<uint32_t>(DEFAULT_CRYPT_MODES.size() + i);
++			return true;
++		}
++	}
++
++	return false;
++}
++
++bool WolfDec::SelectWorkingMode(const CryptModes& additionalModes, const uint32_t& mode, uint32_t& selectedMode, const ModeAttempt& attempt)
++{
++	if (mode != static_cast<uint32_t>(-1))
++	{
++		if (attempt(mode))
++		{
++			selectedMode = mode;
++			return true;
++		}
++
++		return false;
++	}
++
++	const uint32_t modeCount = static_cast<uint32_t>(ModeCount(additionalModes));
++
++	for (uint32_t i = 0; i < modeCount; i++)
++	{
++		if (attempt(i))
++		{
++			selectedMode = i;
++			return true;
++		}
++	}
++
++	return false;
++}
++
++CryptVersionDecision WolfDec::ClassifyCryptVersion(const uint16_t& cryptVersion) noexcept
++{
++	CryptVersionDecision decision;
++	decision.cryptVersion = cryptVersion;
++
++	if (cryptVersion == 0x0)
++		decision.classification = CryptVersionClass::Trial;
++	else if (cryptVersion >= PRO_CRYPT_VERSION)
++		decision.classification = CryptVersionClass::ProRecovery;
++	else if (cryptVersion == CC2_PRO_VERSION)
++		decision.classification = CryptVersionClass::Cc2Recovery;
++	else
++		decision.classification = CryptVersionClass::ExactMatch;
++
++	return decision;
++}
++
++uint16_t WolfDec::CryptVersionFromHeader(const void* data, const size_t& size) noexcept
++{
++	if (data == nullptr || size < sizeof(DARC_HEAD))
++		return 0;
++
++	DARC_HEAD header;
++	std::memcpy(&header, data, sizeof(DARC_HEAD));
++
++	if (header.Head != DXA_HEAD)
++		return 0;
++
++	return static_cast<uint16_t>(header.Flags >> 16);
++}
++
+ WolfDec::WolfDec(const std::wstring& progName, const uint32_t& mode, const bool& isSubProcess) :
+ 	m_progName(progName),
+ 	m_mode(mode),
+@@ -198,20 +293,20 @@ bool WolfDec::UnpackArchive(const tString& filePath, const bool& override)
+ 
+ 	if (m_mode == -1)
+ 	{
+-		const uint16_t cryptVersion = getCryptVersion(filePath);
++		const CryptVersionDecision decision = ClassifyCryptVersion(getCryptVersion(filePath));
+ 
+-		if (cryptVersion == 0x0)
++		if (decision.classification == CryptVersionClass::Trial)
+ 			return detectMode(filePath, override);
+ 		// For Pro Games always return false and let UberWolfLib calculate the key
+-		else if (cryptVersion >= PRO_CRYPT_VERSION)
++		else if (decision.classification == CryptVersionClass::ProRecovery)
+ 			return false;
+-		else if (cryptVersion == CC2_PRO_VERSION)
++		else if (decision.classification == CryptVersionClass::Cc2Recovery)
+ 			return false;
+ 		else if (!detectCrypt(filePath))
+ 			return false;
+ 	}
+ 
+-	if (m_mode >= (DEFAULT_CRYPT_MODES.size() + m_additionalModes.size()))
++	if (m_mode >= ModeCount(m_additionalModes))
+ 	{
+ 		ERROR_LOG << std::format(TEXT("Specified Mode: {} out of range"), m_mode) << std::endl;
+ 		if (m_isSubProcess)
+@@ -346,60 +441,15 @@ bool WolfDec::detectCrypt(const tString& filePath)
+ 	const uint16_t cryptVersion = getCryptVersion(filePath);
+ 
+ 	// If the crypt version is != 0, use the corresponding mode
+-	if (cryptVersion != 0)
+-	{
+-		for (uint32_t i = 0; i < DEFAULT_CRYPT_MODES.size(); i++)
+-		{
+-			if (DEFAULT_CRYPT_MODES.at(i).cryptVersion == cryptVersion)
+-			{
+-				m_mode = i;
+-				return true;
+-			}
+-		}
+-
+-		for (uint32_t i = 0; i < m_additionalModes.size(); i++)
+-		{
+-			if (m_additionalModes.at(i).cryptVersion == cryptVersion)
+-			{
+-				m_mode = static_cast<uint32_t>(DEFAULT_CRYPT_MODES.size() + i);
+-				return true;
+-			}
+-		}
+-	}
+-
+-	return false;
++	return SelectMode(m_additionalModes, cryptVersion, m_mode);
+ }
+ 
+ bool WolfDec::detectMode(const tString& filePath, const bool& override)
+ {
+-	bool success = false;
+-
+-	if (m_mode == -1)
++	return SelectWorkingMode(m_additionalModes, m_mode, m_mode, [this, &filePath, &override](const uint32_t mode)
+ 	{
+-		for (uint32_t i = 0; i < DEFAULT_CRYPT_MODES.size(); i++)
+-		{
+-			success = runProcess(filePath, i, override);
+-			if (success)
+-			{
+-				m_mode = i;
+-				return success;
+-			}
+-		}
+-
+-		for (uint32_t i = 0; i < m_additionalModes.size(); i++)
+-		{
+-			success = runProcess(filePath, static_cast<uint32_t>(DEFAULT_CRYPT_MODES.size() + i), override);
+-			if (success)
+-			{
+-				m_mode = static_cast<uint32_t>(DEFAULT_CRYPT_MODES.size() + i);
+-				return success;
+-			}
+-		}
+-	}
+-	else
+-		success = runProcess(filePath, m_mode);
+-
+-	return success;
++		return runProcess(filePath, mode, override);
++	});
+ }
+ 
+ bool WolfDec::runProcess(const tString& filePath, const uint32_t& mode, const bool& override) const
+@@ -447,12 +497,10 @@ uint16_t WolfDec::getCryptVersion(const tString& filePath) const
+ 		return 0;
+ 	}
+ 
+-	DARC_HEAD header;
+-	f.read(reinterpret_cast<char*>(&header), sizeof(DARC_HEAD));
++	unsigned char buffer[sizeof(DARC_HEAD)];
++	f.read(reinterpret_cast<char*>(buffer), sizeof(DARC_HEAD));
++	const std::streamsize read = f.gcount();
+ 	f.close();
+ 
+-	if (header.Head != DXA_HEAD)
+-		return 0;
+-
+-	return (header.Flags >> 16);
++	return CryptVersionFromHeader(buffer, static_cast<size_t>(read));
+ }
+diff --git a/UberWolfLib/WolfDec.h b/UberWolfLib/WolfDec.h
+index 8238795..1772e54 100644
+--- a/UberWolfLib/WolfDec.h
++++ b/UberWolfLib/WolfDec.h
+@@ -26,8 +26,10 @@
+ 
+ #pragma once
+ 
++#include <cstddef>
+ #include <cstdint>
+ #include <exception>
++#include <functional>
+ #include <iterator>
+ #include <string>
+ #include <tchar.h>
+@@ -80,6 +82,32 @@ struct CryptMode
+ 
+ using CryptModes = std::vector<CryptMode>;
+ 
++// The candidate test the shared trial driver runs for one mode index: it attempts to unpack the
++// archive with that mode and reports whether the attempt succeeded.
++using ModeAttempt = std::function<bool(uint32_t)>;
++
++// The automatic mode decision WolfDec::UnpackArchive makes for an archive header's crypt
++// version when no explicit mode is set. It mirrors the original classification exactly: a
++// version of 0x0 selects the trial policy, a Wolf RPG Pro companion version (>= 1000) and the
++// ChaCha2 Pro version (0xC8) defer to the companion key recovery, and every other nonzero
++// version is looked up in the ordered crypt-mode storage.
++enum class CryptVersionClass : uint8_t
++{
++	Trial,       // 0x0: no header version, the builtin modes must be tried in order
++	ProRecovery, // >= 1000: Wolf RPG Pro companion key recovery
++	Cc2Recovery, // 0xC8: ChaCha2 Pro companion key recovery
++	ExactMatch,  // any other nonzero version: an exact crypt-mode lookup
++};
++
++// The decision and the header version it was made from. The version is carried unchanged, so a
++// caller that later performs Pro crypto keeps the real header version: a version >= 1020 stays
++// 1020 and is never rewritten to 1010.
++struct CryptVersionDecision
++{
++	CryptVersionClass classification = CryptVersionClass::Trial;
++	uint16_t cryptVersion = 0;
++};
++
+ class WolfDec
+ {
+ public:
+@@ -128,6 +156,31 @@ public:
+ 
+ 	static const CryptModes& DefaultCryptModes() noexcept;
+ 
++	// The ordered combined crypt-mode storage: the pinned default modes first, then the
++	// additional modes. This is the single ordering rule the selection and the trial loop use.
++	static size_t ModeCount(const CryptModes& additionalModes) noexcept;
++	static const CryptMode& ModeAt(const CryptModes& additionalModes, const uint32_t& index);
++
++	// The ordered candidate lookup detectCrypt performs: the first default mode whose cryptVersion
++	// equals cryptVersion, otherwise the first additional mode. A zero cryptVersion never matches,
++	// mirroring detectCrypt's nonzero gate, and a miss leaves modeIndex untouched.
++	static bool SelectMode(const CryptModes& additionalModes, const uint16_t& cryptVersion, uint32_t& modeIndex) noexcept;
++
++	// The automatic mode decision UnpackArchive performs for an archive header crypt version.
++	static CryptVersionDecision ClassifyCryptVersion(const uint16_t& cryptVersion) noexcept;
++
++	// Bounded DARC_HEAD interpretation, shared with any stream caller: data must point at size
++	// bytes. Returns Flags >> 16 when size covers the complete header and its magic matches, and
++	// 0 for a short buffer or a header whose magic is not DXA_HEAD.
++	static uint16_t CryptVersionFromHeader(const void* data, const size_t& size) noexcept;
++
++	// The bounded mode-trial driver shared by WolfDec::detectMode and any source caller: when mode
++	// names a single explicit index only that candidate is attempted, otherwise every combined
++	// default-then-additional candidate is tried in order and the first success wins. On success
++	// the winning index is written to selectedMode; on failure selectedMode keeps its prior value,
++	// so an automatic caller stays at its -1 "not yet detected" state.
++	static bool SelectWorkingMode(const CryptModes& additionalModes, const uint32_t& mode, uint32_t& selectedMode, const ModeAttempt& attempt);
++
+ private:
+ 	void removeOldConfig() const;
+ 	void loadConfig();

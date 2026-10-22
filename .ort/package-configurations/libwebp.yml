@@ -1,0 +1,16 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:libwebp:1.6.0#3",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "libwebp-1.6.0/m4/ax_pthread.m4",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "Autoconf pthread detection macro, reported at lines 59-83. The pinned vcpkg port builds libwebp with CMake; this macro is not built or distributed. The exclusion is limited to this exact non-runtime build tool; COPYING, PATENTS and all src files stay scanned."
+    },
+    {
+      "pattern": "libwebp-1.6.0/CONTRIBUTING.md",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Contribution instructions: lines 6-16 describe the Google contributor license agreement, not the library license grant. Exclude only this exact contribution guide. COPYING, PATENTS and all source license grants stay scanned."
+    }
+  ]
+}

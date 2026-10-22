@@ -4,10 +4,10 @@ This module is written before Godot is wired into ``build/main.py`` and the MSBu
 projects, so every test below is expected to fail (RED) against the current tree.
 The behaviour it pins is the *observable* integration contract:
 
-* Godot is the fourth module of the default selection that drives the native audit
+* Godot is a default module of the selection that drives the native audit
   and packaging routes (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
-* the default packaging route ships ``godot-1.1.0-bin-x64.zip``,
-  ``godot-1.1.0-bin-x86.zip`` and ``godot-1.1.0-pdb.zip`` with the shipped
+* the default packaging route ships ``godot-1.2.1-bin-x64.zip``,
+  ``godot-1.2.1-bin-x86.zip`` and ``godot-1.2.1-pdb.zip`` with the shipped
   payload, registration and notices;
 * ``build/projects/tests.vcxproj`` references ``godot.vcxproj`` with the fixed
   project GUID and ``LinkLibraryDependencies=false``;
@@ -44,9 +44,11 @@ PROJECTS = REPOSITORY_ROOT / "build" / "projects"
 NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 
 GODOT = "godot"
-GODOT_VERSION = "1.1.0"
+GODOT_VERSION = "1.2.1"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
 BASELINE = "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
+WOLFRPG = "wolfrpg"
+WOLFRPG_VERSION = "1.0.1"
 
 # Independent fixture bytes: the shipped payloads are compared against these
 # literals, never against a value rederived from the same source they came from.
@@ -67,6 +69,7 @@ REQUIRED_GODOT_NOTICES = (
     "GPL-3.0.txt",
     "godot.txt",
     "libspng.txt",
+    "libwebp.txt",
     "libogg.txt",
     "brotli.txt",
     "zstd.txt",
@@ -82,8 +85,9 @@ VENDORED_NOTICE_FRAGMENTS = {
 FIXTURE_LICENSE_NAMES = (
     "VC-LTL5.txt", "YY-Thunks.txt",
     "Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt",
-    "rgssad.txt", "godot.txt", "libspng.txt", "libogg.txt", "brotli.txt", "zstd.txt",
+    "rgssad.txt", "godot.txt", "libspng.txt", "libwebp.txt", "libogg.txt", "brotli.txt", "zstd.txt",
     "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt", "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt",
+    "uberwolf.txt", "json.txt",
 )
 
 
@@ -161,6 +165,7 @@ class GodotRegistration(GuardedCase):
             "rpgmaker": "1.1.0",
             "zanzarah": "2.1.0",
             GODOT: GODOT_VERSION,
+            WOLFRPG: WOLFRPG_VERSION,
         }
         (self.repo / "LICENSE.txt").write_bytes(b"Fixture MIT license text.\n")
         licenses = self.repo / "licenses"
@@ -198,11 +203,11 @@ class GodotRegistration(GuardedCase):
 
     def test_godot_is_the_fourth_default_module(self) -> None:
         self.assertIn(GODOT, main.MODULES, "the default module selection must include godot")
-        self.assertEqual(main.MODULES[-1], GODOT, "godot must be the last default module")
+        self.assertEqual(main.MODULES.index(GODOT), 3, "godot must be the fourth default module")
         self.assertEqual(
             set(main.MODULES),
-            {"renpy", "rpgmaker", "zanzarah", GODOT},
-            "godot must join the three existing modules exactly once",
+            {"renpy", "rpgmaker", "zanzarah", GODOT, WOLFRPG},
+            "godot must join the four other modules exactly once",
         )
         self.assertEqual(main.MODULE_BINARIES.get(GODOT), "godot.so")
 
@@ -287,8 +292,9 @@ class GodotProjectContract(GuardedCase):
         includes = sorted(Path(ref.get("Include", "")).name for ref in references)
         self.assertEqual(
             includes,
-            ["godot.vcxproj", "renpy.vcxproj", "rpgmaker.vcxproj", "zanzarah.vcxproj"],
-            "the suite must build the four module projects",
+            ["godot.vcxproj", "mode-selection-trial-helper.vcxproj", "renpy.vcxproj",
+             "rpgmaker.vcxproj", "wolfrpg.vcxproj", "zanzarah.vcxproj"],
+            "the suite must build the five module projects and its process-trial helper",
         )
         godot = next(
             ref for ref in references if Path(ref.get("Include", "")).name == "godot.vcxproj"
@@ -413,6 +419,18 @@ class GodotAuditContract(GuardedCase):
                 self.assertIsNone(re.search(main.COVERAGE_IGNORED, path))
 
 
+class GodotSharpYuvLinkContract(GuardedCase):
+    def test_debug_and_release_link_the_static_webp_and_sharpyuv_artifacts(self) -> None:
+        for project in ("godot.vcxproj", "tests.vcxproj"):
+            dependencies = _link_dependencies(PROJECTS / project)
+            self.assertTrue(dependencies, project)
+            for configuration in dependencies:
+                with self.subTest(project=project, configuration=configuration):
+                    self.assertIn("libwebp.lib", configuration)
+                    self.assertIn("libsharpyuv.lib", configuration)
+                    self.assertNotIn("libwebp.dll", configuration.lower())
+
+
 class GodotSourceDiscoveryContract(GuardedCase):
     """Formatter discovery must skip the pinned top-level vendor tree, not first-party code."""
 
@@ -459,7 +477,7 @@ class GodotManifestContract(GuardedCase):
             entry["name"] if isinstance(entry, dict) else entry
             for entry in manifest.get("dependencies", [])
         }
-        required = {"libspng", "libogg", "brotli", "zstd", "fastlz"}
+        required = {"libspng", "libwebp", "libogg", "brotli", "zstd", "fastlz"}
         self.assertTrue(
             required <= names,
             f"the manifest must declare the Godot dependencies; missing: {sorted(required - names)}",
@@ -518,44 +536,62 @@ class GodotDocsContract(GuardedCase):
         self.assertIn("src/modules/godot/ChangeLog.en.txt", readme)
         self.assertIn("src/modules/godot/ChangeLog.ru.txt", readme)
         version = (REPOSITORY_ROOT / "src/modules/godot/VERSION").read_text(encoding="utf-8").strip()
-        self.assertEqual(version, "1.1.0")
+        self.assertEqual(version, GODOT_VERSION)
         self.assertNotIn("licenses/VC-LTL5.txt", readme)
-        self.assertIn("[MIT](licenses/YY-Thunks.txt)", readme)
         self.assertIn("| Module | Formats | Release | ChangeLog |", readme)
-        self.assertIn("| Godot | `.pck`, embedded PCK and same-stem EXE sidecars |", readme)
-        self.assertIn("https://github.com/refaim/unpackrat/releases?q=godot", readme)
+        release_labels = {
+            match.group(1)
+            for match in re.finditer(
+                r"^\|\s*[^|]+\|\s*[^|]+\|\s*\[([^\]]+)\]\([^)]*\)\s*\|",
+                readme,
+                re.MULTILINE,
+            )
+        }
+        self.assertEqual(
+            release_labels,
+            {"renpy", "rpgmaker", "zanzarah", "godot", "wolfrpg", "unity"},
+        )
+        for module in ("renpy", "rpgmaker", "zanzarah", "godot", "wolfrpg", "unity"):
+            self.assertIn(
+                f"https://github.com/refaim/unpackrat/releases?q={module}", readme
+            )
+        self.assertIn(
+            "| Unity | Unity serialized files and asset bundles "
+            "(e.g. `.assets`, `.bundle`, `.unity3d`) | "
+            "[unity](https://github.com/refaim/unpackrat/releases?q=unity) | "
+            "[RU](src/modules/unity/ChangeLog.ru.txt) "
+            "[EN](src/modules/unity/ChangeLog.en.txt) |",
+            readme,
+        )
         self.assertNotIn("<<<<<<<", readme)
         self.assertNotIn("planned first release", readme)
         build_system = (REPOSITORY_ROOT / "docs" / "build-system.md").read_text(encoding="utf-8")
         self.assertIn(GODOT, build_system.lower())
 
-    def test_readme_maps_components_and_notices_to_modules(self) -> None:
+    def test_readme_defers_the_component_inventory_to_the_retained_notices(self) -> None:
         readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertEqual(readme.count("| Project | License | Modules |"), 2)
-        self.assertRegex(
-            readme,
-            r"(?m)^\| \[zlib-ng\]\([^\n]+\) \| \[Zlib\]\(licenses/zlib-ng\.txt\) \| Ren'Py, Godot \|$",
-        )
-        self.assertNotIn("| [zlib](https://zlib.net)", readme)
-        self.assertRegex(
-            readme,
-            r"(?m)^\| \[mackron/dr_libs\]\([^\n]+\) \| \[Unlicense OR MIT-0\]\(licenses/dr_libs\.txt\) \| Godot \|$",
-        )
-        self.assertRegex(readme, r"(?m)^\| \[nlohmann/json\].*\| Tests only \|$")
-        self.assertRegex(readme, r"(?m)^\| \[catchorg/Catch2\].*\| Tests only \|$")
-        self.assertRegex(readme, r"(?m)^\| \[Cyan4973/xxHash\].*\| Tests only \|$")
-        self.assertNotIn("### Format references", readme)
+        # The hand-maintained component and inspiration tables are gone; the notice
+        # directory owns the machine-readable inventory.
+        self.assertNotIn("| Project | License | Modules |", readme)
+        self.assertNotIn("### Third-party components", readme)
+        self.assertNotIn("### Sources of inspiration", readme)
         self.assertIn("`.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a`", readme)
 
     def test_godot_xp_runtime_recipe_has_a_minor_version(self) -> None:
-        self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), "1.1.0")
+        self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), GODOT_VERSION)
 
-    def test_godot_runtime_recipe_preserves_all_previous_changelog_sections(self) -> None:
+    def test_godot_runtime_recipe_reports_the_approved_release_history(self) -> None:
         for language in ("en", "ru"):
             with self.subTest(language=language):
                 notes = (REPOSITORY_ROOT / f"src/modules/godot/ChangeLog.{language}.txt").read_text(encoding="utf-8")
-                versions = re.findall(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE)
-                self.assertEqual(versions, ["1.1.0", "1.0.1", "1.0.0"])
+                headers = list(re.finditer(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE))
+                self.assertEqual([header.group(1) for header in headers], ["1.2.1", "1.2.0", "1.0.0"])
+                top_block = notes[headers[0].end():headers[1].start()]
+                runtime_block, published_history = notes[headers[1].end():headers[2].start()], notes[headers[2].start():]
+                # The reviewed 1.2.1 patch leaves the 1.2.0 runtime block and the published
+                # 1.0.0 history intact, with their original four and eight entries.
+                self.assertEqual([len(re.findall(r"^ [+*] ", block, re.MULTILINE)) for block in (top_block, runtime_block)], [1, 4])
+                self.assertEqual(len(re.findall(r"^ [+*] ", published_history, re.MULTILINE)), 8)
 
 
 if __name__ == "__main__":  # pragma: no cover

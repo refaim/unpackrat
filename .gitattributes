@@ -15,3 +15,5 @@ experiments/unity-nativeaot/fixtures/audio/*.fsb binary
 experiments/unity-nativeaot/fixtures/*.assets binary
 # Expected text fixtures retain LF so their checkout bytes match the committed blobs.
 experiments/unity-nativeaot/fixtures/*.expected.txt text eol=lf
+src/tests/fixtures/**/*.wolf binary
+src/tests/fixtures/**/*.bin binary
