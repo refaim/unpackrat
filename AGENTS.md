@@ -31,6 +31,13 @@ bug fix starts with a regression test. The required coverage gate is 100% first-
 weaken thresholds, exclude production files, write coverage-only tests with no behavioral assertion, or add broad
 suppressions to make a check pass.
 
+## Changelogs
+
+Changelogs and GitHub release notes are for end users. Describe features, bug fixes, and noticeable improvements in
+plain language, and omit implementation details such as internal algorithms, SDK or dependency wiring, build internals,
+and test, CI, or coverage counts and terminology. Mention a technical fact only when it directly affects installation,
+use, or compatibility, and explain the consequence for the user.
+
 ## Development guidelines
 
 This project uses C++23 and follows the high-assurance engineering policy in
