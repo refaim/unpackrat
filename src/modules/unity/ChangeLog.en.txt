@@ -1,8 +1,7 @@
 Version 1.0.1
 -------------
 
- * Structural duplicate filter: exact source, rectangle, canvas and orientation matches are collapsed, preferring Sprite over an equivalent full Texture. Unknown tight/transformed Sprite data remains listed; opening does not decode PNG pixels.
- * Validates source-returned path lengths against the shared Observer metadata bound.
+ * Removed duplicate images from the resource list, including images listed in both {Sprite} and {Texture2D} folders.
 
 Version 1.0.0
 -------------
@@ -15,4 +14,3 @@ Version 1.0.0
  * Extracts VideoClip resources as raw containers and MovieTexture resources as OGV.
  * Exports Mesh resources as GLB geometry.
  * Exports requested resources on demand and keeps original resource paths when available, with {Type} fallbacks otherwise.
- * Preserves SDK version-aware handling, removes the duplicate ZSTD codec, and ships self-contained x86 and x64 builds, each a single DLL, with no .NET install required.
