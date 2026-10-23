@@ -1,5 +1,5 @@
-#ifndef UNITY_OBSERVER_PROBE_POLICY_H
-#define UNITY_OBSERVER_PROBE_POLICY_H
+#ifndef UNPACKRAT_UNITY_OBSERVER_PROBE_POLICY_H
+#define UNPACKRAT_UNITY_OBSERVER_PROBE_POLICY_H
 //
 // TEST-ONLY host policy for UnityObserverProbe.cpp. It persists next to the
 // host so the host and its focused policy tests build from the tracked
@@ -8,6 +8,7 @@
 // Pure integer logic with no Windows dependency, so the native host and the
 // standalone policy test compile exactly the same code.
 //
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -92,6 +93,9 @@ namespace probe
     // no such entry exists (the probes are then not exercised at all).
     inline int SelectProbeTarget(const std::vector<int> &result_codes, const std::vector<std::int64_t> &byte_counts)
     {
+        if (result_codes.empty() || byte_counts.empty()) {
+            return -1;
+        }
         const std::size_t count = result_codes.size() < byte_counts.size() ? result_codes.size() : byte_counts.size();
         for (std::size_t i = 0; i < count; ++i) {
             if (result_codes[i] == kSerSuccess && byte_counts[i] > 0) {
@@ -150,14 +154,11 @@ namespace probe
         if (ext.empty() || ext.size() > 16) {
             return false;
         }
-        for (wchar_t c : ext) {
+        return std::ranges::all_of(ext, [](const wchar_t c) {
             const bool lower = c >= L'a' && c <= L'z';
             const bool digit = c >= L'0' && c <= L'9';
-            if (!lower && !digit) {
-                return false;
-            }
-        }
-        return true;
+            return lower || digit;
+        });
     }
 
     // Whether a successfully exported entry of this kind must report a PackedSize
@@ -309,4 +310,4 @@ namespace probe
 
 } // namespace probe
 
-#endif // UNITY_OBSERVER_PROBE_POLICY_H
+#endif // UNPACKRAT_UNITY_OBSERVER_PROBE_POLICY_H

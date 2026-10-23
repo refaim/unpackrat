@@ -280,12 +280,9 @@ namespace extractor
             };
             const std::size_t dot = name.find(L'.');
             const std::wstring_view device = name.substr(0, dot == std::wstring_view::npos ? name.size() : dot);
-            for (const std::wstring_view candidate : reserved) {
-                if (ascii_case_insensitive_equal(device, candidate)) {
-                    return true;
-                }
-            }
-            return false;
+            return std::ranges::any_of(reserved, [device](const std::wstring_view candidate) {
+                return ascii_case_insensitive_equal(device, candidate);
+            });
         }
 
         // The braced kind folders are the fallback namespace: only unsafe entries ever land
@@ -298,12 +295,9 @@ namespace extractor
                 L"{Texture2D}",    L"{TextAsset}", L"{Font}", L"{VideoClip}",
                 L"{MovieTexture}", L"{AudioClip}", L"{Mesh}", L"{Sprite}",
             };
-            for (const std::wstring_view candidate : reserved) {
-                if (ascii_case_insensitive_equal(root, candidate)) {
-                    return true;
-                }
-            }
-            return false;
+            return std::ranges::any_of(reserved, [root](const std::wstring_view candidate) {
+                return ascii_case_insensitive_equal(root, candidate);
+            });
         }
 
         // The braced fallback folder of an entry kind, or null for an unknown kind. The
@@ -460,10 +454,10 @@ namespace extractor
                     start = position + 1;
                 }
             }
-            for (const std::wstring_view component : components) {
-                if (component.empty() || component == L"." || component == L"..") {
-                    return std::nullopt;
-                }
+            if (std::ranges::any_of(components, [](const std::wstring_view component) {
+                    return component.empty() || component == L"." || component == L"..";
+                })) {
+                return std::nullopt;
             }
 
             const std::wstring_view basename = components.back();
@@ -1029,8 +1023,8 @@ namespace extractor
         if (prepared_)
             return;
         const std::uint64_t token = token_;
-        const std::int32_t count = count_;
-        const std::size_t entry_count = static_cast<std::size_t>(count);
+        const std::int32_t backend_count = count_;
+        const std::size_t entry_count = static_cast<std::size_t>(backend_count);
 
         alignas(std::max_align_t) std::array<std::byte, prepare_scratch_bytes> path_scratch;
         std::pmr::monotonic_buffer_resource path_arena(path_scratch.data(), path_scratch.size(),
@@ -1048,7 +1042,7 @@ namespace extractor
         alignas(std::max_align_t) std::array<std::byte, prepare_scratch_bytes> prepare_scratch;
         std::array<char, max_path_units * 4> fallback_utf8{};
 
-        for (std::int32_t index = 0; index < count; ++index) {
+        for (std::int32_t index = 0; index < backend_count; ++index) {
             std::pmr::monotonic_buffer_resource arena(prepare_scratch.data(), prepare_scratch.size(),
                                                       std::pmr::new_delete_resource());
             const entry_metadata entry = read_entry(token, index, name, original, &arena);
@@ -1220,9 +1214,10 @@ namespace extractor
         throw read_error();
     }
 
-    uint32_t extractor::decrypt([[maybe_unused]] uint32_t magic, [[maybe_unused]] std::vector<char> &data) const
+    uint32_t extractor::decrypt(uint32_t magic, std::vector<char> &data) const
     {
         // The custom extract handler owns the whole body; the default path never runs.
+        static_cast<void>(data);
         return magic;
     }
 } // namespace extractor

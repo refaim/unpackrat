@@ -3,7 +3,7 @@
 
 This is NOT a NativeAOT build and NOT a unit test of the four native modules.
 It is a focused dependency-contract check: it instantiates a tiny project that
-imports the REAL production experiments/unity-nativeaot/Directory.Build.targets,
+imports the REAL production src/modules/unity/Directory.Build.targets,
 supplies a dummy SetupOSSpecificProps mirroring the SDK seam those targets hook
 (Microsoft.NETCore.Native.Windows.targets expands @(NativeLibrary->'"%(Identity)"')
 into @(LinkerArg)), and a LinkNative target that uses the SDK's exact incremental
@@ -19,7 +19,7 @@ input must not. The real both-arch publish and the large-game qualification stay
 with ROOT; this harness only proves the MSBuild dependency wiring.
 
 Opt-in (needs an installed dotnet SDK):
-    UNPACKRAT_RUN_NATIVE_LINK_TESTS=1 python experiments/unity-nativeaot/tests/test_native_link.py
+    UNPACKRAT_RUN_NATIVE_LINK_TESTS=1 python src/modules/unity/tests/test_native_link.py
 """
 
 import os
@@ -29,8 +29,8 @@ import time
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
-PRODUCTION_TARGETS = ROOT / "experiments" / "unity-nativeaot" / "Directory.Build.targets"
+ROOT = Path(__file__).resolve().parents[4]
+PRODUCTION_TARGETS = ROOT / "src" / "modules" / "unity" / "Directory.Build.targets"
 WORK_ROOT = ROOT / "out" / "unity-features" / "incremental-link"
 
 OPT_IN = os.environ.get("UNPACKRAT_RUN_NATIVE_LINK_TESTS") == "1"

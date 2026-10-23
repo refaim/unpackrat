@@ -6,22 +6,22 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<ImplicitUsings>disable</ImplicitUsings>
 		<InvariantGlobalization>true</InvariantGlobalization>
-		<VendorRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\out\unity-nativeaot\vendor\AssetRipper\Source'))</VendorRoot>
+		<VendorRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\out\unity-nativeaot\vendor\AssetRipper\Source'))</VendorRoot>
 	</PropertyGroup>
 
 	<!--
 		Keep every first-party intermediate/output artifact under the ignored
-		out/unity-nativeaot tree instead of polluting experiments/. Imported
+		out/unity-nativeaot tree instead of polluting the module source tree. Imported
 		early enough (Directory.Build.props is read before the SDK computes the
 		default BaseIntermediateOutputPath) that the redirect takes effect.
 	-->
 	<PropertyGroup>
-		<BaseIntermediateOutputPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\out\unity-nativeaot\obj\$(MSBuildProjectName)\'))</BaseIntermediateOutputPath>
-		<BaseOutputPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\out\unity-nativeaot\bin\$(MSBuildProjectName)\'))</BaseOutputPath>
+		<BaseIntermediateOutputPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\out\unity-nativeaot\obj\$(MSBuildProjectName)\'))</BaseIntermediateOutputPath>
+		<BaseOutputPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\out\unity-nativeaot\bin\$(MSBuildProjectName)\'))</BaseOutputPath>
 	</PropertyGroup>
 
 	<!--
-		A pre-redirect intermediate tree may linger under experiments/; keep its generated
+		A pre-redirect intermediate tree may linger under the module source tree; keep its generated
 		sources out of the compile so they cannot duplicate the redirected AssemblyInfo.
 	-->
 	<PropertyGroup>

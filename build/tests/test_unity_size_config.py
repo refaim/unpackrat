@@ -16,7 +16,7 @@ import unittest
 
 
 PROJECT_RELATIVE = Path(
-    "experiments/unity-nativeaot/UnityProbe/UnityProbe.csproj"
+    "src/modules/unity/UnityProbe/UnityProbe.csproj"
 )
 
 
@@ -122,6 +122,24 @@ class UnitySizeConfigurationTests(unittest.TestCase):
         return evaluate_native_size_properties(
             self.project, {**NATIVE_RELEASE, **properties}
         )
+
+    def test_default_paths_and_version_resolve_from_the_module_directory(self) -> None:
+        completed = subprocess.run(
+            [_dotnet_path(), "msbuild", str(self.project), "-nologo", "-verbosity:quiet",
+             "-getProperty:VendorRoot,BaseIntermediateOutputPath,BaseOutputPath,Version"],
+            cwd=self.project.parent, capture_output=True, text=True, timeout=120,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        properties = _json_properties(completed.stdout)
+        repository = Path(__file__).resolve().parents[2]
+        self.assertEqual(Path(properties["VendorRoot"]),
+                         repository / "out/unity-nativeaot/vendor/AssetRipper/Source")
+        self.assertEqual(Path(properties["BaseIntermediateOutputPath"]),
+                         repository / "out/unity-nativeaot/obj/UnityProbe")
+        self.assertEqual(Path(properties["BaseOutputPath"]),
+                         repository / "out/unity-nativeaot/bin/UnityProbe")
+        self.assertEqual(properties["Version"],
+                         (repository / "src/modules/unity/VERSION").read_text().strip())
 
     def test_release_windows_x64_shared_aot_uses_size_defaults(self) -> None:
         self.assertEqual(

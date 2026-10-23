@@ -87,25 +87,31 @@ int main()
     // 4. Candidate selection: skip a read failure and an empty success, pick a
     // later non-empty success; report none when there is no such entry.
     {
-        const std::vector<int> results = {kSerRead, kSerSuccess, kSerSuccess};
-        const std::vector<std::int64_t> bytes = {-1, 0, 42};
-        Check(SelectProbeTarget(results, bytes) == 2, "candidate: picks later non-empty success");
-
-        const std::vector<int> only_read = {kSerRead, kSerSuccess};
-        const std::vector<std::int64_t> empty = {-1, 0};
-        Check(SelectProbeTarget(only_read, empty) == -1, "candidate: none when nothing non-empty succeeded");
-        Check(SelectProbeTarget(std::vector<int>{}, std::vector<std::int64_t>{}) == -1,
-              "candidate: none for an empty catalog");
-
-        const std::vector<int> fewer_results = {kSerSuccess, kSerSuccess};
-        const std::vector<std::int64_t> more_bytes = {0, 42, 99};
-        Check(SelectProbeTarget(fewer_results, more_bytes) == 1,
-              "candidate: shorter results select the first matched non-empty success and ignore the unpaired byte");
-
-        const std::vector<int> more_results = {kSerSuccess, kSerSuccess, kSerSuccess};
-        const std::vector<std::int64_t> fewer_bytes = {0, 42};
-        Check(SelectProbeTarget(more_results, fewer_bytes) == 1,
-              "candidate: shorter bytes select the first matched non-empty success and ignore the unpaired result");
+        struct CandidateCase
+        {
+            std::vector<int> results;
+            std::vector<std::int64_t> bytes;
+            int expected = -1;
+            const char *name = "";
+        };
+        const CandidateCase cases[] = {
+            {{kSerRead, kSerSuccess, kSerSuccess}, {-1, 0, 42}, 2, "candidate: picks later non-empty success"},
+            {{kSerRead, kSerSuccess}, {-1, 0}, -1, "candidate: none when nothing non-empty succeeded"},
+            {{}, {}, -1, "candidate: none for an empty catalog"},
+            {{}, {-1, 0, 42}, -1, "candidate: no result cannot select an unpaired byte count"},
+            {{kSerRead, kSerSuccess, kSerSuccess}, {}, -1, "candidate: no byte count cannot select an unpaired result"},
+            {{kSerSuccess, kSerSuccess},
+             {0, 42, 99},
+             1,
+             "candidate: shorter results select the first matched non-empty success and ignore the unpaired byte"},
+            {{kSerSuccess, kSerSuccess, kSerSuccess},
+             {0, 42},
+             1,
+             "candidate: shorter bytes select the first matched non-empty success and ignore the unpaired result"},
+        };
+        for (const CandidateCase &test : cases) {
+            Check(SelectProbeTarget(test.results, test.bytes) == test.expected, test.name);
+        }
     }
 
     // 5. Per-item error policy: only SER_ERROR_READ is tolerated.

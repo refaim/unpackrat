@@ -97,7 +97,7 @@
 
 #include <windows.h>
 
-#include "../../../src/api.h"
+#include "../../../api.h"
 #include "UnityObserverProbePolicy.h"
 
 #include <algorithm>
@@ -747,13 +747,9 @@ int wmain(int argc, wchar_t **argv)
 
     // ---- extraction ----
     MilestoneF(L"milestone: extraction start\n");
-    int first_raw_bin_index = -1;
-    for (const EntryRec &entry : entries) {
-        if (entry.kind == probe::kResourceRawBin) {
-            first_raw_bin_index = entry.index;
-            break;
-        }
-    }
+    const auto first_raw_bin =
+        std::ranges::find_if(entries, [](const EntryRec &entry) { return entry.kind == probe::kResourceRawBin; });
+    const int first_raw_bin_index = first_raw_bin == entries.end() ? -1 : first_raw_bin->index;
 
     auto extract_entry = [&](int index, const std::wstring &destination, int mode, ProgressSink &sink) {
         sink.mode = mode;
@@ -888,9 +884,8 @@ int wmain(int argc, wchar_t **argv)
         std::vector<probe::SourceSize> current;
         listing.reserve(entries.size());
         current.reserve(entries.size());
-        for (const EntryRec &entry : entries) {
-            listing.push_back(probe::SourceSize{entry.size, entry.packed});
-        }
+        std::ranges::transform(entries, std::back_inserter(listing),
+                               [](const EntryRec &entry) { return probe::SourceSize{entry.size, entry.packed}; });
         for (const EntryRec &entry : entries) {
             StorageItemInfo item{};
             if (api.cbs.GetItem(storage.handle, entry.index, &item) != GET_ITEM_OK) {

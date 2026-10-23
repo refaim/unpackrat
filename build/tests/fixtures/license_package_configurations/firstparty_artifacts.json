@@ -36,9 +36,9 @@
     {
       "name": "unpackrat-build-main",
       "member": "build/main.py",
-      "version": "b81a901178d4696090dde2848070c73c1ca81c14062bdb6604a1033acc2e3e0b",
-      "sha256": "b81a901178d4696090dde2848070c73c1ca81c14062bdb6604a1033acc2e3e0b",
-      "artifact_filename": "b81a901178d4696090dde2848070c73c1ca81c14062bdb6604a1033acc2e3e0b.tar",
+      "version": "149dd6edfaacaf6771f60f8b378a6c16e6e9651883257ed8047cf79c46dee647",
+      "sha256": "149dd6edfaacaf6771f60f8b378a6c16e6e9651883257ed8047cf79c46dee647",
+      "artifact_filename": "149dd6edfaacaf6771f60f8b378a6c16e6e9651883257ed8047cf79c46dee647.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -349,9 +349,9 @@
     {
       "name": "unpackrat-build-tests-license-source-membership",
       "member": "build/tests/test_license_source_membership.py",
-      "version": "7d51631774c19f7c36d03f3c25903d13cacb3405cd3bee251a1238f644e0e19a",
-      "sha256": "7d51631774c19f7c36d03f3c25903d13cacb3405cd3bee251a1238f644e0e19a",
-      "artifact_filename": "7d51631774c19f7c36d03f3c25903d13cacb3405cd3bee251a1238f644e0e19a.tar",
+      "version": "4992c34a351c9fc6a775f8f1a464776b3ed2a7b9bd5f6f4fca4d341c6a785266",
+      "sha256": "4992c34a351c9fc6a775f8f1a464776b3ed2a7b9bd5f6f4fca4d341c6a785266",
+      "artifact_filename": "4992c34a351c9fc6a775f8f1a464776b3ed2a7b9bd5f6f4fca4d341c6a785266.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -656,9 +656,9 @@
     {
       "name": "unpackrat-build-tests-unity-nuget-monitor",
       "member": "build/tests/test_unity_nuget_monitor.py",
-      "version": "f1ad038b9bdfe2157d8ee55b2315ef4f5cef567339eef888476a8f43852d6cc0",
-      "sha256": "f1ad038b9bdfe2157d8ee55b2315ef4f5cef567339eef888476a8f43852d6cc0",
-      "artifact_filename": "f1ad038b9bdfe2157d8ee55b2315ef4f5cef567339eef888476a8f43852d6cc0.tar",
+      "version": "e50376b9ea641346f93a1a2e2e1a32b42e6617088165ec890acd99599f13975f",
+      "sha256": "e50376b9ea641346f93a1a2e2e1a32b42e6617088165ec890acd99599f13975f",
+      "artifact_filename": "e50376b9ea641346f93a1a2e2e1a32b42e6617088165ec890acd99599f13975f.tar",
       "extension": ".tar",
       "curations": [
         {

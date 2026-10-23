@@ -1335,7 +1335,7 @@
         "origin": "external",
         "recipe": null,
         "patches": [
-          "experiments/unity-nativeaot/patches/assetripper-stream-ownership.patch"
+          "src/modules/unity/patches/assetripper-stream-ownership.patch"
         ],
         "url": "https://github.com/AssetRipper/AssetRipper/blob/beeb50ee1c223e856c860caa338e5309404956a3/LICENSE.md",
         "sha512": [],
@@ -1344,7 +1344,7 @@
       "notices": [
         "licenses/Unity.txt"
       ],
-      "notes": "Pinned external AssetRipper source for the opt-in unity module. It is statically linked into unity.so as a GPL-3.0 combined work, so this component is incorporated runtime source, not a reference. The native-only default graph (renpy, rpgmaker, zanzarah, godot and wolfrpg) does not link it and remains the default audited runtime graph. The source is pinned by experiments/unity-nativeaot/upstream.json and the reviewed stream-ownership patch; this Unity route is not covered by the default vcpkg dependency audit."
+      "notes": "Pinned external AssetRipper source for the opt-in unity module. It is statically linked into unity.so as a GPL-3.0 combined work, so this component is incorporated runtime source, not a reference. The native-only default graph (renpy, rpgmaker, zanzarah, godot and wolfrpg) does not link it and remains the default audited runtime graph. The source is pinned by src/modules/unity/upstream.json and the reviewed stream-ownership patch; this Unity route is not covered by the default vcpkg dependency audit."
     },
     {
       "name": "unpackrat-source",
@@ -1370,8 +1370,7 @@
       ],
       "roots": [
         "src",
-        "build",
-        "experiments/unity-nativeaot"
+        "build"
       ],
       "include": [
         "build.ps1",
@@ -1391,7 +1390,6 @@
         ".ort.yml",
         "AGENTS.md",
         "README.md",
-        "TODO.md",
         "codecov.yml",
         "vcpkg.json",
         "vcpkg-configuration.json",
@@ -1414,7 +1412,7 @@
         "src/tests/data/godot/texture-media-manifest.json",
         "src/tests/data/godot/texture-media-repro.txt"
       ],
-      "notes": "Every remaining tracked first-party source file is gathered here deterministically from Git metadata (git ls-files), so a new GPL/LGPL/unknown file anywhere under src/, build/ or experiments/unity-nativeaot/ reaches the source scanner and fails closed instead of hiding behind the PACKAGE-only root. The conclusion stays NOASSERTION so the source scanner is never masked. Untracked working files never enter the artifact, src/api.h is owned by observer-api, and the vendored catch2 overlay recipe is owned by vcpkg-catch2-recipe. The nineteen reference-heavy first-party build/test Python files are owned by their own reviewed unpackrat-build-* components, where each stays scanned in full and bound to the exact bytes it was reviewed at. Membership excludes only reviewed non-source data, never whole filename extensions: the repository-root metadata and documentation (AGENTS.md, README.md, codecov.yml, .ort.yml, vcpkg.json and vcpkg-configuration.json), the policy-reference inventory, the port-declaration manifests under build/vcpkg/ports/*/vcpkg.json and the port overview build/vcpkg/ports/README.md, and the documented godot/renpy test-fixture prose and archive-manifest metadata under src/tests/data/. Any other tracked source file - including a new src/<vendor>/LICENSE.txt, CMakeLists.txt, LICENSE.md, LICENSE.json or LICENSE.yml, the module ChangeLog*.txt notes, the build/ubsan-ignorelist.txt build configuration, a new CMakeLists.txt under build/vcpkg/ports/ and the project root LICENSE.txt grant - stays in the scanned artifact or fails accounting until it is reviewed. licenses/, .ort/, docs/ and .github/ carry standalone notice texts and configuration data and are excluded as non-code, and only the deliberate poison/data fixtures under build/tests/fixtures/ (the ort-smoke license-identifier payloads and the recorded vcpkg/ORT samples) are excluded as documented data. TODO.md is excluded as repository documentation, while the Unity experiment's C#/native/build sources and patches stay scanned rather than hidden behind a fixture prefix or a filename-extension exclusion; its ThirdParty notice and provenance files remain in this scanned component and are not promoted to invented third-party grants. This source scan does not assert a complete native Unity dependency audit; the opt-in AssetRipper GPL-3.0 runtime source is recorded in the separate assetripper component and remains outside the default vcpkg audit."
+      "notes": "Every remaining tracked first-party source file is gathered here deterministically from Git metadata (git ls-files), so a new GPL/LGPL/unknown file anywhere under src/ or build/ reaches the source scanner and fails closed instead of hiding behind the PACKAGE-only root. The conclusion stays NOASSERTION so the source scanner is never masked. Untracked working files never enter the artifact, src/api.h is owned by observer-api, and the vendored catch2 overlay recipe is owned by vcpkg-catch2-recipe. The nineteen reference-heavy first-party build/test Python files are owned by their own reviewed unpackrat-build-* components, where each stays scanned in full and bound to the exact bytes it was reviewed at. Membership excludes only reviewed non-source data, never whole filename extensions: the repository-root metadata and documentation (AGENTS.md, README.md, codecov.yml, .ort.yml, vcpkg.json and vcpkg-configuration.json), the policy-reference inventory, the port-declaration manifests under build/vcpkg/ports/*/vcpkg.json and the port overview build/vcpkg/ports/README.md, and the documented godot/renpy test-fixture prose and archive-manifest metadata under src/tests/data/. Any other tracked source file - including a new src/<vendor>/LICENSE.txt, CMakeLists.txt, LICENSE.md, LICENSE.json or LICENSE.yml, the module ChangeLog*.txt notes, the build/ubsan-ignorelist.txt build configuration, a new CMakeLists.txt under build/vcpkg/ports/ and the project root LICENSE.txt grant - stays in the scanned artifact or fails accounting until it is reviewed. licenses/, .ort/, docs/ and .github/ carry standalone notice texts and configuration data and are excluded as non-code, and only the deliberate poison/data fixtures under build/tests/fixtures/ (the ort-smoke license-identifier payloads and the recorded vcpkg/ORT samples) are excluded as documented data. The Unity module's C#/native/build sources and patches stay scanned rather than hidden behind a fixture prefix or a filename-extension exclusion; its ThirdParty notice and provenance files remain in this scanned component and are not promoted to invented third-party grants. This source scan does not assert a complete native Unity dependency audit; the opt-in AssetRipper GPL-3.0 runtime source is recorded in the separate assetripper component and remains outside the default vcpkg audit."
     },
     {
       "name": "unpackrat-build-tests-unity-packaging",

@@ -208,7 +208,7 @@ public sealed class UnitySessionMixedAudioMeshTests
 		DirectoryInfo? directory = new(AppContext.BaseDirectory);
 		while (directory is not null)
 		{
-			if (Directory.Exists(Path.Combine(directory.FullName, "experiments")) && Directory.Exists(Path.Combine(directory.FullName, "out")))
+			if (Directory.Exists(Path.Combine(directory.FullName, "src", "modules", "unity")) && Directory.Exists(Path.Combine(directory.FullName, "out")))
 			{
 				return directory.FullName;
 			}

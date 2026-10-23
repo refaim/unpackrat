@@ -9,11 +9,11 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 BINARY_FIXTURES = (
-    "experiments/unity-nativeaot/fixtures/audio/pcm16.fsb",
-    "experiments/unity-nativeaot/fixtures/audio/short_vorbis.fsb",
-    "experiments/unity-nativeaot/fixtures/text-only.assets",
+    "src/modules/unity/fixtures/audio/pcm16.fsb",
+    "src/modules/unity/fixtures/audio/short_vorbis.fsb",
+    "src/modules/unity/fixtures/text-only.assets",
 )
-TEXT_FIXTURES = ("experiments/unity-nativeaot/fixtures/text-only.expected.txt",)
+TEXT_FIXTURES = ("src/modules/unity/fixtures/text-only.expected.txt",)
 
 
 def _git(*arguments: str, input_bytes: bytes | None = None) -> bytes:

@@ -8,6 +8,7 @@ cached; nothing here reaches a released binary from another run or invents a Cod
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 
 
@@ -172,6 +174,116 @@ class InstalledToolsetPreflightTests(unittest.TestCase):
                     self.assertEqual(main._msvc_toolset_version(installation), "14.51.10")
                 else:
                     self.assertIn("MSVC", completed.stderr)
+
+
+class VcpkgToolDownloadTests(unittest.TestCase):
+    PAYLOAD = b"synthetic pinned vcpkg tool"
+    INSTALLED = b"previous installed tool"
+
+    def _execute(self, *, failures=0, payload=PAYLOAD, stale=None, missing=False):
+        workflow = (REPOSITORY / ".github/workflows/ci-check.yml").read_text(encoding="utf-8")
+        step = workflow.split("      - name: Provision the pinned vcpkg tool\n", 1)[1]
+        step = step.split("\n      - name: ", 1)[0]
+        body = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        body = body[body.index("$toolDir ="):]
+        # Only substitute the pinned fixture digest; execute the workflow's real download,
+        # retry, hash validation and copy statements with the actual PowerShell commands.
+        body = body.replace(VCPKG_EXE_SHA, hashlib.sha256(self.PAYLOAD).hexdigest())
+        fake = textwrap.dedent("""\
+            $ErrorActionPreference = 'Stop'
+            $global:downloadCalls = 0
+            function gh {
+              @($args) | ConvertTo-Json -Compress | Add-Content -LiteralPath $env:FIXTURE_ARGS
+              $global:downloadCalls++
+              $position = [Array]::IndexOf($args, '--dir')
+              $target = Join-Path $args[$position + 1] 'vcpkg.exe'
+              if ((Test-Path -LiteralPath $target) -and $args -notcontains '--clobber') {
+                $global:LASTEXITCODE = 1
+                return
+              }
+              if ($global:downloadCalls -le [int]$env:FIXTURE_FAILURES) {
+                [IO.File]::WriteAllBytes($target, [Text.Encoding]::UTF8.GetBytes('partial download'))
+                $global:LASTEXITCODE = 7
+              } else {
+                if ($env:FIXTURE_MISSING -ne '1') {
+                  Copy-Item -LiteralPath $env:FIXTURE_BYTES -Destination $target -Force
+                }
+                $global:LASTEXITCODE = 0
+              }
+            }
+            function Start-Sleep {
+              param([int]$Seconds)
+              $Seconds | Add-Content -LiteralPath $env:FIXTURE_SLEEPS
+            }
+            """)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "fixture.bin"
+            fixture.write_bytes(payload)
+            directory = root / "vcpkg-tool-2026-09-26"
+            if stale is not None:
+                directory.mkdir()
+                (directory / "vcpkg.exe").write_bytes(stale)
+            install = root / "installed"
+            install.mkdir()
+            destination = install / "vcpkg.exe"
+            destination.write_bytes(self.INSTALLED)
+            arguments = root / "args.jsonl"
+            sleeps = root / "sleeps.txt"
+            sleeps.touch()
+            completed = subprocess.run(
+                ["pwsh", "-NoProfile", "-NonInteractive", "-Command", fake + body],
+                env={**os.environ, "RUNNER_TEMP": str(root), "VCPKG_ROOT": str(install),
+                     "FIXTURE_ARGS": str(arguments), "FIXTURE_SLEEPS": str(sleeps),
+                     "FIXTURE_BYTES": str(fixture), "FIXTURE_FAILURES": str(failures),
+                     "FIXTURE_MISSING": str(int(missing))},
+                capture_output=True, text=True, check=False,
+            )
+            calls = [json.loads(line) for line in arguments.read_text().splitlines()]
+            delays = [int(line) for line in sleeps.read_text().splitlines()]
+            return completed, destination.read_bytes(), calls, delays, directory
+
+    def test_immediate_success_installs_verified_bytes_without_backoff(self):
+        completed, installed, calls, delays, directory = self._execute()
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(installed, self.PAYLOAD)
+        self.assertEqual(calls, [["release", "download", "2026-09-26", "--repo", "microsoft/vcpkg-tool",
+                                 "--pattern", "vcpkg.exe", "--dir", str(directory), "--clobber"]])
+        self.assertEqual(delays, [])
+
+    def test_transient_failures_retry_through_the_final_attempt_and_replace_partial_bytes(self):
+        for failures in (1, 2):
+            with self.subTest(failures=failures):
+                completed, installed, calls, delays, _ = self._execute(failures=failures,
+                                                                      stale=b"old partial asset")
+                self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+                self.assertEqual(installed, self.PAYLOAD)
+                self.assertEqual(len(calls), failures + 1)
+                self.assertTrue(all("--clobber" in call for call in calls))
+                self.assertEqual(delays, [2, 4][:failures])
+
+    def test_exhaustion_stops_after_three_attempts_without_installing_partial_bytes(self):
+        completed, installed, calls, delays, _ = self._execute(failures=4, stale=self.PAYLOAD)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("Unable to download the pinned vcpkg tool", completed.stdout + completed.stderr)
+        self.assertEqual(installed, self.INSTALLED)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(delays, [2, 4])
+
+    def test_a_checksum_mismatch_fails_closed_without_retrying_or_installing(self):
+        completed, installed, calls, delays, _ = self._execute(payload=b"unexpected tool bytes")
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("SHA-256 validation failed", completed.stdout + completed.stderr)
+        self.assertEqual(installed, self.INSTALLED)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(delays, [])
+
+    def test_a_successful_download_without_an_asset_does_not_replace_the_installed_tool(self):
+        completed, installed, calls, delays, _ = self._execute(missing=True)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual(installed, self.INSTALLED)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(delays, [])
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ BRANCHES = {
     "drlibs": ("mackron/dr_libs", "master"),
 }
 # Managers registered for sources that are not vcpkg dependencies. The standalone
-# AssetRipper release watcher reads experiments/unity-nativeaot/upstream.json;
+# AssetRipper release watcher reads src/modules/unity/upstream.json;
 # AssetsTools.NET reads its PackageReference. Neither has a vcpkg manifest entry.
 STANDALONE_MANAGERS = {
     "assetripper",

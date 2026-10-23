@@ -11,15 +11,17 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{6B2F4C11-9A3E-4E27-8E5D-2C1A9F0B7D41}</ProjectGuid>
+    <ProjectGuid>{C1D4E7A9-3B62-4F58-9C0E-5A7D1E8B2F63}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>UnityObserver</RootNamespace>
+    <RootNamespace>UnityObserverUnitTests</RootNamespace>
+    <CommonObserverTests Condition="'$(CommonObserverTests)' == ''">false</CommonObserverTests>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
-    <unpackratUnityObserverRoot>$(MSBuildProjectDirectory)\..\..\..</unpackratUnityObserverRoot>
+    <unpackratUnityObserverRoot>$(MSBuildProjectDirectory)\..\..\..\..</unpackratUnityObserverRoot>
+    <Catch2Root Condition="'$(Catch2Root)' == ''">C:\Users\Roma\Dev\ObserverModules\out\provider-vcpkg-check\x64\packages\catch2_unpackrat-x64-windows-static</Catch2Root>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
     <UseDebugLibraries>false</UseDebugLibraries>
@@ -32,13 +34,10 @@
   </PropertyGroup>
   <Import Project="$(unpackratUnityObserverRoot)\build\unpackrat-module-version.props" />
   <PropertyGroup>
-    <OutDir>$(unpackratUnityObserverRoot)\out\unity-observer-adapter\native\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>$(unpackratUnityObserverRoot)\out\unity-observer-adapter\native\obj\$(Platform)\$(Configuration)\</IntDir>
-    <TargetName>UnityObserver</TargetName>
-    <TargetExt>.lib</TargetExt>
-    <!-- This experimental project is built in a restricted sandbox where MSBuild's
-         FileTracker (which probes long file paths) is denied access. Incremental
-         FileTracker bookkeeping is not needed for a one-shot adapter build. -->
+    <OutDir>$(unpackratUnityObserverRoot)\out\unity-observer-adapter\unit\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(unpackratUnityObserverRoot)\out\unity-observer-adapter\unit\obj\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>UnityObserverUnitTests</TargetName>
+    <TargetExt>.exe</TargetExt>
     <TrackFileAccess Condition="'$(TrackFileAccess)' == ''">false</TrackFileAccess>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -55,17 +54,23 @@
       <DebugInformationFormat>OldStyle</DebugInformationFormat>
       <MultiProcessorCompilation>false</MultiProcessorCompilation>
       <PreprocessorDefinitions>NOMINMAX;WINVER=0x0600;_WIN32_WINNT=0x0600;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(unpackratUnityObserverRoot)\src;$(MSBuildProjectDirectory)\..\native;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(unpackratUnityObserverRoot)\src;$(MSBuildProjectDirectory)\..\native;$(Catch2Root)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <Lib>
-      <AdditionalOptions>/IGNORE:4221 %(AdditionalOptions)</AdditionalOptions>
-    </Lib>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalLibraryDirectories>$(Catch2Root)\lib;$(Catch2Root)\lib\manual-link;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Catch2.lib;Catch2Main.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="$(unpackratUnityObserverRoot)\src\dll.cpp" />
     <ClCompile Include="$(unpackratUnityObserverRoot)\src\archive.cpp" />
-    <ClCompile Include="UnityExtractor.cpp" />
+    <ClCompile Include="UnityExtractor.cpp" Condition="'$(CommonObserverTests)' != 'true'" />
+    <ClCompile Include="UnityExtractorTests.cpp" Condition="'$(CommonObserverTests)' != 'true'" />
+    <ClCompile Include="$(unpackratUnityObserverRoot)\src\tests\unit\common_observer.cpp" Condition="'$(CommonObserverTests)' == 'true'" />
+    <ClCompile Include="$(unpackratUnityObserverRoot)\src\tests\support\archive_lazy_fixtures.cpp" Condition="'$(CommonObserverTests)' == 'true'" />
+    <ClCompile Include="$(unpackratUnityObserverRoot)\src\tests\unit\archive_lazy.cpp" Condition="'$(CommonObserverTests)' == 'true'" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(unpackratUnityObserverRoot)\src\api.h" />
