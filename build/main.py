@@ -54,10 +54,10 @@ UNITY_MODULE = "unity"
 UNITY_BINARY = "unity.so"
 UNITY_SYMBOLS = "unity.pdb"
 UNITY_ASSEMBLY = "unpackrat-unity-probe"
-UNITY_UPSTREAM = "experiments/unity-nativeaot/upstream.json"
-UNITY_PATCH = "experiments/unity-nativeaot/patches/assetripper-stream-ownership.patch"
-UNITY_OBSERVER_PROJECT = "experiments/unity-nativeaot/observer/UnityObserver.vcxproj"
-UNITY_PROBE_PROJECT = "experiments/unity-nativeaot/UnityProbe/UnityProbe.csproj"
+UNITY_UPSTREAM = "src/modules/unity/upstream.json"
+UNITY_PATCH = "src/modules/unity/patches/assetripper-stream-ownership.patch"
+UNITY_OBSERVER_PROJECT = "src/modules/unity/observer/UnityObserver.vcxproj"
+UNITY_PROBE_PROJECT = "src/modules/unity/UnityProbe/UnityProbe.csproj"
 # The prepared AssetRipper tree and its receipt sit under the existing ignored out/ tree; the
 # receipt pins the exact repository revision and patch hash so a stale tree fails instead of
 # silently reusing a different upstream snapshot.

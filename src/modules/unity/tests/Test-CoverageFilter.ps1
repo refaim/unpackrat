@@ -16,16 +16,16 @@
     its own two outputs (coverage.cobertura.xml and dotnet-test.log). It never removes the caller's
     output directory or any unrelated contents inside it.
 
-    Usage:  pwsh -File experiments/unity-nativeaot/tests/Test-CoverageFilter.ps1
+    Usage:  pwsh -File src/modules/unity/tests/Test-CoverageFilter.ps1
 #>
 [CmdletBinding()]
 param(
     [string]$TestProject = (Join-Path $PSScriptRoot '..\UnityProbe.Tests\UnityProbe.Tests.csproj'),
-    [string]$OutputDir = (Join-Path $PSScriptRoot '..\..\..\out\unity-size\coverage-filter-project')
+    [string]$OutputDir = (Join-Path $PSScriptRoot '..\..\..\..\out\unity-size\coverage-filter-project')
 )
 
 $ErrorActionPreference = 'Stop'
-$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..'))
 $TestProject = [IO.Path]::GetFullPath($TestProject)
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 

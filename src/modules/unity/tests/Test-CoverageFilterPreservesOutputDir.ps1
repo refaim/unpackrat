@@ -14,7 +14,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+    [string]$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..'))
 )
 
 $ErrorActionPreference = 'Stop'

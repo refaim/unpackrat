@@ -186,7 +186,7 @@
     {
       "customType": "regex",
       "description": "Watch published AssetRipper releases for the NativeAOT prototype; sourceRevision is the actual snapshot pin, not the release commit.",
-      "managerFilePatterns": ["/^experiments/unity-nativeaot/upstream\\.json$/"],
+      "managerFilePatterns": ["/^src/modules/unity/upstream\\.json$/"],
       "matchStrings": ["\"releaseWatchBaseline\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
       "depNameTemplate": "assetripper",
       "packageNameTemplate": "AssetRipper/AssetRipper",
@@ -197,7 +197,7 @@
     {
       "customType": "regex",
       "description": "Watch the lazy Unity metadata reader's exact NuGet package pin.",
-      "managerFilePatterns": ["/^experiments/unity-nativeaot/UnityProbe/UnityProbe\\.csproj$/"],
+      "managerFilePatterns": ["/^src/modules/unity/UnityProbe/UnityProbe\\.csproj$/"],
       "matchStrings": ["<PackageReference\\s+(?:[^>]*?\\s)?Include\\s*=\\s*\"AssetsTools\\.NET\"[^>]*?\\sVersion\\s*=\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
       "depNameTemplate": "AssetsTools.NET",
       "packageNameTemplate": "AssetsTools.NET",

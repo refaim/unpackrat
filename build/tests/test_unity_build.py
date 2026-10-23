@@ -35,8 +35,8 @@ import main  # noqa: E402
 
 UPSTREAM_REPOSITORY = "AssetRipper/AssetRipper"
 UPSTREAM_REVISION = "beeb50ee1c223e856c860caa338e5309404956a3"
-UPSTREAM_FILE = "experiments/unity-nativeaot/upstream.json"
-PATCH_FILE = "experiments/unity-nativeaot/patches/assetripper-stream-ownership.patch"
+UPSTREAM_FILE = "src/modules/unity/upstream.json"
+PATCH_FILE = "src/modules/unity/patches/assetripper-stream-ownership.patch"
 PATCH_BYTES = b"fixture stream-ownership patch\n"
 OBSERVER_LIB_BYTES = b"observer static library bytes\n"
 YY_THUNKS_BYTES = b"xp thunks object bytes\n"
@@ -44,6 +44,27 @@ YY_THUNKS_BYTES = b"xp thunks object bytes\n"
 
 def _publish_dll(architecture: str) -> bytes:
     return f"native unity shared library {architecture}\n".encode("ascii")
+
+
+class UnitySourceLayoutTests(unittest.TestCase):
+    def test_build_uses_the_shipped_module_source_directory(self) -> None:
+        self.assertEqual(main.UNITY_UPSTREAM, UPSTREAM_FILE)
+        self.assertEqual(main.UNITY_PATCH, PATCH_FILE)
+        self.assertEqual(main.UNITY_OBSERVER_PROJECT,
+                         "src/modules/unity/observer/UnityObserver.vcxproj")
+        self.assertEqual(main.UNITY_PROBE_PROJECT,
+                         "src/modules/unity/UnityProbe/UnityProbe.csproj")
+
+    def test_module_keeps_its_backend_adapter_and_repository_fixtures(self) -> None:
+        root = BUILD_ROOT.parent / "src/modules/unity"
+        for relative in (
+            "UnityProbe/UnitySession.cs", "UnityProbe/UnityProbe.csproj",
+            "observer/UnityExtractor.cpp", "observer/UnityObserver.vcxproj",
+            "native/unity_backend.h", "patches/assetripper-stream-ownership.patch",
+            "UnityProbe.Tests/UnityProbe.Tests.csproj", "fixtures/text-only.assets",
+        ):
+            with self.subTest(relative=relative):
+                self.assertTrue((root / relative).is_file(), relative)
 
 
 class RecordedCall:

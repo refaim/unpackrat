@@ -6,7 +6,7 @@
   the only target logic present is whatever the imported real targets define.
 
   Parameters (all supplied on the command line):
-    RealTargets   absolute path to experiments/unity-nativeaot/Directory.Build.targets
+    RealTargets   absolute path to src/modules/unity/Directory.Build.targets
     ProbeTargetA  first real target to invoke (may be empty)
     ProbeTargetB  second real target to invoke (may be empty)
     ProbeOut      absolute path of the file that receives @(LinkerArg), one per line

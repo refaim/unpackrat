@@ -1,7 +1,7 @@
 # Decision-table tests for the real Unity NativeAOT experiment targets.
 #
 # Every case runs the actual MSBuild engine against the REAL
-# experiments/unity-nativeaot/Directory.Build.targets through the probe project
+# src/modules/unity/Directory.Build.targets through the probe project
 # yy-thunks-probe.proj, and asserts the concrete outcome (build exit code and
 # the exact @(LinkerArg) items the target produced). Nothing is asserted from a
 # hard-coded copy of the flags.
@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 
 $TestsDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ExpDir    = Split-Path -Parent $TestsDir
-$RepoRoot  = Split-Path -Parent (Split-Path -Parent $ExpDir)
+$RepoRoot  = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ExpDir))
 
 $RealTargets = Join-Path $ExpDir 'Directory.Build.targets'
 $ProbeProj   = Join-Path $TestsDir 'yy-thunks-probe.proj'

@@ -41,6 +41,7 @@
 
 #include "unity_backend.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -341,14 +342,12 @@ int wmain(int argc, wchar_t **argv)
             Fail(L"open null path", L"non-null outputs not zeroed");
             return kExitOpenNull;
         }
-        session = kGarbageHandle;
         count = kGarbageCount;
         if (api.open(input_u16, input_len, nullptr, &count) != UNITY_INVALID_ARGUMENT || count != 0) {
             Fail(L"open null session_out", L"expected INVALID_ARGUMENT and zeroed count");
             return kExitOpenNull;
         }
         session = kGarbageHandle;
-        count = kGarbageCount;
         if (api.open(input_u16, input_len, &session, nullptr) != UNITY_INVALID_ARGUMENT || session != 0) {
             Fail(L"open null count_out", L"expected INVALID_ARGUMENT and zeroed session");
             return kExitOpenNull;
@@ -493,11 +492,9 @@ int wmain(int argc, wchar_t **argv)
                 std::fwprintf(stderr, L"UnitySessionProbe: FAIL [buffer small] rc=%d\n", src);
                 return kExitEnumerate;
             }
-            for (std::uint16_t unit : small) {
-                if (unit != kCanaryUnit) {
-                    Fail(L"buffer small", L"partial name write on failure");
-                    return kExitLayout;
-                }
+            if (std::ranges::any_of(small, [](const std::uint16_t unit) { return unit != kCanaryUnit; })) {
+                Fail(L"buffer small", L"partial name write on failure");
+                return kExitLayout;
             }
         }
     }
@@ -595,13 +592,9 @@ int wmain(int argc, wchar_t **argv)
             Fail(L"expected", L"cannot read expected file");
             return kExitFixtureText;
         }
-        bool matched = false;
-        for (const std::vector<std::uint8_t> &data : extracted) {
-            if (data == expected) { // empty expected matches an empty entry
-                matched = true;
-                break;
-            }
-        }
+        // Empty expected bytes match an empty entry.
+        const bool matched = std::ranges::any_of(
+            extracted, [&expected](const std::vector<std::uint8_t> &data) { return data == expected; });
         if (!matched) {
             Fail(L"fixture text", L"no entry matches expected bytes");
             return kExitFixtureText;

@@ -119,9 +119,14 @@ jobs:
           # run, because it would rebuild and replace this verified tool with the tree's own build.
           $toolDir = Join-Path $env:RUNNER_TEMP 'vcpkg-tool-2026-09-26'
           New-Item -ItemType Directory -Force -Path $toolDir | Out-Null
-          gh release download 2026-09-26 --repo microsoft/vcpkg-tool --pattern 'vcpkg.exe' --dir $toolDir
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Unable to download the pinned vcpkg tool.'
+          foreach ($attempt in 1..3) {
+            gh release download 2026-09-26 --repo microsoft/vcpkg-tool --pattern 'vcpkg.exe' --dir $toolDir --clobber
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) {
+              throw 'Unable to download the pinned vcpkg tool after 3 attempts.'
+            }
+            # A failed transfer may leave partial bytes; --clobber replaces them on retry.
+            Start-Sleep -Seconds (2 * $attempt)
           }
           $tool = Join-Path $toolDir 'vcpkg.exe'
           $expected = '2a4ae1467b9e797964c60c919d057b9e5dc1ec03f4b9632c1150026db25201f2'

@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $experiment = Split-Path -Parent $here
-$root = Split-Path -Parent (Split-Path -Parent $experiment)
+$root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $experiment))
 $project = Join-Path $here 'observer-adapter-contract.proj'
 
 $libX64 = Join-Path $root 'out\unity-observer-adapter\native\x64\Release\UnityObserver.lib'

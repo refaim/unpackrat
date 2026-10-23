@@ -7,7 +7,7 @@ They never compile, publish, invoke ILC/link.exe, restore, or install packages.
 Only the compiler input is a tiny dummy file; the GC library selection, IlcArg
 items and response-file contents all come from the real SDK implementation.
 
-UNPACKRAT_RUN_NATIVE_GC_TESTS=1 python experiments/unity-nativeaot/tests/test_native_gc.py
+UNPACKRAT_RUN_NATIVE_GC_TESTS=1 python src/modules/unity/tests/test_native_gc.py
 """
 
 import json
@@ -17,8 +17,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
-PROJECT = ROOT / "experiments" / "unity-nativeaot" / "UnityProbe" / "UnityProbe.csproj"
+ROOT = Path(__file__).resolve().parents[4]
+PROJECT = ROOT / "src" / "modules" / "unity" / "UnityProbe" / "UnityProbe.csproj"
 WORK_ROOT = ROOT / "out" / "unity-gc-blocking-default" / "sdk-contract" / f"run-{os.getpid()}"
 OPT_IN = os.environ.get("UNPACKRAT_RUN_NATIVE_GC_TESTS") == "1"
 GC_POLICY_OPTIONS = {

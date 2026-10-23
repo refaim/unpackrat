@@ -1,3 +1,5 @@
+#ifndef UNPACKRAT_UNITY_BACKEND_H
+#define UNPACKRAT_UNITY_BACKEND_H
 /*
  * unity_backend.h - frozen v1 UnitySession C ABI.
  *
@@ -10,9 +12,6 @@
  * int32_t (see UnityResult). UnityEntry is exactly 32 bytes with 8-byte
  * packing; the static_asserts below pin the size and every field offset.
  */
-#ifndef UNPACKRAT_UNITY_BACKEND_H
-#define UNPACKRAT_UNITY_BACKEND_H
-
 #include <stddef.h>
 #include <stdint.h>
 

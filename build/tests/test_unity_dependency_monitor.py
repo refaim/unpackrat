@@ -18,11 +18,11 @@ CONFIGURATION_CANDIDATES = (
     REPOSITORY / "renovate.json",
 )
 
-METADATA = REPOSITORY / "experiments/unity-nativeaot/upstream.json"
+METADATA = REPOSITORY / "src/modules/unity/upstream.json"
 
 # The upstream vendor delta is stored as a plain patch and applied with ``git apply``,
 # which cannot parse empty context lines after a CRLF conversion.
-OWNERSHIP_PATCH = REPOSITORY / "experiments/unity-nativeaot/patches/assetripper-stream-ownership.patch"
+OWNERSHIP_PATCH = REPOSITORY / "src/modules/unity/patches/assetripper-stream-ownership.patch"
 
 RELEASE_WATCH_DEP_NAME = "assetripper"
 PACKAGE_NAME = "AssetRipper/AssetRipper"
@@ -77,12 +77,12 @@ class UnityDependencyMonitorTests(unittest.TestCase):
         manager = self.assetripper_managers()[0]
         file_pattern, = manager["managerFilePatterns"]
         pattern = expression(file_pattern[1:-1])
-        self.assertIsNotNone(pattern.search("experiments/unity-nativeaot/upstream.json"))
+        self.assertIsNotNone(pattern.search("src/modules/unity/upstream.json"))
         for unrelated in (
-            "experiments/unity-nativeaot/Directory.Build.props",
-            "experiments/unity-nativeaot/UnityProbe/Manifest.cs",
+            "src/modules/unity/Directory.Build.props",
+            "src/modules/unity/UnityProbe/Manifest.cs",
             "vcpkg.json",
-            "experiments/unity-nativeaot/upstream.json.bak",
+            "src/modules/unity/upstream.json.bak",
         ):
             self.assertIsNone(pattern.search(unrelated), unrelated)
 

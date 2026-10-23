@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-PROJECT = "experiments/unity-nativeaot/UnityProbe/UnityProbe.csproj"
+PROJECT = "src/modules/unity/UnityProbe/UnityProbe.csproj"
 PACKAGE = "AssetsTools.NET"
 MIT_NOTICE = """MIT License
 
@@ -67,9 +67,9 @@ class UnityNugetMonitorTests(unittest.TestCase):
         matcher = expression(file_pattern[1:-1])
         self.assertIsNotNone(matcher.search(PROJECT))
         for unrelated in (
-            "vcpkg.json", "experiments/unity-nativeaot/upstream.json",
+            "vcpkg.json", "src/modules/unity/upstream.json",
             PROJECT + ".bak", "copy/" + PROJECT,
-            "experiments/unity-nativeaot/UnityProbe.Tests/UnityProbe.Tests.csproj",
+            "src/modules/unity/UnityProbe.Tests/UnityProbe.Tests.csproj",
             PROJECT.replace("UnityProbe.csproj", "UnityProbeXcsproj"),
         ):
             with self.subTest(path=unrelated):
