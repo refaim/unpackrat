@@ -46,7 +46,7 @@ NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 GODOT = "godot"
 GODOT_VERSION = "1.2.1"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
-BASELINE = "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
+BASELINE = "9eec002df1cd109f8f104cd966a763daf9751489"
 WOLFRPG = "wolfrpg"
 WOLFRPG_VERSION = "1.0.1"
 

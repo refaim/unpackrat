@@ -2,7 +2,7 @@
   "name": "unpackrat",
   "version-string": "1.0.0",
   "license": "MIT",
-  "builtin-baseline": "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391",
+  "builtin-baseline": "9eec002df1cd109f8f104cd966a763daf9751489",
   "dependencies": [
     {
       "name": "yy-thunks",

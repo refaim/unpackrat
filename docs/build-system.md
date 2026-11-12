@@ -153,8 +153,8 @@ modules.
 `Asia/Vladivostok`, with at most one open update PR. Dependabot proposes a new root
 `vcpkg.json` `builtin-baseline` when a newer vcpkg release tag is available. Its allow list selects
 only the registry baseline; Renovate tracks individual library versions below. The current baseline
-is an October 15, 2026 snapshot newer than the latest tagged release, so an ignore rule excludes
-release versions through `2026.10.15` to prevent a rollback. When deliberately selecting another
+is the October 16, 2026 tagged release, and an ignore rule excludes
+release versions through `2026.10.16` to prevent a rollback. When deliberately selecting another
 snapshot baseline, advance this floor to that commit's date. Future release dates remain eligible.
 Dependabot does not update the source revisions or hashes in the local overlay ports. The configuration uses JSON
 syntax, which is valid YAML and can be checked with the

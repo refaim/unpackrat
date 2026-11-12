@@ -45,7 +45,7 @@ class DependencyUpdateTests(unittest.TestCase):
 
     def test_manifest_selects_the_updated_dependencies_and_registry(self) -> None:
         manifest = json.loads((REPOSITORY / "vcpkg.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["builtin-baseline"], "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391")
+        self.assertEqual(manifest["builtin-baseline"], "9eec002df1cd109f8f104cd966a763daf9751489")
         dependencies = {dependency["name"]: dependency for dependency in manifest["dependencies"]}
         for name, version in (("catch2", "3.16.1"), ("xxhash", "0.8.4"), ("mbedtls", "4.1.1")):
             with self.subTest(dependency=name):
