@@ -1,0 +1,101 @@
+{
+  "evidence_kind": "test-only-derived-expectations-not-a-scan",
+  "description": "Historical raw observations stay unchanged. These exactly three expectations retarget only package/path after source-text identity review. A fresh scanner result must still be obtained in normal CI.",
+  "historical_fixture_sha256": "38918b612be77e76d6978ec72b35ddb0b3060b11360c029a5ff25b5af5dbcc21",
+  "mappings": [
+    {
+      "historical": {
+        "package": "brotli",
+        "path": "brotli-1.2.0/CONTRIBUTING.md",
+        "start_lines": 31,
+        "end_lines": 31,
+        "license": "NOASSERTION",
+        "disposition": "excluded"
+      },
+      "target": {
+        "package": "brotli",
+        "path": "brotli-1.2.1/CONTRIBUTING.md"
+      },
+      "source_proof": "brotli-contributing"
+    },
+    {
+      "historical": {
+        "package": "drlibs",
+        "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_mp3.h",
+        "start_lines": 2,
+        "end_lines": 2,
+        "license": "LicenseRef-scancode-unknown-license-reference",
+        "disposition": "curated"
+      },
+      "target": {
+        "package": "drlibs",
+        "path": "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_mp3.h"
+      },
+      "source_proof": "mp3-line2"
+    },
+    {
+      "historical": {
+        "package": "drlibs",
+        "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_wav.h",
+        "start_lines": 2,
+        "end_lines": 2,
+        "license": "LicenseRef-scancode-unknown-license-reference",
+        "disposition": "curated"
+      },
+      "target": {
+        "package": "drlibs",
+        "path": "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_wav.h"
+      },
+      "source_proof": "wav-line2"
+    }
+  ],
+  "protected_prefixes": [
+    {
+      "package": "brotli",
+      "historical": "brotli-1.2.0/",
+      "target": "brotli-1.2.1/",
+      "source_proof": "brotli-contributing"
+    }
+  ],
+  "source_proofs": {
+    "brotli-contributing": {
+      "package": "brotli",
+      "old_version": "1.2.0",
+      "new_version": "1.2.1",
+      "old_artifact_sha256": "816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec",
+      "new_artifact_sha256": "98d35d11a78dc453aebb7d10c3748f3f73ff78c8267c0dc697b8631f67bf7e8f",
+      "scoped_text_sha256": "805600c3f5808eb7fc8beb6f7768d5004ea700c99e8cdd7024eda7613f36e618",
+      "scope": "Entire CONTRIBUTING.md; byte-identical across the two official releases, including line31.",
+      "old_source": "https://github.com/google/brotli/blob/v1.2.0/CONTRIBUTING.md",
+      "new_source": "https://github.com/google/brotli/blob/v1.2.1/CONTRIBUTING.md",
+      "proof_report": "outputs/dependency-updates-20261112/brotli-source-identity.json"
+    },
+    "mp3-line2": {
+      "package": "drlibs",
+      "old_version": "2026-08-31",
+      "new_version": "2026-11-11",
+      "old_artifact_sha256": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34",
+      "new_artifact_sha256": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a",
+      "scoped_text_sha256": "941157d711e68ef2cec2f4ef215dae4a58d07dc88b4fd0178f650f8af93e43df",
+      "grant_footer_sha256": "6e9f945406227d3b8a6acee25eabd2ce5dc79b5c1bfab8c43fdb80bc38e25445",
+      "scope": "Line2 without its line terminator and retained complete grant footer are independently byte-identical.",
+      "old_source": "https://github.com/mackron/dr_libs/blob/dfe8377631000664666519fdb83da193fd8037f4/dr_mp3.h",
+      "new_source": "https://github.com/mackron/dr_libs/blob/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_mp3.h",
+      "proof_report": "outputs/dependency-updates-20261112/dr-libs-curation-text-proof.json"
+    },
+    "wav-line2": {
+      "package": "drlibs",
+      "old_version": "2026-08-31",
+      "new_version": "2026-11-11",
+      "old_artifact_sha256": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34",
+      "new_artifact_sha256": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a",
+      "scoped_text_sha256": "6b49d692483ac0d50d3a3db3c39673c19c87b31865510fc69ab9d239f5f72f0e",
+      "grant_footer_sha256": "bd4b418451619e6a073314e61c30e06ab6c91edc4b854fbff1b8c7d5a552ae24",
+      "scope": "Line2 without its line terminator and retained complete grant footer are independently byte-identical.",
+      "old_source": "https://github.com/mackron/dr_libs/blob/dfe8377631000664666519fdb83da193fd8037f4/dr_wav.h",
+      "new_source": "https://github.com/mackron/dr_libs/blob/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_wav.h",
+      "proof_report": "outputs/dependency-updates-20261112/dr-libs-curation-text-proof.json"
+    }
+  },
+  "negative_control_license": "GPL-3.0-only"
+}

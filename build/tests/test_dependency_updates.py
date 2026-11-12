@@ -14,6 +14,24 @@ PORTS = REPOSITORY / "build" / "vcpkg" / "ports"
 
 
 class DependencyUpdateTests(unittest.TestCase):
+    def test_brotli_requires_the_fixed_decoder_release(self) -> None:
+        manifest = json.loads((REPOSITORY / "vcpkg.json").read_text(encoding="utf-8"))
+        brotli = next(entry for entry in manifest["dependencies"] if entry["name"] == "brotli")
+        self.assertEqual(brotli["version>="], "1.2.1")
+
+    def test_only_brotli_uses_the_exact_official_security_registry(self) -> None:
+        configuration = json.loads((REPOSITORY / "vcpkg-configuration.json").read_text(encoding="utf-8"))
+        self.assertEqual(configuration.get("registries", []), [{
+            "kind": "git",
+            "repository": "https://github.com/microsoft/vcpkg",
+            "baseline": "61d7eaeb094a6acbc23d9c2e54de9208175fda47",
+            "reference": "61d7eaeb094a6acbc23d9c2e54de9208175fda47",
+            "packages": ["brotli"],
+        }])
+        # Other packages continue using the manifest's qualified builtin baseline.
+        self.assertNotIn("default-registry", configuration)
+        self.assertFalse((PORTS / "brotli").exists())
+
     def test_overlay_patches_survive_a_fresh_git_checkout_without_crlf(self) -> None:
         patches = sorted(PORTS.rglob("*.patch"))
         self.assertGreaterEqual(len(patches), 2)

@@ -5,15 +5,17 @@ parser.  Each file binds one exact vcpkg dependency (id + content-addressed sour
 artifact URL) to the scoped path excludes and license finding curations that were
 reviewed against the 2026-10-16 source audit.
 
-Every archived source keeps its upstream top directory in the real ORT ScanCode
-tree, so each path/pattern is anchored on that exact archive prefix (the
-native_scan_findings fixture records the verified prefixes and the raw findings).
+Every archived source keeps its upstream top directory, so each path/pattern is
+anchored on that archive prefix. Raw scan fixtures stay historical; a separate,
+source-verified test-only mapping labels current expectations without claiming a scan.
 """
 
 import json
 import re
 import unittest
 from pathlib import Path
+
+from native_dependency_expectations import derive_native_findings, expectation_path_for_raw_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / ".ort" / "package-configurations"
@@ -82,7 +84,9 @@ def load_scancode_evidence():
 
 
 def load_native_findings():
-    return json.loads(NATIVE_FINDINGS.read_text(encoding="utf-8"))
+    historical = json.loads(NATIVE_FINDINGS.read_text(encoding="utf-8"))
+    updates = json.loads((FIXTURE_DIR / "native_dependency_expectations.json").read_text(encoding="utf-8"))
+    return derive_native_findings(historical, updates)
 
 
 def find_config(configs, pkg_name):
@@ -403,8 +407,8 @@ class PackageConfigurationTests(unittest.TestCase):
                     1625,
                     "GPL-2.0-or-later",
                 ),
-                ("drlibs", "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_mp3.h", 2, "LicenseRef-scancode-unknown-license-reference"),
-                ("drlibs", "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_wav.h", 2, "LicenseRef-scancode-unknown-license-reference"),
+                ("drlibs", "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_mp3.h", 2, "LicenseRef-scancode-unknown-license-reference"),
+                ("drlibs", "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_wav.h", 2, "LicenseRef-scancode-unknown-license-reference"),
                 ("bcdec", "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h", 48, "LicenseRef-scancode-unknown-license-reference"),
                 (
                     "zlib",
@@ -428,7 +432,7 @@ class PackageConfigurationTests(unittest.TestCase):
                 "mbedtls-4.1.1/tf-psa-crypto/drivers/pqcp/**",
             ],
             "libspng": ["libspng-0.7.4/tests/**"],
-            "brotli": ["brotli-1.2.0/CONTRIBUTING.md"],
+            "brotli": ["brotli-1.2.1/CONTRIBUTING.md"],
         }
         for pkg_name, patterns in expected.items():
             config = next(
@@ -488,8 +492,8 @@ class PackageConfigurationTests(unittest.TestCase):
                 self.assertTrue(finding["path"].startswith(prefix))
                 self.assertIn(finding["disposition"], {"curated", "excluded"})
 
-    def test_real_native_findings_are_covered(self):
-        """Each real evaluator finding is either curated or excluded as recorded."""
+    def test_reviewed_native_expectations_are_covered(self):
+        """Historical observations and labelled derived cases keep exact coverage."""
         for finding in self.native["findings"]:
             pkg_name = finding["package"]
             config = find_config(self.configs, pkg_name)
@@ -536,7 +540,7 @@ class PackageConfigurationTests(unittest.TestCase):
              "line_count": 1, "detected_license": "GPL-2.0-only"},
             {"path": "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h", "start_lines": 1500, "line_count": 1,
              "detected_license": "GPL-2.0-only"},
-            {"path": "brotli-1.2.0/c/enc/new_gpl.c", "start_lines": 1,
+            {"path": "brotli-1.2.1/c/enc/new_gpl.c", "start_lines": 1,
              "line_count": 1, "detected_license": "GPL-3.0-only"},
             {"path": "mbedtls-4.1.1/library/new_gpl.c", "start_lines": 1,
              "line_count": 1, "detected_license": "GPL-2.0-only"},
@@ -567,15 +571,15 @@ class PackageConfigurationTests(unittest.TestCase):
     def test_brotli_excludes_only_the_contribution_guide(self):
         config = find_config(self.configs, "brotli")
         patterns = [e["pattern"] for e in config.get("path_excludes", [])]
-        self.assertEqual(["brotli-1.2.0/CONTRIBUTING.md"], patterns)
+        self.assertEqual(["brotli-1.2.1/CONTRIBUTING.md"], patterns)
         excluded = next(
             e for e in config["path_excludes"]
-            if e["pattern"] == "brotli-1.2.0/CONTRIBUTING.md"
+            if e["pattern"] == "brotli-1.2.1/CONTRIBUTING.md"
         )
         self.assertEqual("DOCUMENTATION_OF", excluded["reason"])
         # The MIT source grants and the encoded library must stay scanned.
-        for path in ("brotli-1.2.0/LICENSE", "brotli-1.2.0/c/dec/decode.c",
-                     "brotli-1.2.0/go/MODULE.bazel"):
+        for path in ("brotli-1.2.1/LICENSE", "brotli-1.2.1/c/dec/decode.c",
+                     "brotli-1.2.1/go/MODULE.bazel"):
             with self.subTest(path=path):
                 self.assertFalse(any(_ant_match(p, path) for p in patterns))
 
@@ -652,7 +656,7 @@ class PackageConfigurationTests(unittest.TestCase):
         self.assertTrue(_is_scoped_exclude("tools/scripts/updateDocumentToC.py"))
         self.assertTrue(_is_scoped_exclude(".conan/**"))
         self.assertTrue(_is_scoped_exclude("Catch2-3.16.1/tools/**"))
-        self.assertTrue(_is_scoped_exclude("brotli-1.2.0/CONTRIBUTING.md"))
+        self.assertTrue(_is_scoped_exclude("brotli-1.2.1/CONTRIBUTING.md"))
 
     def test_curations_quote_the_complete_detected_expression(self):
         """A curation must match the whole raw ScanCode expression, not a token.
@@ -665,6 +669,7 @@ class PackageConfigurationTests(unittest.TestCase):
         curation with the complete expression.
         """
         evidence = load_scancode_evidence()["records"]
+        updates = json.loads((FIXTURE_DIR / "native_dependency_expectations.json").read_text(encoding="utf-8"))
         self.assertTrue(evidence)
         for record in evidence:
             with self.subTest(package=record["package"], rule=record["rule"]):
@@ -673,7 +678,7 @@ class PackageConfigurationTests(unittest.TestCase):
                 matching = [
                     c
                     for c in config.get("license_finding_curations", [])
-                    if c["path"] == record["path"]
+                    if c["path"] == expectation_path_for_raw_record(record, updates)
                     and c["start_lines"] == start
                     and c["line_count"] == end - start + 1
                     and c["detected_license"] == record["raw_expression"]

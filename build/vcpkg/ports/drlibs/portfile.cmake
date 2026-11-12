@@ -1,13 +1,13 @@
 # Keep both adapters on the exact tested dr_libs revision.
 vcpkg_download_distfile(DR_MP3_HEADER
-    URLS "https://raw.githubusercontent.com/mackron/dr_libs/dfe8377631000664666519fdb83da193fd8037f4/dr_mp3.h"
-    FILENAME "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_mp3.h"
-    SHA512 c21d523bdd890bf8b2e84ff7ac63f72299b235834b424d95d281b57c4e22d260e23e423ed8d829e710cbd11d8814c69afef24cb9e576bbb9cb0b704be94bf8ed
+    URLS "https://raw.githubusercontent.com/mackron/dr_libs/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_mp3.h"
+    FILENAME "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_mp3.h"
+    SHA512 d31c0161928d7e3c2158b9a79a8db2b1ac37b8c81d4087ea499bb37f6b2591e6922e1288ae12047907da8c91ee828832f968b7cff44f8fd81e681a7b69ccbde9
 )
 vcpkg_download_distfile(DR_WAV_HEADER
-    URLS "https://raw.githubusercontent.com/mackron/dr_libs/dfe8377631000664666519fdb83da193fd8037f4/dr_wav.h"
-    FILENAME "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_wav.h"
-    SHA512 277ada6b7cf940f557d38dea7985db129c8aaf034c23425da3f1681e901439bbd4152a766de5a26cc7ddb3f0a00f2ce8f6496f61c359bc65889eeac25e356bd3
+    URLS "https://raw.githubusercontent.com/mackron/dr_libs/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_wav.h"
+    FILENAME "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_wav.h"
+    SHA512 88a622fa07f7bea5a4467340743ee20c7987170a2dba7579a5f44aff2d5e24ce73d9294cf591df8740df4bba6b64dc9ee18e5a21173b54ba72e649175c91e255
 )
 
 set(SOURCE_PATH "${CURRENT_BUILDTREES_DIR}/source")

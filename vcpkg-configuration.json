@@ -1,5 +1,14 @@
 {
   "overlay-ports": [
     "build/vcpkg/ports"
+  ],
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/microsoft/vcpkg",
+      "baseline": "61d7eaeb094a6acbc23d9c2e54de9208175fda47",
+      "reference": "61d7eaeb094a6acbc23d9c2e54de9208175fda47",
+      "packages": ["brotli"]
+    }
   ]
 }
