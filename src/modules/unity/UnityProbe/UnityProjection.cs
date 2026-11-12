@@ -16,17 +16,11 @@ internal sealed partial class UnityProjection
 	private const int TextScratchLength = 256;
 	// The mature iterator's visit ceiling; shared plans must not bypass it.
 	private const int FieldBudget = 16_000_000;
-	private const int QuadFieldBudget = 512;
 	internal readonly record struct ByteRange(long Offset, int Length);
 	internal enum ValueKind { Number, Text, Bytes, Float, Double }
-	internal enum Profile { Catalogue, Quad }
 	internal readonly record struct Slot(ValueKind Kind, int Index);
 	internal readonly record struct Capture(string Path, Slot Slot);
 	private readonly State state;
-	private readonly QuadStorage? quadStorage;
-	// Getters observe only the storage that actually produced this projection; a failed or
-	// bypassed fastpath leaves the mature values authoritative.
-	private QuadStorage? quad => quadStorage is { Active: true } ? quadStorage : null;
 	private readonly Dictionary<string, object>? values;
 	private readonly long[] numbers;
 	private readonly string[] texts;
@@ -36,10 +30,9 @@ internal sealed partial class UnityProjection
 	private UnityProjection(State state)
 	{
 		this.state = state;
-		if (state.QuadPlan is { } plan) quadStorage = new QuadStorage(plan);
 		if (state.DictionaryStorage)
 		{
-			values = new(state.DynamicPaths ? 0 : state.Paths.Count, StringComparer.Ordinal);
+			values = new(state.Paths.Count, StringComparer.Ordinal);
 			numbers = []; texts = []; ranges = [];
 		}
 		else
@@ -49,31 +42,16 @@ internal sealed partial class UnityProjection
 			ranges = state.RangeCount == 0 ? [] : new ByteRange[state.RangeCount];
 		}
 	}
-	public IEnumerable<string> Keys => quad is not null ? quad.Keys : values is null ? state.Slots.Keys : values.Keys;
-	public string Text(string path) => quad is not null
-		// TrySlot(Text) succeeds only after SetText stored a non-null value; Clear removes both.
-		? quad.TrySlot(path, ValueKind.Text, out int quadText) ? quad.Texts[quadText]! : string.Empty
-		: values is not null
+	public IEnumerable<string> Keys => values is null ? state.Slots.Keys : values.Keys;
+	public string Text(string path) => values is not null
 		? values.TryGetValue(path, out object? value) && value is string text ? text : string.Empty
 		: TrySlot(path, ValueKind.Text, out int index) ? texts[index] : string.Empty;
-	public long Number(string path) => quad is not null
-		? quad.TrySlot(path, ValueKind.Number, out int quadNumber) ? quad.Numbers[quadNumber] : 0
-		: values is not null
+	public long Number(string path) => values is not null
 		? values.TryGetValue(path, out object? value) && value is long number ? number : 0
 		: TrySlot(path, ValueKind.Number, out int index) ? numbers[index] : 0;
 	public ulong Unsigned(string path) => unchecked((ulong)Number(path));
 	public bool TryNumber(string path, out long number)
 	{
-		if (quad is not null)
-		{
-			if (quad.TrySlot(path, ValueKind.Number, out int slot))
-			{
-				number = quad.Numbers[slot];
-				return true;
-			}
-			number = 0;
-			return false;
-		}
 		if (values is not null)
 		{
 			if (values.TryGetValue(path, out object? value) && value is long stored)
@@ -94,16 +72,6 @@ internal sealed partial class UnityProjection
 	}
 	public bool TryBits(string path, out long bits)
 	{
-		if (quad is not null)
-		{
-			if (quad.TrySlot(path, ValueKind.Float, out int quadSlot) || quad.TrySlot(path, ValueKind.Double, out quadSlot))
-			{
-				bits = quad.Numbers[quadSlot];
-				return true;
-			}
-			bits = 0;
-			return false;
-		}
 		if (values is not null)
 		{
 			if (values.TryGetValue(path, out object? value))
@@ -133,16 +101,6 @@ internal sealed partial class UnityProjection
 	}
 	public bool TryFloat32(string path, out uint bits)
 	{
-		if (quad is not null)
-		{
-			if (quad.TrySlot(path, ValueKind.Float, out int quadSlot))
-			{
-				bits = unchecked((uint)quad.Numbers[quadSlot]);
-				return true;
-			}
-			bits = 0;
-			return false;
-		}
 		if (values is not null)
 		{
 			if (values.TryGetValue(path, out object? value) && value is uint stored)
@@ -171,9 +129,7 @@ internal sealed partial class UnityProjection
 		value = 0;
 		return false;
 	}
-	public ByteRange Bytes(string path) => quad is not null
-		? quad.TrySlot(path, ValueKind.Bytes, out int quadRange) ? quad.Ranges[quadRange] : default
-		: values is not null
+	public ByteRange Bytes(string path) => values is not null
 		? values.TryGetValue(path, out object? value) && value is ByteRange range ? range : default
 		: TrySlot(path, ValueKind.Bytes, out int index) ? ranges[index] : default;
 	private bool TrySlot(string path, ValueKind kind, out int index)
@@ -186,28 +142,28 @@ internal sealed partial class UnityProjection
 		index = 0;
 		return false;
 	}
-	private void SetText(Capture capture, string? dynamicPath, string value)
+	private void SetText(Capture capture, string value)
 	{
-		if (values is not null) values[dynamicPath ?? capture.Path] = value;
+		if (values is not null) values[capture.Path] = value;
 		else texts[capture.Slot.Index] = value;
 	}
-	private void SetNumber(Capture capture, string? dynamicPath, long value)
+	private void SetNumber(Capture capture, long value)
 	{
-		if (values is not null) values[dynamicPath ?? capture.Path] = value;
+		if (values is not null) values[capture.Path] = value;
 		else numbers[capture.Slot.Index] = value;
 	}
-	private void SetBits(Capture capture, string? dynamicPath, long value, ValueKind kind)
+	private void SetBits(Capture capture, long value, ValueKind kind)
 	{
 		if (values is not null)
 		{
-			if (kind == ValueKind.Float) values[dynamicPath ?? capture.Path] = unchecked((uint)value);
-			else values[dynamicPath ?? capture.Path] = unchecked((ulong)value);
+			if (kind == ValueKind.Float) values[capture.Path] = unchecked((uint)value);
+			else values[capture.Path] = unchecked((ulong)value);
 		}
 		else numbers[capture.Slot.Index] = value;
 	}
-	private void SetBytes(Capture capture, string? dynamicPath, ByteRange value)
+	private void SetBytes(Capture capture, ByteRange value)
 	{
-		if (values is not null) values[dynamicPath ?? capture.Path] = value;
+		if (values is not null) values[capture.Path] = value;
 		else ranges[capture.Slot.Index] = value;
 	}
 
@@ -262,7 +218,7 @@ internal sealed partial class UnityProjection
 	}
 	internal void ClearScratch()
 	{
-		rawName.Clear(); quadStorage?.Clear(); values?.Clear(); Array.Clear(numbers); Array.Clear(texts); Array.Clear(ranges);
+		rawName.Clear(); values?.Clear(); Array.Clear(numbers); Array.Clear(texts); Array.Clear(ranges);
 	}
 
 	private static UnityProjection Read(AssetTypeTemplateField template, State state, bool validateLayout, bool textureTail, bool reuse = false, bool captureRawName = false)
@@ -275,15 +231,7 @@ internal sealed partial class UnityProjection
 		if (reuse)
 		{
 			result.ClearScratch();
-			if (!validateLayout && state.QuadPlan is { } quadPlan)
-			{
-				if (quadPlan.Read(result, reader, bounded, template, captureRawName)) return result;
-				// Unrepresentable dynamic layouts restart under the mature iterator so budget,
-				// cursor and capture semantics remain authoritative.
-				reader.Position = 0;
-				result.ClearScratch();
-			}
-			if (!validateLayout && !state.DynamicPaths && !state.DictionaryStorage
+			if (!validateLayout && !state.DictionaryStorage
 				&& state.Route is { } route && route.Matches(template))
 			{
 				if (route.Read(result, reader, bounded, captureRawName)) return result;
@@ -295,8 +243,6 @@ internal sealed partial class UnityProjection
 		}
 		ReusableAssetTypeValueIterator iterator = state.Iterator ??= new(template, reader);
 		iterator.Reset(template, reader);
-		string[] names = state.Names;
-		int[] indices = state.Indices;
 		int steps = 0;
 		// One bounded scratch span per object; field count must never grow stack usage.
 		Span<byte> textScratch = stackalloc byte[TextScratchLength];
@@ -307,18 +253,6 @@ internal sealed partial class UnityProjection
 			AssetTypeTemplateField field = iterator.TempField;
 			bool lastField = !validateLayout && ReferenceEquals(field, state.LastField);
 			bool capture = state.Paths.TryGetValue(field, out Capture binding);
-			string? dynamicPath = null;
-			// Fixed schemas already bind capture paths; only atlases need runtime path bookkeeping.
-			if (state.DynamicPaths)
-			{
-				int depth = iterator.Depth;
-				string name = field.Name;
-				if (name == "data" && names[depth - 1] == "Array"
-					&& (state.Quad || names[1] == "m_RenderDataMap")) name += "#" + indices[depth - 1]++;
-				names[depth] = name;
-				indices[depth] = 0;
-				if (capture) dynamicPath = PathOf(names, depth);
-			}
 			if (field.ValueType == AssetValueType.ManagedReferencesRegistry)
 				throw new InvalidDataException("Managed-reference projection is unsupported.");
 			if (field.IsArray && field.ValueType != AssetValueType.ByteArray)
@@ -340,13 +274,13 @@ internal sealed partial class UnityProjection
 						int read = reader.BaseStream.ReadAtLeast(name, length, throwOnEndOfStream: false);
 						result.rawName.Advance(read);
 					}
-					else result.SetText(binding, dynamicPath, ReadText(reader, length, textScratch));
+					else result.SetText(binding, ReadText(reader, length, textScratch));
 					// Continuing traversal leaves advancement and alignment to the iterator.
 					if (!lastField) reader.Position = position;
 				}
 				else
 				{
-					if (capture) result.SetBytes(binding, dynamicPath, new ByteRange(reader.Position, length));
+					if (capture) result.SetBytes(binding, new ByteRange(reader.Position, length));
 					reader.Position = position;
 				}
 			}
@@ -372,8 +306,8 @@ internal sealed partial class UnityProjection
 				// still advances and aligns every scalar when ReadNext is called.
 				reader.Position = position;
 				if (binding.Slot.Kind is ValueKind.Float or ValueKind.Double)
-					result.SetBits(binding, dynamicPath, number, binding.Slot.Kind);
-				else result.SetNumber(binding, dynamicPath, number);
+					result.SetBits(binding, number, binding.Slot.Kind);
+				else result.SetNumber(binding, number);
 			}
 			if (lastField) break;
 		}
@@ -411,16 +345,13 @@ internal sealed partial class UnityProjection
 	internal sealed partial class State
 	{
 		public string[] Names { get; } = new string[130];
-		public int[] Indices { get; } = new int[130];
 		public Dictionary<AssetTypeTemplateField, Capture> Paths { get; } = [];
 		// The reader owns only managed scratch; its stream borrows an input for one Read.
 		public AssetsFileReader Reader { get; } = new(new ProjectionStream(Stream.Null));
 		public UnityProjection? Scratch { get; set; }
 		public ReusableAssetTypeValueIterator? Iterator { get; set; }
 		public AssetTypeTemplateField? LastField { get; private set; }
-		public bool DynamicPaths { get; }
-		public bool Quad { get; }
-		public int VisitBudget { get; }
+		public int VisitBudget => FieldBudget;
 		public Dictionary<string, Slot> Slots { get; } = new(StringComparer.Ordinal);
 		public int NumberCount { get; private set; }
 		public int TextCount { get; private set; }
@@ -428,15 +359,10 @@ internal sealed partial class UnityProjection
 		public bool DictionaryStorage { get; private set; }
 		private readonly SchemaRoute? route;
 		internal SchemaRoute? Route => route;
-		public State(AssetTypeTemplateField template, Profile profile = Profile.Catalogue)
+		public State(AssetTypeTemplateField template)
 		{
-			Quad = profile == Profile.Quad;
-			DynamicPaths = Quad || template.Type == "SpriteAtlas";
-			DictionaryStorage = DynamicPaths;
-			VisitBudget = Quad ? QuadFieldBudget : FieldBudget;
 			foreach (AssetTypeTemplateField field in template.Children) Visit(field, 1, false);
 			route = SchemaRoute.TryCompile(template, this);
-			if (Quad) CompileQuadPlan(template);
 		}
 		private void Visit(AssetTypeTemplateField field, int depth, bool repeated)
 		{
@@ -445,7 +371,7 @@ internal sealed partial class UnityProjection
 			bool scalar = field.ValueType is not (AssetValueType.None or AssetValueType.Array);
 			if (scalar)
 			{
-				if (Wanted(Names, depth) || (Quad && WantedQuad(Names)))
+				if (Wanted(Names, depth))
 				{
 					string path = PathOf(Names, depth);
 					ValueKind kind = field.ValueType == AssetValueType.String && path != "m_Script" ? ValueKind.Text
@@ -488,30 +414,9 @@ internal sealed partial class UnityProjection
 		string root = names[1];
 		return root is "m_Name" or "m_Width" or "m_Height" or "image data" or "m_StreamData"
 			or "m_Script" or "m_FontData" or "m_MovieData" or "m_OriginalPath" or "m_ExternalResources"
-			or "m_AudioData" or "m_Type" or "m_Resource" or "m_IndexBuffer" or "m_SpriteAtlas" or "m_RenderDataKey"
-			or "m_Rect" or "m_Offset"
+			or "m_AudioData" or "m_Type" or "m_Resource" or "m_IndexBuffer"
 			|| root == "m_VertexData" && names[2] is "m_VertexCount" or "m_DataSize"
-			|| root == "m_CompressedMesh" && names[2] == "m_Vertices" && names[depth] == "m_NumItems"
-			|| root == "m_RD" && names[2] is "texture" or "textureRect" or "textureRectOffset" or "downscaleMultiplier"
-				or "settingsRaw" or "packed" or "packingMode" or "packingRotation"
-			// The catalogue pass already crosses m_RD. Capture only this exact leaf, not
-			// allVertexData or a shallow m_RD/m_VertexCount.
-			|| root == "m_RD" && depth == 3 && names[2] == "m_VertexData" && names[3] == "m_VertexCount"
-			|| root == "m_RenderDataMap" && (
-				depth < 5
-				|| names[4] == "first"
-				|| names[5] == "texture"
-				|| names[4] == "second" && (names[5] is "textureRect" or "textureRectOffset"
-					or "downscaleMultiplier" or "settingsRaw" or "packed" or "packingMode" or "packingRotation"));
-	}
-	private static bool WantedQuad(string[] names)
-	{
-		string root = names[1];
-		if (root is "m_PixelsToUnits" or "m_Pivot") return true;
-		if (root != "m_RD") return false;
-		if (names[2] is "m_SubMeshes" or "m_IndexBuffer") return true;
-		return names[2] == "m_VertexData"
-			&& names[3] is "m_VertexCount" or "m_DataSize" or "m_Channels";
+			|| root == "m_CompressedMesh" && names[2] == "m_Vertices" && names[depth] == "m_NumItems";
 	}
 
 	// MemoryStream permits out-of-bounds seeks. The parser sees a strict object-sized view instead.

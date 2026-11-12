@@ -1,3 +1,12 @@
+Version 2.0.0
+-------------
+
+ * Simplified image extraction by removing atlas slicing into individual sprites and its processing and memory overhead.
+ * Added support for Unity 6.5.
+ * Fixed errors when extracting large textures.
+ * Reduced memory use when extracting resources.
+ * Fixed a vulnerability when processing Brotli-compressed archives.
+
 Version 1.0.1
 -------------
 

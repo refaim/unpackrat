@@ -8,7 +8,6 @@ using AssetRipper.Assets.Collections;
 using AssetRipper.Assets.Generics;
 using AssetRipper.Assets.IO;
 using AssetRipper.Assets.Metadata;
-using AssetRipper.Export.Modules.Textures;
 using AssetRipper.Import.AssetCreation;
 using AssetRipper.Import.Configuration;
 using AssetRipper.Import.Structure;
@@ -27,7 +26,6 @@ using AssetRipper.SourceGenerated.Classes.ClassID_152;
 using AssetRipper.SourceGenerated.Classes.ClassID_329;
 using AssetRipper.SourceGenerated.Classes.ClassID_43;
 using AssetRipper.SourceGenerated.Classes.ClassID_49;
-using AssetRipper.SourceGenerated.Classes.ClassID_213;
 using AssetRipper.SourceGenerated.Classes.ClassID_83;
 using AssetRipper.SourceGenerated.Extensions;
 
@@ -150,58 +148,6 @@ internal static partial class UnitySource
 	}
 
 	/// <summary>
-	/// Reports whether a texture's declared source payload is within the copy cap, using the same
-	/// inline-first choice the converter makes: only an empty inline buffer defers to the optional
-	/// streamed size. Read from metadata alone, before the converter resolves or copies anything.
-	/// </summary>
-	private static bool IsTextureSourceWithinBudget(ITexture2D texture)
-	{
-		long inlineLength = texture.ImageData_C28.LongLength;
-		if (inlineLength > Budgets.MaxTextureSourceBytes)
-		{
-			return false;
-		}
-
-		return inlineLength != 0
-			|| texture.StreamData_C28 is not { } streamData
-			|| streamData.Size <= Budgets.MaxTextureSourceBytes;
-	}
-
-	/// <summary>
-	/// Validates a texture from declared metadata alone and decodes it through the pinned
-	/// converter. A hostile dimension or an oversized source payload is refused before the
-	/// converter allocates a bitmap or copies a byte.
-	/// </summary>
-	internal static bool TryDecodeTexture(ITexture2D texture, out DirectBitmap bitmap)
-	{
-		bitmap = DirectBitmap.Empty;
-		if (!Budgets.TryGetTextureBytes(texture.Width_C28, texture.Height_C28, texture.ImageCount_C28, out _))
-		{
-			return false;
-		}
-
-		if (!IsTextureSourceWithinBudget(texture))
-		{
-			return false;
-		}
-
-		return TextureConverter.TryConvertToBitmap(texture, out bitmap);
-	}
-
-	/// <summary>Renders a texture through the pinned decoder and writer, or null when it is refused.</summary>
-	private static byte[]? RenderTexturePng(ITexture2D texture)
-	{
-		if (!TryDecodeTexture(texture, out DirectBitmap bitmap))
-		{
-			return null;
-		}
-
-		using MemoryStream stream = new();
-		bitmap.SaveAsPng(stream);
-		return stream.ToArray();
-	}
-
-	/// <summary>
 	/// Loads the Unity game at <paramref name="paths"/> through the production import pipeline and
 	/// exports a bounded set of resources into <paramref name="outputDirectory"/>.
 	/// </summary>
@@ -243,14 +189,6 @@ internal static partial class UnitySource
 			else if (asset is IMesh mesh)
 			{
 				yield return HasMeshGeometry(mesh) ? new MeshAsset(mesh) : OtherAsset.Instance;
-			}
-			else if (asset is ISprite sprite)
-			{
-				// A sprite is catalogued only when it resolves a render source that is not a
-				// provably empty placeholder, so it can never be exported as an unrelated texture.
-				yield return TryResolveSpriteSource(sprite, out SpriteSource spriteSource) && !IsProvablyEmptyTexture(spriteSource.Texture)
-					? new SpriteAsset(sprite, spriteSource)
-					: OtherAsset.Instance;
 			}
 			else
 			{

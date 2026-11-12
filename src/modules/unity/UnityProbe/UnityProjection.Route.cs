@@ -21,7 +21,7 @@ internal sealed partial class UnityProjection
 		public bool Matches(AssetTypeTemplateField candidate) => ReferenceEquals(template, candidate);
 		public static SchemaRoute? TryCompile(AssetTypeTemplateField template, State state)
 		{
-			if (state.LastField is null || state.DynamicPaths || state.DictionaryStorage) return null;
+			if (state.LastField is null || state.DictionaryStorage) return null;
 			if (!WithinFieldBudget(template)) return null;
 			Builder builder = new(state);
 			foreach (AssetTypeTemplateField field in template.Children) builder.Field(field);

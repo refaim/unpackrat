@@ -210,35 +210,6 @@ public sealed class UnityStructuralCoverageTests
         Assert.Equal(unchecked((ulong)-4), projection.Unsigned("m_Width/i32"));
     }
 
-    [Fact]
-    public void DynamicPathsNumberOnlyAfterArrayDataNamesAndResetSiblingIndices()
-    {
-        AssetTypeTemplateField template = Root(
-            Field("m_RD", AssetValueType.None,
-                Field("textureRect", AssetValueType.None,
-                    Field("x", AssetValueType.Float), Field("y", AssetValueType.Float))),
-            Field("other", AssetValueType.None,
-                Field("Array", AssetValueType.Array, Field("size", AssetValueType.Int32),
-                    Field("data", AssetValueType.None,
-                        Field("value", AssetValueType.Int32),
-                        Field("nested", AssetValueType.None, Field("leaf", AssetValueType.Int32))))));
-        template.Type = "SpriteAtlas";
-        UnityProjection projection = Read(template, writer =>
-        {
-            writer.Write(1.5f);
-            writer.Write(2.5f);
-            writer.Write(2);
-            writer.Write(10);
-            writer.Write(11);
-            writer.Write(20);
-            writer.Write(21);
-        });
-
-        Assert.True(projection.TryBits("m_RD/textureRect/x", out long x));
-        Assert.Equal(0x3FC00000L, x);
-        Assert.False(projection.Keys.Any(key => key.Contains("other/Array/data#", StringComparison.Ordinal)));
-        Assert.Contains("m_RD/textureRect/x", projection.Keys);
-    }
 
     [Fact]
     public void TextScratchSwitchesToPooledBufferAndDecodesOnTruncatedInput()
@@ -453,7 +424,7 @@ public sealed class UnityStructuralCoverageTests
         AssetTypeTemplateField captured = ArrayField("captured", Field("data", AssetValueType.Int32));
         AssetTypeTemplateField emptyElement = ArrayField("empty", Field("data", AssetValueType.None));
         AssetTypeTemplateField template = Root(aligned, captured, emptyElement, Field("m_Width", AssetValueType.Int32));
-        AssetTypeTemplateField shape = Field("m_RenderDataKey", AssetValueType.None,
+        AssetTypeTemplateField shape = Field("m_Resource", AssetValueType.None,
             Field("data", AssetValueType.Int32));
         Assert.NotNull(new UnityProjection.State(Root(ArrayField("x", shape),
             Field("m_Width", AssetValueType.Int32))).Route);
@@ -467,7 +438,7 @@ public sealed class UnityStructuralCoverageTests
             Root(ArrayField("single", Field("data", AssetValueType.Int32)), width), malformedState));
         Assert.Null(UnityProjection.SchemaRoute.TryCompile(
             Root(Field("single", AssetValueType.Array), width), malformedState));
-        Assert.Null(new UnityProjection.State(Root(ArrayField("m_RenderDataKey",
+        Assert.Null(new UnityProjection.State(Root(ArrayField("m_Resource",
             Field("data", AssetValueType.Int32)), Field("m_Width", AssetValueType.Int32))).Route);
         Assert.NotNull(new UnityProjection.State(template).Route);
         Assert.NotNull(new UnityProjection.State(Root(aligned, Field("m_Width", AssetValueType.Int32))).Route);
@@ -565,153 +536,6 @@ public sealed class UnityStructuralCoverageTests
         for (int depth = 0; depth < 130; depth++)
             node = Field($"n{depth}", AssetValueType.None, node);
         Assert.Throws<InvalidDataException>(() => new UnityProjection.State(Root(node)));
-    }
-
-    [Fact]
-    public void SpriteGeometryPredicatesRefuseAbsentFactsBeforeUsingTheirBits()
-    {
-        Type factsReader = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteFactsReader");
-        MethodInfo finite = factsReader.GetMethod("IsFinite", Static)!;
-        MethodInfo positive = factsReader.GetMethod("Positive", Static)!;
-        MethodInfo unit = factsReader.GetMethod("IsUnitDownscale", Static)!;
-        MethodInfo known = factsReader.GetMethod("IsKnownRectangleSettings", Static)!;
-        MethodInfo identity = factsReader.GetMethod("IsIdentityRotation", Static)!;
-        MethodInfo escape = factsReader.GetMethod("IsExportableRectangle", Static)!;
-
-        Assert.True((bool)finite.Invoke(null, [BitConverter.SingleToUInt32Bits(1f)])!);
-        Assert.False((bool)finite.Invoke(null, [BitConverter.SingleToUInt32Bits(float.NaN)])!);
-        Assert.True((bool)positive.Invoke(null, [BitConverter.SingleToUInt32Bits(1f)])!);
-        Assert.False((bool)positive.Invoke(null, [BitConverter.SingleToUInt32Bits(0f)])!);
-        Assert.True((bool)unit.Invoke(null, [0u])!);
-        Assert.True((bool)unit.Invoke(null, [BitConverter.SingleToUInt32Bits(1f)])!);
-        Assert.False((bool)unit.Invoke(null, [BitConverter.SingleToUInt32Bits(2f)])!);
-        Assert.True((bool)known.Invoke(null, [2u])!);
-        Assert.False((bool)known.Invoke(null, [0u])!);
-        Assert.True((bool)identity.Invoke(null, [2u])!);
-        Assert.False((bool)identity.Invoke(null, [16u])!);
-
-        Type sourceType = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteSourceFacts");
-        Type canvasType = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteCanvasFacts");
-        object absentSource = Activator.CreateInstance(sourceType)!;
-        object absentCanvas = Activator.CreateInstance(canvasType)!;
-        uint one = BitConverter.SingleToUInt32Bits(1f);
-        object source = Activator.CreateInstance(sourceType, true, one, one, one, one, one, one, one, 2u)!;
-        object canvas = Activator.CreateInstance(canvasType, true, one, one)!;
-
-        Assert.False((bool)escape.Invoke(null, [absentSource, canvas, 1, 1])!);
-        Assert.False((bool)escape.Invoke(null, [source, absentCanvas, 1, 1])!);
-    }
-
-    [Fact]
-    public void SpriteFactsComparableRequiresEveryFinitePositiveComponentAndExportablePlacement()
-    {
-        Type sourceType = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteSourceFacts");
-        Type canvasType = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteCanvasFacts");
-        Type factsType = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteFacts");
-        uint one = BitConverter.SingleToUInt32Bits(1f);
-        uint zero = 0u;
-        AssetCollection collection = AssetCreator.CreateCollection(UnityVersion.Parse("2021.3.0f1"));
-
-        object Build(object source, object canvas)
-        {
-            object facts = Activator.CreateInstance(factsType)!;
-            factsType.GetField("Source")!.SetValue(facts, source);
-            factsType.GetField("Canvas")!.SetValue(facts, canvas);
-            factsType.GetField("SourceCollection")!.SetValue(facts, collection);
-            factsType.GetField("SourceWidth")!.SetValue(facts, 1);
-            factsType.GetField("SourceHeight")!.SetValue(facts, 1);
-            factsType.GetField("Resolved")!.SetValue(facts, true);
-            return facts;
-        }
-
-        object presentSource = Activator.CreateInstance(sourceType, true, zero, zero, one, one, zero, zero, zero, 2u)!;
-        object presentCanvas = Activator.CreateInstance(canvasType, true, one, one)!;
-        object present = Build(presentSource, presentCanvas);
-        Assert.True((bool)factsType.GetProperty("Comparable")!.GetValue(present)!);
-        Assert.False((bool)factsType.GetProperty("Comparable")!.GetValue(Build(absent(sourceType), presentCanvas))!);
-        Assert.False((bool)factsType.GetProperty("Comparable")!.GetValue(Build(presentSource, absent(canvasType)))!);
-        object unresolved = Build(presentSource, presentCanvas);
-        factsType.GetField("Resolved")!.SetValue(unresolved, false);
-        Assert.False(Assert.IsType<bool>(factsType.GetProperty("Comparable")!.GetValue(unresolved)));
-
-        object missingCollection = Build(presentSource, presentCanvas);
-        factsType.GetField("SourceCollection")!.SetValue(missingCollection, null);
-        Assert.False(Assert.IsType<bool>(factsType.GetProperty("Comparable")!.GetValue(missingCollection)));
-    }
-
-    private static object absent(Type type) => Activator.CreateInstance(type)!;
-
-    [Fact]
-    public void SourceFullTextureRequiresFinitePositiveTextureAndCanvasDimensions()
-    {
-        Type sourceType = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteSourceFacts");
-        Type canvasType = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteCanvasFacts");
-        uint one = BitConverter.SingleToUInt32Bits(1f);
-        uint zero = 0u;
-        object zeroSource = Activator.CreateInstance(sourceType, true, zero, zero, one, one, zero, zero, zero, 2u)!;
-        object zeroCanvas = Activator.CreateInstance(canvasType, true, one, one)!;
-        Type factsType = typeof(UnitySession).Assembly.GetTypes().Single(type => type.Name == "SpriteFacts");
-        AssetCollection collection = AssetCreator.CreateCollection(UnityVersion.Parse("2021.3.0f1"));
-        object facts = Activator.CreateInstance(factsType)!;
-        factsType.GetField("Source")!.SetValue(facts, zeroSource);
-        factsType.GetField("Canvas")!.SetValue(facts, zeroCanvas);
-        factsType.GetField("SourceCollection")!.SetValue(facts, collection);
-        factsType.GetField("SourceWidth")!.SetValue(facts, 1);
-        factsType.GetField("SourceHeight")!.SetValue(facts, 1);
-        factsType.GetField("Resolved")!.SetValue(facts, true);
-        Assert.True(Assert.IsType<bool>(factsType.GetProperty("Comparable")!.GetValue(facts)));
-    }
-
-    [Fact]
-    public void CompactSkinningChannelDimensionsAreRefusedBeforeDecode()
-    {
-        byte[] raw = new byte[4] { 10, 20, 30, 255 };
-        byte[] assets = UnityFixtureBuilder.SerializedSprite("skin", raw, 1, 1,
-            0, 0, 1, 1, 0, 0, 1, 1, 0, 0, settingsRaw: 64u,
-            tightMesh: new UnityFixtureBuilder.TightMeshOptions([0f, 0f, 1f, 0f, 0f, 1f])
-            {
-                ChannelDimension = 5,
-            });
-        string selected = Path.Combine(Temp.NewDirectory(), "skin.assets");
-        File.WriteAllBytes(selected, assets);
-        using UnitySession session = UnitySession.Open(selected);
-        UnityCatalogEntry texture = session.Entries.Single(entry => entry.Kind == UnityEntryKind.Texture);
-        Assert.Equal(raw.Length, texture.SourceSize);
-        Assert.Equal("png", texture.OutputExtension);
-        Assert.Single(session.Entries, entry => entry.Kind == UnityEntryKind.Sprite);
-    }
-
-    [Fact]
-    public void CompactUnknownChannelFormatAndOversizedStreamIndexAreRefused()
-    {
-        byte[] raw = new byte[4] { 10, 20, 30, 255 };
-        foreach (UnityFixtureBuilder.TightMeshOptions options in new[]
-        {
-            new UnityFixtureBuilder.TightMeshOptions([0f, 0f, 1f, 0f, 0f, 1f]) { ChannelFormat = 255 },
-            new UnityFixtureBuilder.TightMeshOptions([0f, 0f, 1f, 0f, 0f, 1f]) { ChannelStream = 200 },
-        })
-        {
-            string selected = Path.Combine(Temp.NewDirectory(), "bad-channel.assets");
-            File.WriteAllBytes(selected, UnityFixtureBuilder.SerializedSprite("bad", raw, 1, 1,
-                0, 0, 1, 1, 0, 0, 1, 1, 0, 0, settingsRaw: 64u, tightMesh: options));
-            using UnitySession session = UnitySession.Open(selected);
-            UnityCatalogEntry texture = session.Entries.Single(entry => entry.Kind == UnityEntryKind.Texture);
-            Assert.Equal(raw.Length, texture.SourceSize);
-            Assert.Equal("png", texture.OutputExtension);
-            Assert.Single(session.Entries, entry => entry.Kind == UnityEntryKind.Sprite);
-        }
-    }
-
-    [Fact]
-    public void CompactUnreferencedSpriteKeepsTextureWhenItsOwnSourceIsNotExportable()
-    {
-        byte[] raw = new byte[4] { 10, 20, 30, 255 };
-        string selected = Path.Combine(Temp.NewDirectory(), "unlinked.assets");
-        File.WriteAllBytes(selected, UnityFixtureBuilder.SerializedSprite("hero", raw, 1, 1,
-            0, 0, 1, 1, 0, 0, 1, 1, 0, 0, linksTexture: false));
-        using UnitySession session = UnitySession.Open(selected);
-        Assert.Single(session.Entries, entry => entry.Kind == UnityEntryKind.Texture);
-        Assert.DoesNotContain(session.Entries, entry => entry.Kind == UnityEntryKind.Sprite);
     }
 
     [Fact]

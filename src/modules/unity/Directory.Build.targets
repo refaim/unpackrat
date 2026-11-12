@@ -1,4 +1,19 @@
 <Project>
+  <!-- CVE-2026-111497 affects the Brotli decoder linked into older NativeAOT
+       packs. RuntimeFrameworkVersion is the SDK's supported override for both
+       HostILCompilerPack and TargetILCompilerPack, including a stale restored
+       compiler selection. Keep this shared Windows module on the qualified
+       10.0.15 packs; ordinary managed builds retain their runtime selection. -->
+  <Target Name="UnityNativeAotSecurityRuntime"
+          BeforeTargets="ProcessFrameworkReferences"
+          Condition="'$(PublishAot)' == 'true' and '$(NativeLib)' == 'Shared' and ('$(RuntimeIdentifier)' == 'win-x86' or '$(RuntimeIdentifier)' == 'win-x64')">
+    <PropertyGroup>
+      <RuntimeFrameworkVersion Condition="'$(RuntimeFrameworkVersion)' == ''">10.0.15</RuntimeFrameworkVersion>
+    </PropertyGroup>
+    <Error Condition="'$(RuntimeFrameworkVersion)' != '10.0.15'"
+           Text="Unity Windows NativeAOT requires RuntimeFrameworkVersion=10.0.15 (CVE-2026-111497). Remove the conflicting override or set it to 10.0.15." />
+  </Target>
+
   <!--
     Unity NativeAOT experiment: link the Visual Studio static UCRT instead of the
     dynamically linked ucrt.lib.

@@ -25,6 +25,8 @@ public sealed class UnityObjectSelectionTests
 	[InlineData(1, "2022.1.0f1")]
 	[InlineData(114, "2022.1.0f1")]
 	[InlineData(21, "2022.1.0f1")]
+	[InlineData(213, "2022.1.0f1")]
+	[InlineData(687078895, "2022.1.0f1")]
 	[InlineData(123456789, "2022.1.0f1")]
 	[InlineData(114, "5.4.1p1")]
 	[InlineData(49, "3.4.0f1")]
@@ -51,11 +53,9 @@ public sealed class UnityObjectSelectionTests
 	[InlineData(152, "2018.3.0f1")]
 	[InlineData(83, "2022.1.0f1")]
 	[InlineData(43, "2022.1.0f1")]
-	[InlineData(213, "2022.1.0f1")]
 	[InlineData(89, "2022.1.0f1")]
 	[InlineData(115, "2022.1.0f1")]
-	[InlineData(687078895, "2022.1.0f1")]
-	public void KnownResourcesAndAtlasKeepTheirIdentityEvenWhenTheirMetadataCannotBeRead(int classId, string version)
+	public void KnownResourcesKeepTheirIdentityEvenWhenTheirMetadataCannotBeRead(int classId, string version)
 	{
 		AssetInfo info = new(AssetCreator.CreateCollection(UnityVersion.Parse(version)), 7, classId);
 		ObjectInfo descriptor = new() { ObjectData = [0xFF] };

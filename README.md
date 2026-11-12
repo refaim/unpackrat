@@ -31,9 +31,15 @@ resource files, and the other dependencies the selected file references, are res
 selected file, while resources owned by unrelated dependencies are not added, so keep the sidecar
 files next to the selected file. Whole-game catalogues and code decompilation are not offered.
 
-Each entry converts on demand to its own output file. `Texture2D` and `Sprite` become PNG; `Sprite`
-crops its atlas region and handles packing, flips, 90-degree rectangles, a transparent canvas and a
-tight mask. `TextAsset` keeps its original bytes as `.bin`, which does not mean plain text only.
+Each entry converts on demand to its own output file. `Texture2D` exports the complete texture as
+PNG, including atlas textures. Individual `Sprite` images are not reconstructed or listed; their
+pixels remain in the complete textures. `TextAsset` keeps its original bytes as `.bin`, which does
+not mean plain text only.
+Texture memory checks use the actual decoded pixel format and account for PNG conversion and
+encoder buffers. Ordinary textures accept up to 256 MiB of source data and decoded pixels,
+subject to a 1 GiB working-memory estimate per extraction. Block-compressed and crunched textures, platform-specific
+Xbox/Switch conversions and PNG images wider or taller than 65535 pixels retain the previous
+stricter limits. These limits bound individual operations; they do not reserve memory in FAR.
 `AudioClip` uses the mature Fmod5Sharp decoder: FSB5 single-sample PCM and ADPCM export to WAV and
 Vorbis to Ogg, legacy stored sound bytes are preserved, and unsupported FSB5 banks or codecs keep
 their raw `.fsb`. Embedded fonts export to TTF/OTF/TTC, `VideoClip` and `MovieTexture` keep their
@@ -42,10 +48,10 @@ scene, materials or animations.
 
 Original hierarchy paths are kept when present, with literal `{Type}` folders as a fallback.
 DisplayedSize and PackedSize report the original source payload length (0 means unknown); converted
-output may differ. An unsupported downscale value beyond 0 or 1, a tight mask that cannot be read,
-or a source geometry budget refusal fails that one entry's export, so not every variant or Unity
-version is guaranteed. External code, `MonoBehaviour`, `ScriptableObject`, `Material` and
-`AnimationClip` are outside this resource feature. The Unity module is a single DLL with no
+output may differ. An unsupported resource variant or a source geometry budget refusal fails that
+one entry's export, so not every variant or Unity version is guaranteed. External code,
+`MonoBehaviour`, `ScriptableObject`, `Material` and `AnimationClip` are outside this resource
+feature. The Unity module is a single DLL with no
 separate .NET runtime to install.
 
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both

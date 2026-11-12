@@ -13,7 +13,6 @@ using AssetRipper.Primitives;
 using AssetRipper.SourceGenerated.Classes.ClassID_0;
 using AssetRipper.SourceGenerated.Classes.ClassID_28;
 using AssetRipper.SourceGenerated.Classes.ClassID_49;
-using AssetRipper.SourceGenerated.Classes.ClassID_213;
 using AssetRipper.SourceGenerated.Extensions;
 using Xunit;
 
@@ -24,19 +23,13 @@ namespace Unpackrat.UnityProbe.Tests;
 public sealed class UnityEagerMetadataTests
 {
 	private static readonly byte[] Pixels = [10, 20, 30, 255];
-	private static void Eager(byte[] bytes, Action<IUnityObjectBase[]> check, byte[]? dependency = null)
+	private static void Eager(byte[] bytes, Action<IUnityObjectBase[]> check)
 	{
 		using SmartStream input = SmartStream.CreateMemory(bytes);
 		using SerializedFile file = (SerializedFile)SchemeReader.ReadFile(input, "selected.assets", "selected.assets");
 		using GameBundle root = new();
 		GameAssetFactory factory = new(new BaseManager(static _ => { }));
 		root.AddCollectionFromSerializedFile(file, factory);
-		if (dependency is not null)
-		{
-			using SmartStream side = SmartStream.CreateMemory(dependency);
-			using SerializedFile sideFile = (SerializedFile)SchemeReader.ReadFile(side, UnityFixtureBuilder.AtlasDependencyName, UnityFixtureBuilder.AtlasDependencyName);
-			root.AddCollectionFromSerializedFile(sideFile, factory);
-		}
 		root.InitializeAllDependencyLists();
 		check(root.FetchAssets().ToArray());
 	}
@@ -112,29 +105,4 @@ public sealed class UnityEagerMetadataTests
 		}
 	}
 
-	[Theory]
-	[InlineData(false)]
-	[InlineData(true)]
-	public void EagerSpriteMetadataUsesTheSameSelectedTextureRules(bool atlas)
-	{
-		(byte[] sprite, byte[] side) = UnityFixtureBuilder.SerializedAtlasSprite("hero", Pixels, 1, 1, Pixels, 1, 1, 0, 0, 1, 1, 0, 0, 2, 7, 7);
-		byte[] bytes = atlas ? sprite : UnityFixtureBuilder.SerializedSprite("hero", Pixels, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
-		Eager(bytes, assets =>
-		{
-			IProbeResource view = Assert.Single(UnitySource.Wrap(assets).OfType<IProbeResource>(), a => a.Kind == UnityEntryKind.Sprite);
-			Assert.Equal("hero", view.Name); Assert.True(view.PathId > 0); Assert.Null(view.OriginalPath);
-			Assert.Equal("png", view.OutputExtension); Assert.Equal(atlas ? 0 : 4, view.SourceSize);
-		}, atlas ? side : null);
-	}
-
-	[Theory]
-	[InlineData("missingatlas")]
-	[InlineData("missingkey")]
-	[InlineData("missingtexture")]
-	public void EagerSpriteWithMissingDependenciesRemainsUnexportable(string missing)
-	{
-		(byte[] sprite, byte[] side) = UnityFixtureBuilder.SerializedAtlasSprite("hero", Pixels, 1, 1, Pixels, 1, 1, 0, 0, 1, 1, 0, 0, 2, 7,
-			missing == "missingkey" ? 8 : 7, linkAtlasTexture: missing != "missingtexture");
-		Eager(sprite, assets => Assert.DoesNotContain(UnitySource.Wrap(assets).OfType<IProbeResource>(), a => a.Kind == UnityEntryKind.Sprite), missing == "missingatlas" ? null : side);
-	}
 }

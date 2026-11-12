@@ -41,7 +41,7 @@ public sealed class UnityArrayCountTests(ITestOutputHelper output)
         const int origin = 11;
         const int payloadLength = 32;
         var template = Root(
-            Array("m_RenderDataKey", Field("data", AssetValueType.Int32)),
+            Array("m_StreamData", Field("data", AssetValueType.Int32)),
             Array("ignored", Array("data", Field("data", AssetValueType.UInt16))),
             Field("payload", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)),
             Field("m_Width", AssetValueType.Int32));
@@ -57,9 +57,9 @@ public sealed class UnityArrayCountTests(ITestOutputHelper output)
         for (int i = 0; i < objectCount; i++)
         {
             UnityProjection value = UnityProjection.ReadBorrowed(input, origin, objectLength, template, bigEndian, state, validateLayout);
-            Assert.Equal(11, value.Number("m_RenderDataKey/data"));
+            Assert.Equal(11, value.Number("m_StreamData/data"));
             Assert.Equal(101, value.Number("m_Width"));
-            Assert.Equal(new[] { "m_RenderDataKey/data", "m_Width" }, value.Keys);
+            Assert.Equal(new[] { "m_StreamData/data", "m_Width" }, value.Keys);
             Assert.Equal(origin + objectLength, input.Position);
             Assert.Equal(0, input.PayloadReads);
         }
@@ -74,7 +74,7 @@ public sealed class UnityArrayCountTests(ITestOutputHelper output)
     [InlineData(true, 16_000_001)]
     public void InvalidCountsAreRejectedBeforeElementsAndTheSameStateCanRetry(bool bigEndian, int count)
     {
-        var template = Root(Array("m_RenderDataKey", Field("data", AssetValueType.Int32)), Field("m_Width", AssetValueType.Int32));
+        var template = Root(Array("m_StreamData", Field("data", AssetValueType.Int32)), Field("m_Width", AssetValueType.Int32));
         UnityProjection.State state = new(template);
         using MemoryStream invalid = new(Counts(bigEndian, count), false);
         Assert.Throws<InvalidDataException>(() => UnityProjection.ReadBorrowed(invalid, 0, invalid.Length, template, bigEndian, state));
@@ -98,13 +98,13 @@ public sealed class UnityArrayCountTests(ITestOutputHelper output)
     [InlineData(true, 3)]
     public void TruncatedPrefixesCannotLeaveAnArrayCountForTheNextObject(bool bigEndian, int length)
     {
-        var template = Root(Array("m_RenderDataKey", Field("data", AssetValueType.Int32)), Field("m_Width", AssetValueType.Int32));
+        var template = Root(Array("m_StreamData", Field("data", AssetValueType.Int32)), Field("m_Width", AssetValueType.Int32));
         UnityProjection.State state = new(template);
         using MemoryStream truncated = new(new byte[length], false);
         Assert.Throws<EndOfStreamException>(() => UnityProjection.ReadBorrowed(truncated, 0, length, template, bigEndian, state));
         using MemoryStream valid = new(Counts(bigEndian, 1, 23, 107), false);
         UnityProjection value = UnityProjection.ReadBorrowed(valid, 0, valid.Length, template, bigEndian, state);
-        Assert.Equal(23, value.Number("m_RenderDataKey/data"));
+        Assert.Equal(23, value.Number("m_StreamData/data"));
         Assert.Equal(107, value.Number("m_Width"));
         Assert.Equal(valid.Length, valid.Position);
     }

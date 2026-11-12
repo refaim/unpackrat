@@ -51,11 +51,9 @@ namespace extractor
         static_assert(sizeof(wchar_t) == sizeof(std::uint16_t), "the Unity ABI takes UTF-16 units");
 
         // Upper bound on the entry count the backend may report. It keeps a corrupt count
-        // from driving an unbounded listing allocation while leaving ample headroom. A
-        // selected resource bundle exposes both the Texture2D and the Sprite view of a
-        // catalogue, so a valid shipping catalogue reaches 281151 entries; the finite
-        // ceiling is twice the former 200000 budget to cover that texture-plus-sprite
-        // count without bounding every real catalogue.
+        // from driving an unbounded listing allocation while leaving ample headroom for
+        // large resource catalogues. The established finite ceiling stays independent
+        // of which supported resource kinds occur in a particular input.
         constexpr std::int32_t max_entries = 400'000;
 
         // Upper bound on the UTF-16 units copied for a single label. Only the leading
@@ -292,8 +290,7 @@ namespace extractor
         [[nodiscard]] bool is_reserved_fallback_root(const std::wstring_view root) noexcept
         {
             static constexpr std::wstring_view reserved[] = {
-                L"{Texture2D}",    L"{TextAsset}", L"{Font}", L"{VideoClip}",
-                L"{MovieTexture}", L"{AudioClip}", L"{Mesh}", L"{Sprite}",
+                L"{Texture2D}", L"{TextAsset}", L"{Font}", L"{VideoClip}", L"{MovieTexture}", L"{AudioClip}", L"{Mesh}",
             };
             return std::ranges::any_of(reserved, [root](const std::wstring_view candidate) {
                 return ascii_case_insensitive_equal(root, candidate);
@@ -301,7 +298,7 @@ namespace extractor
         }
 
         // The braced fallback folder of an entry kind, or null for an unknown kind. The
-        // eight names are the frozen external kind table's directory fallback; a caller
+        // seven names are the supported external kind table's directory fallback; a caller
         // rejects an entry whose kind has no folder before it is used.
         [[nodiscard]] const wchar_t *fallback_folder(const int kind) noexcept
         {
@@ -320,8 +317,6 @@ namespace extractor
                 return L"{AudioClip}";
             case UNITY_KIND_MESH:
                 return L"{Mesh}";
-            case UNITY_KIND_SPRITE:
-                return L"{Sprite}";
             default:
                 return nullptr;
             }
@@ -333,7 +328,6 @@ namespace extractor
         {
             switch (kind) {
             case UNITY_KIND_TEXTURE_PNG:
-            case UNITY_KIND_SPRITE:
                 return L"png";
             case UNITY_KIND_TEXT_RAW:
                 return L"bin";

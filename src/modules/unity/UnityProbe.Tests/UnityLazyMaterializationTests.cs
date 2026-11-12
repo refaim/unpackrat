@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using AssetRipper.Assets;
 using AssetRipper.Assets.Bundles;
 using AssetRipper.Assets.Generics;
@@ -10,6 +11,7 @@ using AssetRipper.Assets.IO;
 using AssetRipper.Assets.Metadata;
 using AssetRipper.Import.AssetCreation;
 using AssetRipper.Import.Structure.Assembly.Managers;
+using AssetRipper.Import.Structure.Assembly.TypeTrees;
 using AssetRipper.IO.Files.SerializedFiles.Parser;
 using AssetRipper.SourceGenerated.Classes.ClassID_28;
 using AssetRipper.SourceGenerated.Classes.ClassID_49;
@@ -20,8 +22,8 @@ using AssetRipper.SourceGenerated.Classes.ClassID_83;
 using AssetRipper.SourceGenerated.Classes.ClassID_43;
 using AssetRipper.IO.Files;
 using AssetRipper.IO.Files.Streams.Smart;
-using AssetRipper.SourceGenerated.Classes.ClassID_213;
-using AssetRipper.SourceGenerated.Classes.ClassID_687078895;
+using AssetRipper.Primitives;
+using AssetRipper.SourceGenerated;
 using Xunit;
 
 namespace Unpackrat.UnityProbe.Tests;
@@ -43,19 +45,27 @@ public sealed class UnityLazyMaterializationTests
 		}
 	}
 
-	private static readonly byte[] Pixels = Enumerable.Repeat(new byte[] { 10, 20, 30, 255 }, 4).SelectMany(p => p).ToArray();
+	private static readonly byte[] Pixels = [10, 20, 30, 255];
+	private static byte[] PatchTexture(string name)
+	{
+		byte[] bytes = UnityFixtureBuilder.SerializedVersionedTexture(name, UnityVersion.Parse("5.4.2f1"), mipmapped: false);
+		int versionOffset = bytes.AsSpan().IndexOf(Encoding.ASCII.GetBytes("5.4.2f1"));
+		Assert.True(versionOffset >= 0);
+		Encoding.ASCII.GetBytes("5.4.1p1").CopyTo(bytes, versionOffset);
+		return bytes;
+	}
+
+
 
 	private static (string Selected, string Dependency) Fixture()
 	{
-		(byte[] first, byte[] atlas) = UnityFixtureBuilder.SerializedAtlasSprite(
-			"hero", Pixels, 2, 2, Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 7, 7);
-		(byte[] second, _) = UnityFixtureBuilder.SerializedAtlasSprite(
-			"background", Pixels, 2, 2, Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 7, 7);
+		byte[] first = UnityFixtureBuilder.SerializedInlineTexture("first", Pixels, dependencies: ["dependency.assets"]);
+		byte[] second = UnityFixtureBuilder.SerializedInlineTexture("second", Pixels, dependencies: ["dependency.assets"]);
 		string directory = Temp.NewDirectory();
 		string selected = Path.Combine(directory, "selected.unity3d");
-		string dependency = Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName);
+		string dependency = Path.Combine(directory, "dependency.assets");
 		File.WriteAllBytes(selected, UnityFixtureBuilder.CompressedBundle(("first.assets", first), ("second.assets", second)));
-		File.WriteAllBytes(dependency, atlas);
+		File.WriteAllBytes(dependency, UnityFixtureBuilder.SerializedInlineTexture("dependency", Pixels));
 		return (selected, dependency);
 	}
 
@@ -66,7 +76,7 @@ public sealed class UnityLazyMaterializationTests
 		FieldInfo rootField = graph.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
 			.Single(field => field.FieldType == typeof(GameBundle));
 		GameBundle root = (GameBundle)rootField.GetValue(graph)!;
-		Assert.DoesNotContain(root.FetchAssets(), asset => asset is ISprite or ITexture2D or ISpriteAtlas or ITextAsset or IFont or IMovieTexture or IVideoClip or IAudioClip or IMesh);
+		Assert.DoesNotContain(root.FetchAssets(), asset => asset is ITexture2D or ITextAsset or IFont or IMovieTexture or IVideoClip or IAudioClip or IMesh);
 	}
 
 	private static GameBundle Root(UnitySession session)
@@ -100,7 +110,7 @@ public sealed class UnityLazyMaterializationTests
 	}
 
 	[Fact]
-	public void AtlasSpriteOpenAndListingUseOnlyMetadataAndExportReadsOnlyItsDependencyClosure()
+	public void SelectedTextureOpenAndListingUseOnlyMetadataAndExportReadsOnlyItsOwnBody()
 	{
 		(string selected, string dependency) = Fixture();
 		FullReader reader = new();
@@ -109,17 +119,17 @@ public sealed class UnityLazyMaterializationTests
 		{
 			AssertNoFullResourceObjects(graph);
 			Assert.Empty(reader.Reads);
-			Assert.Equal(new[] { "local_texture", "hero", "local_texture", "background" }, session.Entries.Select(e => e.Name));
-			Assert.Equal(new long[] { 16, 0, 16, 0 }, session.Entries.Select(e => e.SourceSize));
-			Assert.Equal(new[] { 0, 0, 1, 1 }, session.Entries.Select(e => e.CollectionIndex));
+			Assert.Equal(new[] { "first", "second" }, session.Entries.Select(e => e.Name));
+			Assert.Equal(new long[] { 4, 4 }, session.Entries.Select(e => e.SourceSize));
+			Assert.Equal(new[] { 0, 1 }, session.Entries.Select(e => e.CollectionIndex));
 			Assert.All(session.Entries, e => { Assert.Equal("png", e.OutputExtension); Assert.Equal(string.Empty, e.OriginalPath); });
 			using MemoryStream output = new();
 			Assert.True(session.Export(1, output));
 			(int width, int height, byte[] rgba) = PngDecoder.Decode(output.ToArray());
-			Assert.Equal(2, width);
-			Assert.Equal(2, height);
+			Assert.Equal(1, width);
+			Assert.Equal(1, height);
 			Assert.Equal(Pixels, rgba);
-			Assert.Equal(new[] { 213, 687078895, 28 }, reader.Reads.Select(r => r.ClassId));
+			Assert.Equal(new[] { 28 }, reader.Reads.Select(r => r.ClassId));
 			AssertNoFullResourceObjects(graph);
 		}
 		using FileStream firstHandle = new(selected, FileMode.Open, FileAccess.Read, FileShare.None);
@@ -127,7 +137,7 @@ public sealed class UnityLazyMaterializationTests
 	}
 
 	[Fact]
-	public void ADependencyMemoryFailureRestoresEveryPlaceholderAndCanRetry()
+	public void ATextureMemoryFailureRestoresEveryPlaceholderAndCanRetry()
 	{
 		(string selected, _) = Fixture();
 		OutOfMemoryException shortage = new("texture sentinel");
@@ -143,7 +153,7 @@ public sealed class UnityLazyMaterializationTests
 		using MemoryStream retry = new();
 		Assert.True(session.Export(1, retry));
 		Assert.Equal(Pixels, PngDecoder.Decode(retry.ToArray()).Rgba);
-		Assert.Equal(new[] { 213, 687078895, 28, 213, 687078895, 28 }, reader.Reads.Select(r => r.ClassId));
+		Assert.Equal(new[] { 28, 28 }, reader.Reads.Select(r => r.ClassId));
 		AssertNoFullResourceObjects(graph);
 	}
 	[Theory]
@@ -229,46 +239,10 @@ public sealed class UnityLazyMaterializationTests
 		public override int Read(byte[] buffer, int offset, int requested) { Check(requested); return base.Read(buffer, offset, requested); }
 		public override int Read(Span<byte> buffer) { Check(buffer.Length); return base.Read(buffer); }
 		public override int ReadByte() { Check(1); return base.ReadByte(); }
-	}	[Fact]
-	public void SharedAtlasCatalogueWorkIsBoundedByTheMapAndSpriteCounts()
-	{
-		(byte[] sprite, byte[] atlas) = UnityFixtureBuilder.SerializedAtlasSprite(
-			"sprite", Pixels, 2, 2, Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 7, 7, leadingAtlasEntries: 2048);
-		string directory = Temp.NewDirectory();
-		string path = Path.Combine(directory, "selected.unity3d");
-		File.WriteAllBytes(Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName), atlas);
-		File.WriteAllBytes(path, UnityFixtureBuilder.CompressedBundle(Enumerable.Range(0, 512).Select(i => ($"sprite{i}.assets", sprite)).ToArray()));
-		// Exclude one-time schema/JIT startup from the deterministic managed allocation budget.
-		using (UnitySession warm = UnitySession.Open(Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName))) { Assert.Single(warm.Entries); }
-		using UnitySession legacy = UnitySession.FromGraph(UnitySource.OpenGraph(path, readFile: null));
-		UnityCatalogEntry canonicalSprite = legacy.Entries.First(entry => entry.Kind == UnityEntryKind.Sprite);
-		// Equivalent atlas-backed Sprites collapse to the first selected collection's Sprite;
-		// every selected collection's own texture row remains present and ordered.
-		UnityCatalogEntry[] expected = legacy.Entries
-			.Where(entry => entry.Kind == UnityEntryKind.Texture || entry.Index == canonicalSprite.Index)
-			.ToArray();
-		Assert.Equal(1024, legacy.Entries.Count);
-		Assert.Equal(513, expected.Length);
-		long before = GC.GetAllocatedBytesForCurrentThread();
-		using UnitySession session = UnitySession.Open(path);
-		long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-		Assert.Equal(expected.Select(entry => (entry.PathId, entry.Name, entry.Kind, entry.SourceSize)),
-			session.Entries.Select(entry => (entry.PathId, entry.Name, entry.Kind, entry.SourceSize)));
-		Assert.Equal(512, session.Entries.Count(entry => entry.Kind == UnityEntryKind.Texture));
-		Assert.Single(session.Entries, entry => entry.Kind == UnityEntryKind.Sprite);
-		Assert.True(allocated < 80L * 1024 * 1024, $"Shared-atlas metadata allocated {allocated} bytes; repeated full map scans exceed the bounded-work contract.");
-		for (int pass = 0; pass < 2; pass++)
-		{
-			for (int i = 0; i < expected.Length; i++)
-			{
-				using MemoryStream sourceOutput = new(), compactOutput = new();
-				Assert.True(legacy.Export(expected[i].Index, sourceOutput));
-				Assert.True(session.Export(session.Entries[i].Index, compactOutput));
-				Assert.Equal(sourceOutput.ToArray(), compactOutput.ToArray());
-				Assert.Equal(0, ResolvedIdentityCount(Root(session)));
-			}
-		}
-	}	[Fact]
+	}
+
+
+	[Fact]
 	public void RepeatedTinyTextResourcesReuseSessionTraversalWorkspace()
 	{
 		string path = Path.Combine(Temp.NewDirectory(), "many.assets");
@@ -282,7 +256,9 @@ public sealed class UnityLazyMaterializationTests
 		Assert.Equal(4096, session.Entries.Count);
 		Assert.All(session.Entries, e => { Assert.Equal("notes", e.Name); Assert.Equal(7, e.SourceSize); });
 		Assert.True(allocated < 9L * 1024 * 1024, $"Tiny resources allocated {allocated} bytes; traversal buffers must be reused inside the session.");
-	}	[Theory]
+	}
+
+	[Theory]
 	[InlineData(89, 0, 4)]
 	[InlineData(115, 1, 0)]
 	[InlineData(954905827, 1, 0)]
@@ -308,8 +284,6 @@ public sealed class UnityLazyMaterializationTests
 
 	[Theory]
 	[InlineData(28)]
-	[InlineData(213)]
-	[InlineData(687078895)]
 	public void AnUnmaterialisableSelectedObjectOrDependencyLeavesTheSessionRetryable(int nullClassId)
 	{
 		(string path, _) = Fixture();
@@ -324,27 +298,14 @@ public sealed class UnityLazyMaterializationTests
 		Assert.True(session.Export(1, output));
 		Assert.Equal(Pixels, PngDecoder.Decode(output.ToArray()).Rgba);
 		AssertNoFullResourceObjects(graph);
-	}	[Theory]
+	}
+
+	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
-	public void SpriteReferencingAnUnreadableOrWrongKindTextureIsNotCatalogued(bool wrongKind)
+	public void PatchVersionTextureUsesTheMatureNextBuildLayoutWithoutReadingPixelsAtOpen(bool compact)
 	{
-		byte[] bytes = UnityFixtureBuilder.SerializedSprite("hero", Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0);
-		using SmartStream input = SmartStream.CreateMemory(bytes);
-		var file = (AssetRipper.IO.Files.SerializedFiles.SerializedFile)SchemeReader.ReadFile(input, "selected.assets", "selected.assets");
-		ObjectInfo[] objects = (ObjectInfo[])file.GetType().GetField("m_objects", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(file)!;
-		if (wrongKind) objects[0].TypeID = 1;
-		else objects[0].ObjectData = [1];
-		FullReader reader = new();
-		using UnitySession session = UnitySession.FromGraph(UnitySource.OpenGraph("selected.assets", _ => file, reader));
-		Assert.Empty(session.Entries); Assert.Empty(reader.Reads);
-	}	[Theory]
-	[InlineData(false)]
-	[InlineData(true)]
-	public void PatchVersionSpriteUsesTheMatureNextBuildLayoutWithoutReadingTexturePixelsAtOpen(bool compact)
-	{
-		byte[] bytes = UnityFixtureBuilder.SerializedSprite("patched", Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0,
-			downscale: 1f, layoutVersion: "5.4.2f1", headerVersion: "5.4.1p1");
+		byte[] bytes = PatchTexture("patched");
 		byte[] expected;
 		using (SmartStream eagerInput = SmartStream.CreateMemory(bytes))
 		using (var file = (AssetRipper.IO.Files.SerializedFiles.SerializedFile)SchemeReader.ReadFile(eagerInput, "selected.assets", "selected.assets"))
@@ -352,46 +313,97 @@ public sealed class UnityLazyMaterializationTests
 		{
 			root.AddCollectionFromSerializedFile(file, new GameAssetFactory(new BaseManager(static _ => { })));
 			root.InitializeAllDependencyLists();
-			Assert.True(root.FetchAssets().Any(a => a is ISprite), string.Join(";", root.FetchAssets().Select(a => a.GetType().FullName + "=" + a.Collection.Version)));
-			Assert.True(root.FetchAssets().Any(a => a is ITexture2D), string.Join(";", root.FetchAssets().Select(a => a.GetType().FullName)));
-			ISprite fullSprite = root.FetchAssets().OfType<ISprite>().Single();
-			Assert.True(fullSprite.RD.Texture.PathID == 1 && fullSprite.RD.Texture.FileID == 0, $"{fullSprite.GetType().Name} pointer={fullSprite.RD.Texture.FileID}/{fullSprite.RD.Texture.PathID}");
-			IProbeResource sprite = Assert.Single(UnitySource.Wrap(root.FetchAssets()).OfType<IProbeResource>(), p => p.Kind == UnityEntryKind.Sprite);
-			expected = sprite.ExportData()!;
-			Assert.Equal(Pixels, PngDecoder.Decode(expected).Rgba);
+			IProbeTexture texture = Assert.Single(UnitySource.Wrap(root.FetchAssets()).OfType<IProbeTexture>());
+			expected = Assert.IsType<byte[]>(texture.RenderPng());
+			Assert.Equal(Enumerable.Repeat((byte)0xA5, 128).ToArray(), PngDecoder.Decode(expected).Rgba);
 		}
-		int start = bytes.AsSpan().IndexOf(Pixels);
+		byte[] pixels = Enumerable.Repeat((byte)0xA5, 128).ToArray();
+		int start = bytes.AsSpan().IndexOf(pixels);
 		Assert.True(start > 0);
-		using PayloadGuard guard = new(bytes, start, Pixels.Length);
+		using PayloadGuard guard = new(bytes, start, pixels.Length);
 		using SmartStream input = SmartStream.CreateOwned(guard);
-		var selected = SchemeReader.ReadFile(input, "selected.assets", "selected.assets", FileReadMode.MetadataOnly);
+		var selected = SchemeReader.ReadFile(input, "selected.assets", "selected.assets",
+			compact ? FileReadMode.CompactMetadataOnly : FileReadMode.MetadataOnly);
 		FullReader reader = new();
 		IUnityGraph graph = UnitySource.OpenGraph("selected.assets", _ => selected, reader, compact: compact);
 		using UnitySession session = UnitySession.FromGraph(graph);
-		UnityCatalogEntry entry = Assert.Single(session.Entries, e => e.Kind == UnityEntryKind.Sprite);
-		Assert.Equal("patched", entry.Name); Assert.Equal(16, entry.SourceSize); Assert.Equal("png", entry.OutputExtension);
+		UnityCatalogEntry entry = Assert.Single(session.Entries);
+		Assert.Equal(UnityEntryKind.Texture, entry.Kind);
+		Assert.Equal("patched", entry.Name); Assert.Equal(128, entry.SourceSize); Assert.Equal("png", entry.OutputExtension);
 		Assert.Empty(reader.Reads); Assert.Equal(0, guard.Attempts); AssertNoFullResourceObjects(graph);
 		guard.Allow = true;
 		using MemoryStream output = new(); Assert.True(session.Export(entry.Index, output));
 		Assert.Equal(expected, output.ToArray()); AssertNoFullResourceObjects(graph);
 	}
+
 	[Fact]
 	public void BuiltinPatchFilesKeepTheMatureNominalLayoutPreference()
 	{
-		byte[] bytes = UnityFixtureBuilder.SerializedSprite("builtin", Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0,
-			layoutVersion: "5.4.2f1", headerVersion: "5.4.1p1");
 		string path = Path.Combine(Temp.NewDirectory(), "unity_builtin_extra");
-		File.WriteAllBytes(path, bytes);
-		using (SmartStream eagerInput = SmartStream.CreateMemory(bytes))
-		using (var file = (AssetRipper.IO.Files.SerializedFiles.SerializedFile)SchemeReader.ReadFile(eagerInput, path, "unity_builtin_extra"))
-		using (GameBundle root = new())
-		{
-			root.AddCollectionFromSerializedFile(file, new GameAssetFactory(new BaseManager(static _ => { })));
-			root.InitializeAllDependencyLists();
-			Assert.DoesNotContain(UnitySource.Wrap(root.FetchAssets()).OfType<IProbeResource>(), p => p.Kind == UnityEntryKind.Sprite);
-		}
+		File.WriteAllBytes(path, PatchTexture("builtin"));
 		FullReader reader = new();
 		using UnitySession session = UnitySession.FromGraph(Open(path, reader));
-		Assert.Equal(UnityEntryKind.Texture, Assert.Single(session.Entries).Kind);
+		UnityCatalogEntry texture = Assert.Single(session.Entries);
+		Assert.Equal(UnityEntryKind.Texture, texture.Kind);
+		Assert.Equal("builtin", texture.Name);
 		Assert.Empty(reader.Reads);
-	}}
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void PatchFontWithANewerNonzeroTailUsesTheNextLayoutWithoutReadingItsBodyAtOpen(bool compact)
+	{
+		UnityVersion nominal = UnityVersion.Parse("5.6.4p1");
+		UnityVersion next = UnityVersion.Parse("5.6.5f1");
+		byte[] fontBytes = [0x4F, 0x54, 0x54, 0x4F, 0x12, 0x34, 0x56, 0x78];
+		byte[] bytes = UnityFixtureBuilder.SerializedVersionedFont("patched-font", fontBytes, next, legacyBounds: true);
+		int versionOffset = bytes.AsSpan().IndexOf(Encoding.ASCII.GetBytes(next.ToString()));
+		Assert.True(versionOffset >= 0);
+		Assert.Equal(next.ToString().Length, nominal.ToString().Length);
+		Encoding.ASCII.GetBytes(nominal.ToString()).CopyTo(bytes, versionOffset);
+		int payloadOffset = bytes.AsSpan().IndexOf(fontBytes);
+		Assert.True(payloadOffset > 0);
+
+		// The extension needs only a four-byte font signature. The rest of the embedded font
+		// remains unread until export, including during the nominal-to-next layout retry.
+		using PayloadGuard guard = new(bytes, payloadOffset + 4, fontBytes.Length - 4);
+		using SmartStream input = SmartStream.CreateOwned(guard);
+		var selected = (AssetRipper.IO.Files.SerializedFiles.SerializedFile)SchemeReader.ReadFile(input,
+			"patched-font.assets", "patched-font.assets", compact ? FileReadMode.CompactMetadataOnly : FileReadMode.MetadataOnly);
+		Assert.True(TypeTreeNodeStruct.TryMakeFromTpk(ClassIDType.Font, nominal, out var nominalTree, out _));
+		Assert.True(TypeTreeNodeStruct.TryMakeFromTpk(ClassIDType.Font, next, out var nextTree, out _));
+		var nominalTemplate = UnityProjection.Template(nominalTree);
+		var nextTemplate = UnityProjection.Template(nextTree);
+		ObjectInfo descriptor = selected.GetObjectInfo(0);
+		using (Stream body = descriptor.OpenDataStream())
+			Assert.Throws<InvalidDataException>(() => UnityProjection.Read(body, nominalTemplate, false, validateLayout: true));
+		using (Stream body = descriptor.OpenDataStream())
+		{
+			UnityProjection fields = UnityProjection.Read(body, nextTemplate, false, validateLayout: true);
+			Assert.Equal("patched-font", fields.Text("m_Name"));
+			Assert.Equal(fontBytes.Length, UnitySource.LazyAssetFactory.Range(fields, "m_FontData").Length);
+		}
+		Assert.Equal(0, guard.Attempts);
+
+		FullReader reader = new();
+		IUnityGraph graph = UnitySource.OpenGraph("patched-font.assets", _ => selected, reader, compact: compact);
+		using UnitySession session = UnitySession.FromGraph(graph);
+		UnityCatalogEntry entry = Assert.Single(session.Entries);
+		Assert.Equal(UnityEntryKind.Font, entry.Kind);
+		Assert.Equal("patched-font", entry.Name);
+		Assert.Equal(fontBytes.Length, entry.SourceSize);
+		Assert.Equal("otf", entry.OutputExtension);
+		Assert.Empty(reader.Reads);
+		Assert.Equal(0, guard.Attempts);
+		guard.Allow = true;
+		for (int pass = 0; pass < 2; pass++)
+		{
+			using MemoryStream output = new();
+			Assert.True(session.Export(entry.Index, output));
+			Assert.Equal(fontBytes, output.ToArray());
+			AssertNoFullResourceObjects(graph);
+		}
+		Assert.Equal(new[] { 128, 128 }, reader.Reads.Select(row => row.ClassId));
+	}
+}

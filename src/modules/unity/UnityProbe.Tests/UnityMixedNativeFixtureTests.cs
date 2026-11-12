@@ -20,7 +20,7 @@ public sealed class UnityMixedNativeFixtureTests
 		// A fresh directory with no earlier run's artifacts: the persistence must produce the pair
 		// from the shared factory and the public PCM16 bank alone.
 		string directory = Temp.NewDirectory();
-		string selected = UnitySpriteNativeFixtureGenerator.PersistMixedPair(directory);
+		string selected = UnityMixedNativeFixtureGenerator.PersistMixedPair(directory);
 		Assert.Single(Directory.GetFiles(directory, "mixed*.assets"));
 
 		using UnitySession session = UnitySession.Open(selected);

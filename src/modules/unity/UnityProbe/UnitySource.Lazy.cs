@@ -24,8 +24,6 @@ using AssetRipper.SourceGenerated.Classes.ClassID_152;
 using AssetRipper.SourceGenerated.Classes.ClassID_329;
 using AssetRipper.SourceGenerated.Classes.ClassID_83;
 using AssetRipper.SourceGenerated.Classes.ClassID_43;
-using AssetRipper.SourceGenerated.Classes.ClassID_213;
-using AssetRipper.SourceGenerated.Classes.ClassID_687078895;
 using AssetRipper.SourceGenerated.Extensions;
 using AssetsTools.NET;
 
@@ -33,10 +31,8 @@ namespace Unpackrat.UnityProbe;
 
 internal static partial class UnitySource
 {
-	// Retained resource/atlas identities remain ordinary Unity objects for upstream PPtr and
+	// Retained resource identities remain ordinary Unity objects for upstream PPtr and
 	// original-path processing. Unsupported shapes are skipped after complete source ID validation.
-
-	private readonly record struct AtlasEntry(int FileId, long PathId, SpriteSourceFacts Geometry);
 
 	private sealed class DeferredObject(AssetInfo info, ObjectInfo data, IReadOnlyList<SerializedTypeReference> references, Shape shape, LazyAssetFactory owner) : UnityObjectBase(info), IObject, INamed, IProbeResource
 	{
@@ -53,7 +49,6 @@ internal static partial class UnitySource
 		public IReadOnlyList<SerializedTypeReference> References { get; } = references;
 		public Shape Shape { get; } = shape;
 		public UnityProjection? Projection { get; set; }
-		public Dictionary<(ulong, ulong, ulong, ulong, long), AtlasEntry>? AtlasTextures { get; set; }
 		UnityEntryKind IProbeResource.Kind => Shape.Kind.GetValueOrDefault();
 		long IProbeResource.PathId => PathID;
 		string IProbeResource.Name => name;
@@ -68,11 +63,9 @@ internal static partial class UnitySource
 		}
 	}
 
-	private sealed record Shape(UnityEntryKind? Kind, bool Atlas, AssetTypeTemplateField? Template, IAudioClip? Audio)
+	private sealed record Shape(UnityEntryKind? Kind, AssetTypeTemplateField? Template, IAudioClip? Audio)
 	{
-		private UnityProjection.State? quadTraversal;
 		public UnityProjection.State? Traversal { get; } = Template is null ? null : new(Template);
-		public UnityProjection.State? QuadTraversal => Template is null ? null : quadTraversal ??= new(Template!, UnityProjection.Profile.Quad);
 	}
 
 	internal sealed partial class LazyAssetFactory(AssetFactoryBase fullReader, bool compact = false) : AssetFactoryBase
@@ -117,7 +110,7 @@ internal static partial class UnitySource
 		{
 			if (info.ClassID is 142 or 147) return fullReader.ReadAsset(info, descriptor.ObjectData, descriptor.Type, references);
 			Shape shape = GetShape(info, info.Collection.Version);
-			if (shape.Kind is null && !shape.Atlas) return null;
+			if (shape.Kind is null) return null;
 			bool patch = info.Collection.Version.Type == UnityVersionType.Patch
 				&& !SpecialFileNames.IsDefaultResourceOrBuiltinExtra(info.Collection.Name);
 			if (compactTable && shape.Kind is not null)
@@ -174,13 +167,12 @@ internal static partial class UnitySource
 				ITexture2D => UnityEntryKind.Texture, ITextAsset => UnityEntryKind.Text,
 				IFont => UnityEntryKind.Font, IVideoClip => UnityEntryKind.VideoClip,
 				IMovieTexture => UnityEntryKind.MovieTexture, IAudioClip => UnityEntryKind.AudioClip,
-				IMesh => UnityEntryKind.Mesh, ISprite => UnityEntryKind.Sprite, _ => null,
+				IMesh => UnityEntryKind.Mesh, _ => null,
 			};
-			bool atlas = definition is ISpriteAtlas;
 			AssetTypeTemplateField? template = null;
-			if ((kind is not null || atlas) && TypeTreeNodeStruct.TryMakeFromTpk((ClassIDType)info.ClassID, version, out var releaseRoot, out var editorRoot))
+			if (kind is not null && TypeTreeNodeStruct.TryMakeFromTpk((ClassIDType)info.ClassID, version, out var releaseRoot, out var editorRoot))
 				template = UnityProjection.Template(info.Collection.Flags.IsRelease() ? releaseRoot : editorRoot);
-			return new(kind, atlas, template, definition as IAudioClip);
+			return new(kind, template, definition as IAudioClip);
 		}
 
 		public IReadOnlyList<IProbeAsset> Describe(AssetCollection collection)
@@ -193,7 +185,6 @@ internal static partial class UnitySource
 				if (asset is DeferredObject identity)
 				{
 					identity.Projection = null;
-					identity.AtlasTextures = null;
 				}
 			}
 		}
@@ -201,19 +192,9 @@ internal static partial class UnitySource
 		private IProbeAsset Describe(DeferredObject identity)
 		{
 			if (identity.Projection is not { } fields || identity.Shape.Kind is not { } kind) return OtherAsset.Instance;
-			long size; string extension;
-			if (kind == UnityEntryKind.Sprite)
-			{
-				if (!TrySpriteSize(identity, out bool fromAtlas, out long textureSize)) return OtherAsset.Instance;
-				size = fromAtlas ? 0 : textureSize; extension = "png";
-			}
-			else
-			{
-				var metadata = DescribeHeader(identity.Collection, identity.Data, identity.Shape, fields);
-				if (!metadata.Visible) return OtherAsset.Instance;
-				size = metadata.Size; extension = metadata.Extension;
-			}
-			identity.CaptureResourceMetadata(size, extension); return identity;
+			var metadata = DescribeHeader(identity.Collection, identity.Data, identity.Shape, fields);
+			if (!metadata.Visible) return OtherAsset.Instance;
+			identity.CaptureResourceMetadata(metadata.Size, metadata.Extension); return identity;
 		}
 		private static (bool Visible, long Size, string Extension) DescribeHeader(AssetCollection collection, in ObjectInfo descriptor, Shape shape, UnityProjection fields, bool resolveResources = true)
 		{
@@ -223,7 +204,7 @@ internal static partial class UnitySource
 			switch (kind)
 			{
 				case UnityEntryKind.Texture:
-					if (EmptyTexture(shape, fields)) return (false, 0, string.Empty);
+					if (EmptyTexture(fields)) return (false, 0, string.Empty);
 					size = TextureSize(fields); extension = "png"; break;
 				case UnityEntryKind.Text:
 					size = Range(fields, "m_Script").Length; extension = "bin"; break;
@@ -267,7 +248,7 @@ internal static partial class UnitySource
 					}
 					else extension = OutputExtensions.FallbackBin;
 					break;
-				// Factory shapes are a closed set; callers handle Sprite separately.
+				// Factory shapes are a closed set.
 				default: // Mesh is the remaining resource kind.
 					if (fields.Number("m_VertexData/m_VertexCount") == 0 && fields.Number("m_CompressedMesh/m_Vertices/m_NumItems") == 0) return (false, 0, string.Empty);
 					size = (long)Range(fields, "m_VertexData/m_DataSize").Length + Range(fields, "m_IndexBuffer").Length;
@@ -286,61 +267,9 @@ internal static partial class UnitySource
 			int inline = Range(fields, "image data").Length;
 			return inline != 0 ? inline : fields.Text("m_StreamData/path").Length != 0 ? DeclaredSourceSize.Narrow(fields.Unsigned("m_StreamData/size")) : 0;
 		}
-		private static bool EmptyTexture(DeferredObject texture) => EmptyTexture(texture.Shape, texture.Projection);
-		private static bool EmptyTexture(Shape shape, UnityProjection? fields)
-			=> shape.Kind != UnityEntryKind.Texture || fields is null
-				|| fields.Number("m_Width") == 0 && fields.Number("m_Height") == 0 && Range(fields, "image data").Length == 0
+		private static bool EmptyTexture(UnityProjection fields)
+			=> fields.Number("m_Width") == 0 && fields.Number("m_Height") == 0 && Range(fields, "image data").Length == 0
 				&& fields.Unsigned("m_StreamData/size") == 0 && fields.Text("m_StreamData/path").Length == 0;
-
-		private static DeferredObject? Reference(DeferredObject owner, string path)
-			=> owner.Collection.TryGetAsset((int)owner.Projection!.Number(path + "/m_FileID"), owner.Projection.Number(path + "/m_PathID")) as DeferredObject;
-
-		private static (ulong, ulong, ulong, ulong, long) Key(UnityProjection fields, string prefix)
-			=> new(fields.Unsigned(prefix + "/first/data[0]"), fields.Unsigned(prefix + "/first/data[1]"), fields.Unsigned(prefix + "/first/data[2]"), fields.Unsigned(prefix + "/first/data[3]"), fields.Number(prefix + "/second"));
-		private static Dictionary<(ulong, ulong, ulong, ulong, long), AtlasEntry> AtlasIndex(UnityProjection fields)
-		{
-			Dictionary<(ulong, ulong, ulong, ulong, long), AtlasEntry> result = [];
-			foreach (string path in fields.Keys)
-			{
-				const string tail = "/first/second";
-				if (!path.EndsWith(tail, StringComparison.Ordinal)) continue;
-				string entry = path[..^tail.Length];
-				string pointer = entry + "/second/texture";
-				// The pinned AccessDictionary returns the first matching entry for duplicate keys.
-				result.TryAdd(Key(fields, entry + "/first"),
-					new AtlasEntry((int)fields.Number(pointer + "/m_FileID"), fields.Number(pointer + "/m_PathID"),
-						SpriteFactsReader.ReadSource(fields, entry + "/second/")));
-			}
-			return result;
-		}
-		private bool TryTextureInfo(AssetCollection collection, long path, out long size, out int width, out int height)
-		{
-			if (compactCollections.TryGetValue(collection, out CompactCollection? rows)) return rows.TryTextureInfo(path, out size, out width, out height);
-			size = 0; width = 0; height = 0;
-			if (collection.TryGetAsset(path) is not DeferredObject texture || EmptyTexture(texture)
-				|| texture.Projection is not { } fields) return false;
-			size = TextureSize(fields); width = unchecked((int)fields.Number("m_Width")); height = unchecked((int)fields.Number("m_Height"));
-			return true;
-		}
-		private bool TryTextureSize(AssetCollection collection, long path, out long size)
-			=> TryTextureInfo(collection, path, out size, out _, out _);
-		private bool TrySpriteSize(DeferredObject sprite, out bool fromAtlas, out long size)
-		{
-			UnityProjection fields = sprite.Projection!; size = 0;
-			fromAtlas = fields.Number("m_SpriteAtlas/m_PathID") != 0;
-			AssetCollection owner = sprite.Collection;
-			int file; long path;
-			if (fromAtlas)
-			{
-				DeferredObject? atlas = Reference(sprite, "m_SpriteAtlas");
-				if (atlas?.Projection is not { } atlasFields || !atlas.Shape.Atlas) return false;
-				atlas.AtlasTextures ??= AtlasIndex(atlasFields);
-				if (!atlas.AtlasTextures.TryGetValue(Key(fields, "m_RenderDataKey"), out AtlasEntry pointer)) return false;
-				owner = atlas.Collection; file = pointer.FileId; path = pointer.PathId;
-			}
-			else { file = (int)fields.Number("m_RD/texture/m_FileID"); path = fields.Number("m_RD/texture/m_PathID"); }
-			return file >= 0 && file < owner.Dependencies.Count && owner.Dependencies[file] is { } target && TryTextureSize(target, path, out size);
-		}
 
 		internal byte[]? Export(IProbeResource exportTarget)
 		{
@@ -349,19 +278,6 @@ internal static partial class UnitySource
 			try
 			{
 				IUnityObjectBase? full = Materialize(identity, replaced);
-				if (full is ISprite sprite)
-				{
-					if (sprite.SpriteAtlas is { } pointer && !pointer.IsNull())
-					{
-						if (sprite.Collection.TryGetAsset(pointer.FileID, pointer.PathID) is DeferredObject atlasIdentity)
-							Materialize(atlasIdentity, replaced);
-						if (sprite.SpriteAtlasP is { } atlas && atlas.RenderDataMap.TryGetValue(sprite.RenderDataKey, out var data)
-							&& atlas.Collection.TryGetAsset(data.Texture.FileID, data.Texture.PathID) is DeferredObject texture)
-							Materialize(texture, replaced);
-					}
-					else if (sprite.Collection.TryGetAsset(sprite.RD.Texture.FileID, sprite.RD.Texture.PathID) is DeferredObject texture)
-						Materialize(texture, replaced);
-				}
 				IProbeAsset asset = full is null ? OtherAsset.Instance : Wrap([full]).Single();
 				return asset switch { IProbeTexture texture => texture.RenderPng(), IProbeText text => text.ReadData(), IProbeResource resource => resource.ExportData(), _ => null };
 			}

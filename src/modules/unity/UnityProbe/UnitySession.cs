@@ -89,34 +89,30 @@ internal sealed class UnitySession : IDisposable
 	public bool Export(int index, Stream destination)
 	{
 		ArgumentNullException.ThrowIfNull(destination);
+		byte[]? payload = ExportData(index);
+		if (payload is null) return false;
+		destination.Write(payload, 0, payload.Length);
+		return true;
+	}
+
+	/// <summary>Returns one materialised payload for immediate delivery without staging another copy.</summary>
+	internal byte[]? ExportData(int index)
+	{
 		if (disposed || index < 0 || index >= entries.Count)
 		{
-			return false;
+			return null;
 		}
 
-		if (graph is ICompactUnityGraph compact)
-		{
-			byte[]? data = compact.Export(index);
-			if (data is null) return false;
-			destination.Write(data);
-			return true;
-		}
+		if (graph is ICompactUnityGraph compact) return compact.Export(index);
 		IProbeAsset asset = exportTargets[index];
 		// Describe admits only these interfaces. Preserve its precedence for overlapping views;
 		// the remaining accepted target is a resource, with no per-entry delegate or metadata copy.
-		byte[]? payload = asset switch
+		return asset switch
 		{
 			IProbeTexture texture => texture.RenderPng(),
 			IProbeText text => text.ReadData(),
 			_ => ((IProbeResource)asset).ExportData(),
 		};
-		if (payload is null)
-		{
-			return false;
-		}
-
-		destination.Write(payload, 0, payload.Length);
-		return true;
 	}
 
 	public void Dispose()

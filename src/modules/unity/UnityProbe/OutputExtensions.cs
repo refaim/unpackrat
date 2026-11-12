@@ -23,9 +23,6 @@ internal static class OutputExtensions
 	/// <summary>Extension of a Mesh entry, whose export is binary glTF.</summary>
 	internal const string MeshGlb = "glb";
 
-	/// <summary>Extension of a Sprite entry, whose export is a standalone cropped PNG.</summary>
-	internal const string SpritePng = "png";
-
 	/// <summary>Extension of a raw FSB sound bank entry that is not decoded to a standard container.</summary>
 	internal const string Fsb = "fsb";
 

@@ -22,8 +22,7 @@ public sealed class UnityRouteFinalContractTests
         [
             "m_Name", "m_Width", "m_Height", "image data", "m_StreamData",
             "m_Script", "m_FontData", "m_MovieData", "m_OriginalPath", "m_ExternalResources",
-            "m_AudioData", "m_Type", "m_Resource", "m_IndexBuffer", "m_SpriteAtlas", "m_RenderDataKey",
-            "m_Rect", "m_Offset",
+            "m_AudioData", "m_Type", "m_Resource", "m_IndexBuffer",
         ];
         AssetTypeTemplateField[] fields = roots.Select(name => Field(name, AssetValueType.Int32)).ToArray();
         List<byte> body = [];
@@ -41,10 +40,9 @@ public sealed class UnityRouteFinalContractTests
         [
             "m_Name", "m_Width", "m_Height", "image data", "m_StreamData",
             "m_Script", "m_FontData", "m_MovieData", "m_OriginalPath", "m_ExternalResources",
-            "m_AudioData", "m_Type", "m_Resource", "m_IndexBuffer", "m_SpriteAtlas", "m_RenderDataKey",
-            "m_Rect", "m_Offset",
+            "m_AudioData", "m_Type", "m_Resource", "m_IndexBuffer",
         ];
-        string[] complex = ["m_VertexData", "m_CompressedMesh", "m_RD", "m_RenderDataMap"];
+        string[] complex = ["m_VertexData", "m_CompressedMesh"];
         const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_";
         HashSet<string> known = new(simple, StringComparer.Ordinal);
         known.UnionWith(complex);
@@ -113,23 +111,14 @@ public sealed class UnityRouteFinalContractTests
     }
 
     [Theory]
-    [InlineData("second", true)]
-    [InlineData("third", false)]
-    public void UnknownRenderDataMapBranchDoesNotCaptureKnownTextureFact(string branch, bool captured)
+    [InlineData("m_Vertices", true)]
+    [InlineData("m_Normals", false)]
+    public void OnlyTheKnownCompressedMeshBranchCapturesItsVertexCount(string branch, bool captured)
     {
-        string path = $"m_RenderDataMap/Array/data/{branch}/textureRect/x";
+        string path = $"m_CompressedMesh/{branch}/m_NumItems";
         var template = Root(
-            Field("m_RenderDataMap", AssetValueType.None,
-                Field("Array", AssetValueType.None,
-                    Field("data", AssetValueType.None,
-                        Field(branch, AssetValueType.None,
-                            Field("textureRect", AssetValueType.None,
-                                Field("x", AssetValueType.Int32)
-                            )
-                        )
-                    )
-                )
-            ),
+            Field("m_CompressedMesh", AssetValueType.None,
+                Field(branch, AssetValueType.None, Field("m_NumItems", AssetValueType.Int32))),
             Field("m_Width", AssetValueType.Int32)
         );
         var bytes = new List<byte>();

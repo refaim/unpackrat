@@ -3121,23 +3121,6 @@ NIST-developed software is expressly provided "AS IS." NIST MAKES NO WARRANTY OF
 You are solely responsible for determining the appropriateness of using and distributing the software and you assume all risks associated with its use, including but not limited to the risks and costs of program errors, compliance with applicable laws, damage to or loss of data, programs or equipment, and the unavailability or interruption of operation. This software is not intended to be used in any situation where a failure could cause risk of injury or damage to property. The software developed by NIST employees is not subject to copyright protection within the United States.
 
 ==============================================================================
-StbImageSharp 2.30.15
-==============================================================================
-
-The unpackrat Unity module references the StbImageSharp NuGet package, version
-2.30.15 (pinned; upstream tag 2.30.15, commit
-6fd7aebe1dbf10e28d78745f42a0c095c61d1945). It is used only to read a small cropped
-PNG back into a fixed four-byte RGBA buffer. The package is a pure managed
-assembly with no native binaries; its NuGet metadata names the authors
-"StbImageSharpTeam" and the project https://github.com/StbSharp/StbImageSharp.
-
-StbImageSharp is a C# port of the public-domain stb_image.h; the upstream README
-states the license as follows, reproduced verbatim:
-
-# License
-Public Domain or MIT
-
-==============================================================================
 AssetsTools.NET 3.0.5 (MIT)
 ==============================================================================
 

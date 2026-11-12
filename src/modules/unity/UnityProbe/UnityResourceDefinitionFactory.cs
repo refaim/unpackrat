@@ -15,8 +15,6 @@ using ResourceManager = AssetRipper.SourceGenerated.Classes.ClassID_147.Resource
 using RuleSetFileAsset = AssetRipper.SourceGenerated.Classes.ClassID_954905827.RuleSetFileAsset;
 using Shader = AssetRipper.SourceGenerated.Classes.ClassID_48.Shader;
 using ShaderInclude = AssetRipper.SourceGenerated.Classes.ClassID_109.ShaderInclude;
-using Sprite = AssetRipper.SourceGenerated.Classes.ClassID_213.Sprite;
-using SpriteAtlas = AssetRipper.SourceGenerated.Classes.ClassID_687078895.SpriteAtlas;
 using TextAsset = AssetRipper.SourceGenerated.Classes.ClassID_49.TextAsset;
 using Texture2D = AssetRipper.SourceGenerated.Classes.ClassID_28.Texture2D;
 using VideoClip = AssetRipper.SourceGenerated.Classes.ClassID_329.VideoClip;
@@ -40,8 +38,6 @@ internal static class UnityResourceDefinitionFactory
 			152 => MovieTexture.Create(info, version),
 			83 => AudioClip.Create(info, version),
 			43 => Mesh.Create(info, version),
-			213 => Sprite.Create(info, version),
-			687078895 => SpriteAtlas.Create(info, version),
 			89 => Cubemap.Create(info, version),
 			115 => MonoScript.Create(info, version),
 			954905827 => RuleSetFileAsset.Create(info),

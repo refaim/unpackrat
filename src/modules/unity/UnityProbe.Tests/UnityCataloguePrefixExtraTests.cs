@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using AssetRipper.Assets.Bundles;
 using AssetRipper.Assets.Collections;
@@ -21,6 +22,18 @@ public sealed class UnityCataloguePrefixExtraTests
 	{
 		using SmartStream input = SmartStream.CreateMemory(bytes);
 		return (SerializedFile)SchemeReader.ReadFile(input, name, name, FileReadMode.MetadataOnly);
+	}
+
+	private static byte[] TextRows(params bool[] visible)
+	{
+		using SerializedFile file = Read(UnityFixtureBuilder.SerializedRepeatedTextAssets(visible.Length), "rows.assets");
+		_ = file.Objects;
+		ObjectInfo[] rows = (ObjectInfo[])typeof(SerializedFile).GetField("m_objects", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(file)!;
+		for (int index = 0; index < rows.Length; index++)
+			rows[index].ObjectData = visible[index] ? rows[index].ObjectData : [0xFF];
+		using MemoryStream output = new();
+		file.Write(output);
+		return output.ToArray();
 	}
 
 	private sealed class LoadedGraph : IDisposable
@@ -137,73 +150,52 @@ public sealed class UnityCataloguePrefixExtraTests
 	[Fact]
 	public void AdjacentHiddenRowsKeepTheRemainingVisibleRowIdentities()
 	{
-		using LoadedGraph loaded = new(UnityFixtureBuilder.SerializedSpriteLinkCases(0, 3, 3, 0).Selected);
+		using LoadedGraph loaded = new(TextRows(true, false, false, true));
 		ICompactUnityGraph catalogue = loaded.Catalogue;
-
-		Assert.Single(catalogue.Entries);
-		Assert.Equal(new long[] { 2 }, catalogue.Entries.Select(entry => entry.PathId));
-		Assert.Equal(new[] { UnityEntryKind.Sprite },
-			catalogue.Entries.Select(entry => entry.Kind));
-		Assert.Equal(new[] { "hero" }, catalogue.Entries.Select(entry => entry.Name));
+		Assert.Equal(new long[] { 1, 4 }, catalogue.Entries.Select(entry => entry.PathId));
+		Assert.All(catalogue.Entries, entry => { Assert.Equal(UnityEntryKind.Text, entry.Kind); Assert.Equal("notes", entry.Name); });
 		for (int index = 0; index < catalogue.Entries.Count; index++) AssertParity(catalogue, index);
+		Assert.Equal(Encoding.UTF8.GetBytes("payload"), catalogue.Export(1));
 	}
 
 	[Fact]
-	public void AllHiddenSpriteRowsDoNotLeakIntoTheVisibleCatalogue()
+	public void AllHiddenResourceRowsDoNotLeakIntoTheVisibleCatalogue()
 	{
-		using LoadedGraph loaded = new(UnityFixtureBuilder.SerializedSpriteLinkCases(3, 3, 3).Selected);
+		using LoadedGraph loaded = new(TextRows(false, false, false));
 		ICompactUnityGraph catalogue = loaded.Catalogue;
-
-		UnityCatalogEntry only = Assert.Single(catalogue.Entries);
-		Assert.Equal(0, only.Index);
-		Assert.Equal(0, only.CollectionIndex);
-		Assert.Equal(1, only.PathId);
-		Assert.Equal(UnityEntryKind.Texture, only.Kind);
-		Assert.Equal("hero_texture", only.Name);
-		AssertParity(catalogue, 0);
+		Assert.Empty(catalogue.Entries);
+		Assert.Throws<IndexOutOfRangeException>(() => catalogue.Export(0));
 	}
 
 	[Fact]
 	public void ManyVisibleRowsRemainOrderedAcrossOneHiddenTailRow()
 	{
 		const int count = 512;
-		using LoadedGraph loaded = new(UnityFixtureBuilder.SerializedDistinctSprites(count, malformedLast: true));
+		using LoadedGraph loaded = new(TextRows(Enumerable.Repeat(true, count).Append(false).ToArray()));
 		ICompactUnityGraph catalogue = loaded.Catalogue;
-
 		Assert.Equal(count, catalogue.Entries.Count);
-		Assert.Equal(1, catalogue.Entries[0].PathId);
-		Assert.Equal("hero_texture", catalogue.Entries[0].Name);
-		Assert.Equal(2, catalogue.Entries[1].PathId);
-		Assert.Equal(count, catalogue.Entries[count - 1].PathId);
-		Assert.Equal("hero", catalogue.Entries[count - 1].Name);
-		for (int index = 0; index < catalogue.Entries.Count; index++) AssertParity(catalogue, index);
+		Assert.Equal(Enumerable.Range(1, count).Select(path => (long)path), catalogue.Entries.Select(entry => entry.PathId));
+		Assert.All(catalogue.Entries, entry => { Assert.Equal("notes", entry.Name); Assert.Equal(UnityEntryKind.Text, entry.Kind); });
+		foreach (int index in new[] { 0, count / 2, count - 1 }) AssertParity(catalogue, index);
 	}
 
 	[Fact]
 	public void TwoHiddenCollectionsKeepIndependentVisibleMapsAndGlobalOrder()
 	{
-		using LoadedGraph loaded = new(
-			UnityFixtureBuilder.SerializedSpriteLinkCases(0, 3, 0, 3, 0).Selected,
-			UnityFixtureBuilder.SerializedDistinctSprites(5, malformedLast: true));
+		using LoadedGraph loaded = new(TextRows(true, false, true, false, true), TextRows(true, true, true, true, false));
 		ICompactUnityGraph catalogue = loaded.Catalogue;
-
 		Assert.Equal(2, loaded.Graph.Collections.Count);
-		Assert.Equal(6, catalogue.Entries.Count);
-		long[] paths = [2, 1, 2, 3, 4, 5];
-		int[] collections = [0, 1, 1, 1, 1, 1];
-		string[] names = ["hero", "hero_texture", "hero", "hero", "hero", "hero"];
+		Assert.Equal(7, catalogue.Entries.Count);
+		long[] paths = [1, 3, 5, 1, 2, 3, 4];
+		int[] collections = [0, 0, 0, 1, 1, 1, 1];
 		for (int index = 0; index < catalogue.Entries.Count; index++)
 		{
 			UnityCatalogEntry entry = catalogue.Entries[index];
-			Assert.Equal(index, entry.Index);
-			Assert.Equal(collections[index], entry.CollectionIndex);
-			Assert.Equal(paths[index], entry.PathId);
-			Assert.Equal(names[index], entry.Name);
-			Assert.Equal(index == 1 ? UnityEntryKind.Texture : UnityEntryKind.Sprite, entry.Kind);
-			AssertParity(catalogue, index);
+			Assert.Equal(index, entry.Index); Assert.Equal(collections[index], entry.CollectionIndex);
+			Assert.Equal(paths[index], entry.PathId); Assert.Equal("notes", entry.Name);
+			Assert.Equal(UnityEntryKind.Text, entry.Kind); AssertParity(catalogue, index);
 			Assert.Equal(entry, catalogue.Entries[index]);
 		}
-
-		Assert.NotEmpty(Assert.IsType<byte[]>(catalogue.Export(0)));
+		Assert.Equal(Encoding.UTF8.GetBytes("payload"), catalogue.Export(0));
 	}
 }

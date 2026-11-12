@@ -16,7 +16,7 @@ public sealed class UnitySchemaRouteArraySkipTests
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
-	public void BorrowedRouteSkipsFixedArraysBeforeSpriteGeometry(bool bigEndian)
+	public void BorrowedRouteSkipsFixedArraysBeforeCapturedMetadata(bool bigEndian)
 	{
 		AssetTypeTemplateField image = Field("image data", AssetValueType.ByteArray,
 			Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8));
@@ -34,8 +34,8 @@ public sealed class UnitySchemaRouteArraySkipTests
 				Field("dimension", AssetValueType.UInt8)));
 		AssetTypeTemplateField template = Root(
 			image, subMeshes, channels,
-			Field("m_RD", AssetValueType.None,
-				Field("textureRect", AssetValueType.None, Field("x", AssetValueType.Float))));
+			Field("m_StreamData", AssetValueType.None,
+				Field("offset", AssetValueType.Float)));
 		UnityProjection.State state = new(template);
 		Assert.NotNull(state.Route);
 
@@ -70,7 +70,7 @@ public sealed class UnitySchemaRouteArraySkipTests
 		UnityProjection result = UnityProjection.ReadBorrowed(input, offset, body.Count, template, bigEndian, state);
 
 		Assert.Equal(new UnityProjection.ByteRange(imageOffset, imageBytes.Length), result.Bytes("image data"));
-		Assert.True(result.TryBits("m_RD/textureRect/x", out long bits));
+		Assert.True(result.TryBits("m_StreamData/offset", out long bits));
 		Assert.Equal(0x3FC00000L, bits);
 		Assert.DoesNotContain(input.Reads, read => Overlaps(read, offset + subOffset, subLength));
 		Assert.DoesNotContain(input.Reads, read => Overlaps(read, offset + channelOffset, channelLength));
@@ -89,8 +89,8 @@ public sealed class UnitySchemaRouteArraySkipTests
 		subMeshes.IsAligned = true;
 		AssetTypeTemplateField template = Root(
 			channels, subMeshes,
-			Field("m_RD", AssetValueType.None,
-				Field("textureRect", AssetValueType.None, Field("x", AssetValueType.Float))));
+			Field("m_StreamData", AssetValueType.None,
+				Field("offset", AssetValueType.Float)));
 		UnityProjection.State state = new(template);
 		Assert.NotNull(state.Route);
 
@@ -108,7 +108,7 @@ public sealed class UnitySchemaRouteArraySkipTests
 		using CountingStream input = new(Embed(body.ToArray(), offset, 5));
 		UnityProjection result = UnityProjection.ReadBorrowed(input, offset, body.Count, template, false, state);
 
-		Assert.True(result.TryBits("m_RD/textureRect/x", out long bits));
+		Assert.True(result.TryBits("m_StreamData/offset", out long bits));
 		Assert.Equal(0x3FC00000L, bits);
 		Assert.DoesNotContain(input.Reads, read => Overlaps(read, offset + subOffset, subLength));
 	}
@@ -204,7 +204,7 @@ public sealed class UnitySchemaRouteArraySkipTests
 	public void CapturedArrayElementsKeepTheMatureFallback()
 	{
 		AssetTypeTemplateField template = Root(
-			ArrayField("m_RenderDataKey", Field("data", AssetValueType.Int64)),
+			ArrayField("m_StreamData", Field("data", AssetValueType.Int64)),
 			Field("m_Width", AssetValueType.Int32));
 		UnityProjection.State state = new(template);
 		Assert.Null(state.Route);
@@ -215,7 +215,7 @@ public sealed class UnitySchemaRouteArraySkipTests
 		AddScalar(body, false, AssetValueType.Int32, 9);
 		using MemoryStream input = new(body.ToArray(), false);
 		UnityProjection result = UnityProjection.ReadBorrowed(input, 0, body.Count, template, false, state);
-		Assert.Equal(6, result.Number("m_RenderDataKey/data"));
+		Assert.Equal(6, result.Number("m_StreamData/data"));
 		Assert.Equal(9, result.Number("m_Width"));
 	}
 
@@ -228,11 +228,10 @@ public sealed class UnitySchemaRouteArraySkipTests
 	{
 		AssetTypeTemplateField routeTemplate = ScalarBudgetTemplate();
 		AssetTypeTemplateField matureTemplate = ScalarBudgetTemplate();
-		matureTemplate.Type = "SpriteAtlas";
 		UnityProjection.State routeState = new(routeTemplate);
 		UnityProjection.State matureState = new(matureTemplate);
 		Assert.NotNull(routeState.Route);
-		Assert.Null(matureState.Route);
+		Assert.NotNull(matureState.Route);
 
 		List<byte> body = [];
 		AddScalar(body, bigEndian, AssetValueType.Int32, FieldBudget - 2);
@@ -263,11 +262,10 @@ public sealed class UnitySchemaRouteArraySkipTests
 	{
 		AssetTypeTemplateField routeTemplate = MergedSkipTemplate();
 		AssetTypeTemplateField matureTemplate = MergedSkipTemplate();
-		matureTemplate.Type = "SpriteAtlas";
 		UnityProjection.State routeState = new(routeTemplate);
 		UnityProjection.State matureState = new(matureTemplate);
 		Assert.NotNull(routeState.Route);
-		Assert.Null(matureState.Route);
+		Assert.NotNull(matureState.Route);
 
 		List<byte> body = [];
 		AddScalar(body, bigEndian, AssetValueType.Int32, FieldBudget - 2);

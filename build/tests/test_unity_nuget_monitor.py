@@ -120,11 +120,19 @@ class UnityNugetMonitorTests(unittest.TestCase):
             "AssetsTools.NET 3.0.5",
             "https://www.nuget.org/packages/AssetsTools.NET/3.0.5",
             "https://github.com/nesrak1/AssetsTools.NET",
-            "GPL-3.0 combined work", "StbImageSharp 2.30.15",
+            "GPL-3.0 combined work",
         ):
             with self.subTest(attribution=attribution):
                 self.assertTrue(attribution in notice, "missing attribution: " + attribution)
         self.assertTrue(MIT_NOTICE in notice, "the complete upstream MIT notice must ship")
+
+    def test_retired_sprite_image_reader_is_absent_from_dependencies_and_notice(self) -> None:
+        project = ET.parse(REPOSITORY / PROJECT).getroot()
+        packages = {reference.get("Include") for reference in project.iter("PackageReference")}
+        self.assertNotIn("StbImageSharp", packages)
+        notice = (REPOSITORY / "licenses/Unity.txt").read_text(encoding="utf-8")
+        self.assertFalse("StbImageSharp" in notice, "retired Sprite decoder attribution must not ship")
+        self.assertIn("StbImageWriteSharp", notice, "the retained PNG writer attribution must ship")
 
 
 if __name__ == "__main__":

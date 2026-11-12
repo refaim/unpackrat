@@ -140,7 +140,7 @@ namespace probe
     enum ResourceKind : int
     {
         kResourceNone = 0,
-        kResourceTexture = 1, // ".png" -> converted Texture2D/Sprite
+        kResourceTexture = 1, // ".png" -> converted Texture2D
         kResourceRawBin = 2,  // ".bin" -> raw payload, byte-identical to its declared source
         kResourceBinary = 3,  // any other ABI-safe extension -> transformed binary resource
     };
@@ -215,7 +215,7 @@ namespace probe
     //
     // Accepted shape (feature contract): any ordinary directory hierarchy or a
     // literal braced fallback folder ({Texture2D}, {TextAsset}, {Font}, {VideoClip},
-    // {MovieTexture}, {AudioClip}, {Mesh}, {Sprite}) is allowed; the kind is decided
+    // {MovieTexture}, {AudioClip}, {Mesh}) is allowed; the kind is decided
     // only by the output extension, never by a directory name. The path must be
     // relative and must not traverse out of the tree: rooted, drive-qualified, UNC,
     // empty-component and ".."/"." names are rejected. A leaf is accepted when it
