@@ -26,7 +26,7 @@ class DependabotConfigurationTests(unittest.TestCase):
             "allow": [{"dependency-name": "github.com/microsoft/vcpkg"}],
             "ignore": [{
                 "dependency-name": "github.com/microsoft/vcpkg",
-                "versions": ["<=2026.10.15"],
+                "versions": ["<=2026.10.16"],
             }],
             "schedule": {
                 "interval": "weekly",
@@ -44,11 +44,12 @@ class DependabotConfigurationTests(unittest.TestCase):
         self.assertEqual(ignored["dependency-name"], "github.com/microsoft/vcpkg")
         constraint, = ignored["versions"]
         cutoff = datetime.strptime(constraint, "<=%Y.%m.%d").date()
-        # The pinned registry commit is from 2026-10-15. Dependabot compares
+        # The pinned registry release is from 2026-10-16. Dependabot compares
         # release tags rather than commit ancestry, so guard the snapshot date.
-        self.assertEqual(cutoff.isoformat(), "2026-10-15")
+        self.assertEqual(cutoff.isoformat(), "2026-10-16")
         for tag, should_ignore in (("2026.07.29", True), ("2026.10.14", True),
-                                   ("2026.10.15", True), ("2026.10.16", False),
+                                   ("2026.10.15", True), ("2026.10.16", True),
+                                   ("2026.10.17", False),
                                    ("2027.01.01", False)):
             with self.subTest(tag=tag):
                 self.assertEqual(datetime.strptime(tag, "%Y.%m.%d").date() <= cutoff, should_ignore)

@@ -11,7 +11,7 @@
       "ignore": [
         {
           "dependency-name": "github.com/microsoft/vcpkg",
-          "versions": ["<=2026.10.15"]
+          "versions": ["<=2026.10.16"]
         }
       ],
       "schedule": {
