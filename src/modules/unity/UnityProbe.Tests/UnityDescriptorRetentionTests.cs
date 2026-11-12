@@ -138,15 +138,16 @@ public sealed class UnityDescriptorRetentionTests
 	[InlineData("ok")]
 	[InlineData("null")]
 	[InlineData("oom")]
-	public void DetachedSelectedAndDependencyTablesKeepSpriteOrderAndRepeatedExtraction(string outcome)
+	public void DetachedSelectedAndDependencyTablesKeepTextureOrderAndRepeatedExtraction(string outcome)
 	{
-		byte[] pixels = Enumerable.Repeat(new byte[] { 10, 20, 30, 255 }, 4).SelectMany(p => p).ToArray();
-		(byte[] sprite, byte[] atlas) = UnityFixtureBuilder.SerializedAtlasSprite("hero", pixels, 2, 2, pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 7, 7);
+		byte[] pixels = [10, 20, 30, 255];
+		byte[] selectedBytes = UnityFixtureBuilder.SerializedInlineTexture("selected", pixels, dependencies: ["dependency.assets"]);
+		byte[] dependencyBytes = UnityFixtureBuilder.SerializedTextAsset("dependency", "payload");
 		string directory = Temp.NewDirectory();
 		string selected = Path.Combine(directory, "selected.assets");
-		string dependency = Path.Combine(directory, UnityFixtureBuilder.AtlasDependencyName);
-		File.WriteAllBytes(selected, sprite);
-		File.WriteAllBytes(dependency, atlas);
+		string dependency = Path.Combine(directory, "dependency.assets");
+		File.WriteAllBytes(selected, selectedBytes);
+		File.WriteAllBytes(dependency, dependencyBytes);
 		List<SmartStream> roots = [];
 		List<SerializedFile> files = [];
 		FileBase Load(string path)
@@ -165,8 +166,8 @@ public sealed class UnityDescriptorRetentionTests
 			Assert.Equal(2, files.Count);
 			Assert.All(files, file => Assert.True(file.Objects.IsEmpty, "Both selected and dependency source tables must be released."));
 			Assert.Equal(1, Assert.IsType<UnityGraph>(graph).DependencyCollectionCount);
-			Assert.Equal(new[] { "local_texture", "hero" }, session.Entries.Select(e => e.Name));
-			Assert.Equal(new[] { 0, 0 }, session.Entries.Select(e => e.CollectionIndex));
+			Assert.Equal(new[] { "selected" }, session.Entries.Select(e => e.Name));
+			Assert.Equal(new[] { 0 }, session.Entries.Select(e => e.CollectionIndex));
 			Assert.Empty(reader.Reads);
 			if (outcome != "ok")
 			{
@@ -174,19 +175,19 @@ public sealed class UnityDescriptorRetentionTests
 				reader.Failure = outcome == "oom" ? new OutOfMemoryException("dependency sentinel") : null;
 				reader.NullClass = outcome == "null" ? 28 : -1;
 				using MemoryStream failed = new();
-				if (outcome == "oom") Assert.Same(reader.Failure, Assert.Throws<OutOfMemoryException>(() => session.Export(1, failed)));
-				else Assert.False(session.Export(1, failed));
+				if (outcome == "oom") Assert.Same(reader.Failure, Assert.Throws<OutOfMemoryException>(() => session.Export(0, failed)));
+				else Assert.False(session.Export(0, failed));
 				Assert.Empty(failed.ToArray());
 				reader.FailureClass = -1; reader.NullClass = -1;
 			}
 			for (int pass = 0; pass < 2; pass++)
 			{
 				using MemoryStream output = new();
-				Assert.True(session.Export(1, output));
+				Assert.True(session.Export(0, output));
 				Assert.Equal(pixels, PngDecoder.Decode(output.ToArray()).Rgba);
 			}
 			int attempts = outcome == "ok" ? 2 : 3;
-			Assert.Equal(Enumerable.Range(0, attempts).SelectMany(_ => new[] { 213, 687078895, 28 }), reader.Reads.Select(r => r.ClassId));
+			Assert.Equal(Enumerable.Range(0, attempts).SelectMany(_ => new[] { 28 }), reader.Reads.Select(r => r.ClassId));
 		}
 		finally { UnitySource.DisposeRoots(roots); }
 		using FileStream selectedExclusive = new(selected, FileMode.Open, FileAccess.Read, FileShare.None);

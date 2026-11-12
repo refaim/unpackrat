@@ -16,6 +16,7 @@ new file mode 100644
 +	MetadataOnly,
 +	CompactMetadataOnly,
 +}
+
 diff --git a/Source/AssetRipper.IO.Files/FileBase.cs b/Source/AssetRipper.IO.Files/FileBase.cs
 --- a/Source/AssetRipper.IO.Files/FileBase.cs
 +++ b/Source/AssetRipper.IO.Files/FileBase.cs
@@ -27,6 +28,7 @@ diff --git a/Source/AssetRipper.IO.Files/FileBase.cs b/Source/AssetRipper.IO.Fil
  	public override string? ToString()
  	{
  		return string.IsNullOrEmpty(NameFixed) ? NameFixed : base.ToString();
+
 diff --git a/Source/AssetRipper.IO.Files/IScheme.cs b/Source/AssetRipper.IO.Files/IScheme.cs
 --- a/Source/AssetRipper.IO.Files/IScheme.cs
 +++ b/Source/AssetRipper.IO.Files/IScheme.cs
@@ -36,6 +38,7 @@ diff --git a/Source/AssetRipper.IO.Files/IScheme.cs b/Source/AssetRipper.IO.File
  	FileBase Read(SmartStream stream, string filePath, string fileName);
 +	FileBase Read(SmartStream stream, string filePath, string fileName, FileReadMode mode);
  }
+
 diff --git a/Source/AssetRipper.IO.Files/Scheme.cs b/Source/AssetRipper.IO.Files/Scheme.cs
 --- a/Source/AssetRipper.IO.Files/Scheme.cs
 +++ b/Source/AssetRipper.IO.Files/Scheme.cs
@@ -71,6 +74,7 @@ diff --git a/Source/AssetRipper.IO.Files/Scheme.cs b/Source/AssetRipper.IO.Files
  	FileBase IScheme.Read(SmartStream stream, string filePath, string fileName) => Read(stream, filePath, fileName);
 +	FileBase IScheme.Read(SmartStream stream, string filePath, string fileName, FileReadMode mode) => Read(stream, filePath, fileName, mode);
  }
+
 diff --git a/Source/AssetRipper.IO.Files/SchemeReader.cs b/Source/AssetRipper.IO.Files/SchemeReader.cs
 --- a/Source/AssetRipper.IO.Files/SchemeReader.cs
 +++ b/Source/AssetRipper.IO.Files/SchemeReader.cs
@@ -107,6 +111,7 @@ diff --git a/Source/AssetRipper.IO.Files/SchemeReader.cs b/Source/AssetRipper.IO
  	}
  
  	public static bool IsReadableFile(string filePath, FileSystem fileSystem)
+
 diff --git a/Source/AssetRipper.IO.Files/FileContainer.cs b/Source/AssetRipper.IO.Files/FileContainer.cs
 --- a/Source/AssetRipper.IO.Files/FileContainer.cs
 +++ b/Source/AssetRipper.IO.Files/FileContainer.cs
@@ -149,6 +154,7 @@ diff --git a/Source/AssetRipper.IO.Files/FileContainer.cs b/Source/AssetRipper.I
  			}
  		}
  	}
+
 diff --git a/Source/AssetRipper.IO.Files/CompressedFiles/CompressedFile.cs b/Source/AssetRipper.IO.Files/CompressedFiles/CompressedFile.cs
 --- a/Source/AssetRipper.IO.Files/CompressedFiles/CompressedFile.cs
 +++ b/Source/AssetRipper.IO.Files/CompressedFiles/CompressedFile.cs
@@ -162,6 +168,7 @@ diff --git a/Source/AssetRipper.IO.Files/CompressedFiles/CompressedFile.cs b/Sou
  		}
  	}
  
+
 diff --git a/Source/AssetRipper.IO.Files/Streams/OwnedReadOnlyRange.cs b/Source/AssetRipper.IO.Files/Streams/OwnedReadOnlyRange.cs
 new file mode 100644
 --- /dev/null
@@ -256,6 +263,7 @@ new file mode 100644
 +		base.Dispose(disposing);
 +	}
 +}
+
 diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
 --- a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
 +++ b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs
@@ -352,6 +360,7 @@ diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.cs b/Source/A
  			}
  			Stream = null;
  		}
+
 diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs
 --- a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs
 +++ b/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount.cs
@@ -377,6 +386,7 @@ diff --git a/Source/AssetRipper.IO.Files/Streams/Smart/SmartStream.SmartRefCount
  		public int RefCount
  		{
  			get;
+
 diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs
 --- a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs
 +++ b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs
@@ -601,20 +611,55 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/ObjectInfo.cs b/
  	}
  
  	public override readonly bool Equals([NotNullWhen(true)] object? obj)
+
 diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs b/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs
 --- a/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs
 +++ b/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs
-@@ -5,6 +5,9 @@
+@@ -5,6 +5,14 @@
  
  internal sealed class SerializedReader : EndianReader
  {
 +	// Only a bounded metadata reader supplies the full borrowed file extent.
 +	internal long? ObjectDataSourceLength { get; init; }
++	internal long MetadataEnd
++	{
++		get;
++		init;
++	}
 +
  	public SerializedReader(Stream stream, EndianType endianess, FormatVersion generation) : base(stream, endianess)
  	{
  		Generation = generation;
-@@ -49,15 +52,30 @@
+@@ -12,7 +20,7 @@
+ 
+ 	public FileIdentifier[] ReadFileIdentifierArray()
+ 	{
+-		int count = ReadInt32();
++		int count = ReadArrayCount(22, Generation23Metadata.MaxArrayElements);
+ 		FileIdentifier[] array = new FileIdentifier[count];
+ 		for (int i = 0; i < count; i++)
+ 		{
+@@ -25,7 +33,7 @@
+ 
+ 	public LocalSerializedObjectIdentifier[] ReadLocalSerializedObjectIdentifierArray()
+ 	{
+-		int count = ReadInt32();
++		int count = ReadArrayCount(12, Generation23Metadata.MaxArrayElements);
+ 		LocalSerializedObjectIdentifier[] array = new LocalSerializedObjectIdentifier[count];
+ 		for (int i = 0; i < count; i++)
+ 		{
+@@ -38,7 +46,9 @@
+ 
+ 	public T[] ReadSerializedTypeArray<T>(bool hasTypeTree) where T : SerializedTypeBase, new()
+ 	{
+-		int count = ReadInt32();
++		// An external reference can end in three empty names (46 bytes); an ordinary
++		// typed descriptor needs a four-byte dependency count (47 bytes). Use their common minimum.
++		int count = ReadArrayCount(hasTypeTree ? 46 : 23, Generation23Metadata.MaxArrayElements);
+ 		T[] array = new T[count];
+ 		for (int i = 0; i < count; i++)
+ 		{
+@@ -49,18 +59,53 @@
  		return array;
  	}
  
@@ -622,7 +667,8 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs 
 +	public ObjectInfo[] ReadObjectInfoArray(bool longFileID, ReadOnlySpan<SerializedType> types, long dataOffset,
 +		AssetRipper.IO.Files.Streams.Smart.SmartStream? source = null)
  	{
- 		int count = ReadInt32();
+-		int count = ReadInt32();
++		int count = ReadArrayCount(24, Generation23Metadata.MaxObjects);
  		ObjectInfo[] array = new ObjectInfo[count];
  		for (int i = 0; i < count; i++)
  		{
@@ -630,27 +676,51 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/IO/SerializedReader.cs 
 -			instance.Read(this, longFileID, types, dataOffset);
 +			instance.Read(this, longFileID, types, dataOffset, source);
  			array[i] = instance;
-+		}
-+		return array;
-+	}
+ 		}
+ 		return array;
+ 	}
 +
 +	internal ObjectInfo.BorrowedTable ReadBorrowedObjectInfoArray(bool longFileID, ReadOnlySpan<SerializedType> types, long dataOffset,
 +		AssetRipper.IO.Files.Streams.Smart.SmartStream source)
 +	{
-+		int count = ReadInt32();
++		int count = ReadArrayCount(24, Generation23Metadata.MaxObjects);
 +		ObjectInfo.BorrowedTable array = new(count, Generation, types);
 +		for (int i = 0; i < count; i++)
 +		{
 +			ObjectInfo instance = new();
 +			int slot = instance.Read(this, longFileID, types, dataOffset, source);
 +			array.Set(i, in instance, slot, source, types);
- 		}
- 		return array;
- 	}
++		}
++		return array;
++	}
++
++	private int ReadArrayCount(int minimumElementBytes, int maximumCount)
++		=> Generation == FormatVersion.Unity65
++			? Generation23Metadata.ReadCount(this, minimumElementBytes, maximumCount)
++			: ReadInt32();
++
++	public new int[] ReadInt32Array()
++	{
++		if (Generation != FormatVersion.Unity65)
++			return base.ReadInt32Array();
++		long start = BaseStream.Position;
++		_ = Generation23Metadata.ReadCount(this, sizeof(int), Generation23Metadata.MaxArrayElements);
++		BaseStream.Position = start;
++		return base.ReadInt32Array();
++	}
++
++	public new Utf8String ReadStringZeroTerm()
++		=> Generation == FormatVersion.Unity65
++			? Generation23Metadata.ReadString(this)
++			: base.ReadStringZeroTerm();
+ 
+ 	public FormatVersion Generation { get; }
+ 
+
 diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMetadata.cs b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMetadata.cs
 --- a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMetadata.cs
 +++ b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMetadata.cs
-@@ -44,12 +44,45 @@
+@@ -44,12 +44,47 @@
  	/// </summary>
  	public static bool HasRefTypes(FormatVersion generation) => generation >= FormatVersion.SupportsRefObject;
  
@@ -662,6 +732,10 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMe
  	{
  		bool swapEndianess = ReadSwapEndianess(stream, header);
  		EndianType endianess = swapEndianess ? EndianType.BigEndian : EndianType.LittleEndian;
+-		using SerializedReader reader = new SerializedReader(stream, endianess, header.Version);
+-		Read(reader, header.DataOffset);
++		long metadataEnd = header.Version == FormatVersion.Unity65
++			? Generation23Metadata.GetMetadataEnd(stream, header) : 0;
 +		// Format22's metadata extent excludes its48-byte header. Older layouts and
 +		// ineligible extents retain the original reader and its acceptance rules.
 +		// Pinned big-endian primitives report truncated words as argument errors;
@@ -692,13 +766,12 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMe
 +				stream.Position = start;
 +			}
 +		}
- 		using SerializedReader reader = new SerializedReader(stream, endianess, header.Version);
--		Read(reader, header.DataOffset);
++		using SerializedReader reader = new SerializedReader(stream, endianess, header.Version) { MetadataEnd = metadataEnd };
 +		Read(reader, header.DataOffset, source, compactObjects);
  	}
  
  	private bool ReadSwapEndianess(SmartStream stream, SerializedFileHeader header)
-@@ -72,7 +105,7 @@
+@@ -72,7 +107,7 @@
  		}
  	}
  
@@ -707,7 +780,7 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMe
  	{
  		if (HasSignature(reader.Generation))
  		{
-@@ -99,7 +132,14 @@
+@@ -99,7 +134,14 @@
  			LongFileID = reader.ReadUInt32();
  		}
  
@@ -723,7 +796,7 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMe
  
  		if (HasScriptTypes(reader.Generation))
  		{
-@@ -183,7 +223,23 @@
+@@ -183,7 +225,23 @@
  	/// </summary>
  	public uint LongFileID { get; set; }
  	public bool SwapEndianess { get; set; }
@@ -748,6 +821,7 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedFileMe
  	public LocalSerializedObjectIdentifier[] ScriptTypes { get; set; } = [];
  	public FileIdentifier[] Externals { get; set; } = [];
  	public Utf8String UserInformation { get; set; } = Utf8String.Empty;
+
 diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs b/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs
 --- a/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs
 +++ b/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs
@@ -848,6 +922,7 @@ diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/SerializedFile.cs b/Sou
  		long initialPosition = stream.Position;
  		SerializedFileHeader header = new()
  		{
+
 diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleDataStream.cs b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleDataStream.cs
 new file mode 100644
 --- /dev/null
@@ -950,6 +1025,7 @@ new file mode 100644
 +		base.Dispose(disposing);
 +	}
 +}
+
 diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockReader.cs b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockReader.cs
 --- a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockReader.cs
 +++ b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockReader.cs
@@ -1081,6 +1157,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/BundleFileBlockR
  	private int m_cachedBlockIndex = -1;
  
  	private bool m_isDisposed = false;
+
 diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs
 --- a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs
 +++ b/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundleFile.cs
@@ -1107,6 +1184,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/FileStream/FileStreamBundle
  			{
  				AddFailedFile(new FailedFile()
  				{
+
 diff --git a/Source/AssetRipper.IO.Files/BundleFiles/RawWeb/RawWebBundleFile.cs b/Source/AssetRipper.IO.Files/BundleFiles/RawWeb/RawWebBundleFile.cs
 --- a/Source/AssetRipper.IO.Files/BundleFiles/RawWeb/RawWebBundleFile.cs
 +++ b/Source/AssetRipper.IO.Files/BundleFiles/RawWeb/RawWebBundleFile.cs
@@ -1127,6 +1205,7 @@ diff --git a/Source/AssetRipper.IO.Files/BundleFiles/RawWeb/RawWebBundleFile.cs 
  		foreach (RawWebNode entry in DirectoryInfo.Nodes)
  		{
  			byte[] buffer = new byte[entry.Size];
+
 diff --git a/Source/AssetRipper.IO.Files/WebFiles/WebFile.cs b/Source/AssetRipper.IO.Files/WebFiles/WebFile.cs
 --- a/Source/AssetRipper.IO.Files/WebFiles/WebFile.cs
 +++ b/Source/AssetRipper.IO.Files/WebFiles/WebFile.cs
@@ -1143,6 +1222,7 @@ diff --git a/Source/AssetRipper.IO.Files/WebFiles/WebFile.cs b/Source/AssetRippe
  			byte[] buffer = new byte[entry.Size];
  			stream.Position = entry.Offset + basePosition;
  			stream.ReadExactly(buffer, 0, buffer.Length);
+
 diff --git a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs b/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
 --- a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
 +++ b/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs
@@ -1182,6 +1262,7 @@ diff --git a/Source/AssetRipper.Assets/IO/AssetFactoryBase.cs b/Source/AssetRipp
 +
  	public abstract IUnityObjectBase? ReadAsset(AssetInfo assetInfo, ReadOnlyArraySegment<byte> assetData, SerializedType? assetType, IReadOnlyList<SerializedTypeReference> referenceTypes);
  }
+
 diff --git a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs b/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
 --- a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
 +++ b/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs
@@ -1218,6 +1299,7 @@ diff --git a/Source/AssetRipper.Assets/Collections/SerializedAssetCollection.cs 
 +		}
  	}
  }
+
 diff --git a/Source/AssetRipper.Assets/Collections/AssetCollection.cs b/Source/AssetRipper.Assets/Collections/AssetCollection.cs
 --- a/Source/AssetRipper.Assets/Collections/AssetCollection.cs
 +++ b/Source/AssetRipper.Assets/Collections/AssetCollection.cs
@@ -1280,6 +1362,7 @@ diff --git a/Source/AssetRipper.Assets/Collections/AssetCollection.cs b/Source/A
  		{
  			if (typeof(T).IsAssignableTo(typeof(NullObject)))
  			{
+
 diff --git a/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs b/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs
 --- a/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs
 +++ b/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs
@@ -1384,6 +1467,7 @@ diff --git a/Source/AssetRipper.Import/AssetCreation/GameAssetFactory.cs b/Sourc
  		if (asset is null && TypeTreeNodeStruct.TryMakeFromTpk((ClassIDType)assetInfo.ClassID, version, out TypeTreeNodeStruct releaseRoot, out TypeTreeNodeStruct editorRoot))
  		{
  			//Engine assets cannot have [SerializeReference] fields, so they never need a type resolver.
+
 diff --git a/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs b/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs
 --- a/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs
 +++ b/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs
@@ -1402,6 +1486,7 @@ diff --git a/Source/AssetRipper.Processing/Scenes/OriginalPathProcessor.cs b/Sou
  		{
  			switch (asset)
  			{
+
 diff --git a/Source/AssetRipper.IO.Files/SchemeReader.cs b/Source/AssetRipper.IO.Files/SchemeReader.cs
 --- a/Source/AssetRipper.IO.Files/SchemeReader.cs
 +++ b/Source/AssetRipper.IO.Files/SchemeReader.cs
@@ -1412,6 +1497,7 @@ diff --git a/Source/AssetRipper.IO.Files/SchemeReader.cs b/Source/AssetRipper.IO
 +		using SmartStream stream = SmartStream.OpenReadMulti(filePath, fileSystem);
  		return ReadFile(stream, MultiFileStream.GetFilePath(filePath), MultiFileStream.GetFileName(filePath));
  	}
+
 diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.cs b/Source/AssetRipper.Import/Structure/GameInitializer.cs
 --- a/Source/AssetRipper.Import/Structure/GameInitializer.cs
 +++ b/Source/AssetRipper.Import/Structure/GameInitializer.cs
@@ -1469,6 +1555,7 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.cs b/Source/Ass
  		}
  	}
  }
+
 diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceInjector.cs b/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceInjector.cs
 --- a/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceInjector.cs
 +++ b/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceInjector.cs
@@ -1519,6 +1606,7 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.EngineResourceI
  			}
  		}
  
+
 diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs b/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
 --- a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
 +++ b/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.cs
@@ -1670,6 +1758,7 @@ diff --git a/Source/AssetRipper.Import/Structure/GameInitializer.VersionChanger.
  				}
  			}
  		}
+
 diff --git a/Source/AssetRipper.Import/Structure/GameStructure.cs b/Source/AssetRipper.Import/Structure/GameStructure.cs
 --- a/Source/AssetRipper.Import/Structure/GameStructure.cs
 +++ b/Source/AssetRipper.Import/Structure/GameStructure.cs
@@ -1796,3 +1885,227 @@ diff --git a/Source/AssetRipper.SourceGenerated.Extensions/VertexDataBlob.cs b/S
  	{
  		if (channels.Count == 0)
  		{
+
+diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/FormatVersion.cs b/Source/AssetRipper.IO.Files/SerializedFiles/FormatVersion.cs
+--- a/Source/AssetRipper.IO.Files/SerializedFiles/FormatVersion.cs
++++ b/Source/AssetRipper.IO.Files/SerializedFiles/FormatVersion.cs
+@@ -80,6 +80,10 @@
+ 	/// 2020.1 to x
+ 	/// </summary>
+ 	LargeFilesSupport = 22,
++	/// <summary>
++	/// Unity 6000.5 (Unity 6.5)
++	/// </summary>
++	Unity65 = 23,
+ }
+ internal static class FormatVersionExtensions
+ {
+
+diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedTypeBase.cs b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedTypeBase.cs
+--- a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedTypeBase.cs
++++ b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedTypeBase.cs
+@@ -42,6 +42,16 @@
+ 	public TypeTrees.TypeTree OldType { get; } = new();
+ 	public Hash128 ScriptID { get; set; }
+ 	public Hash128 OldTypeHash { get; set; }
++	public Hash128 ExtendedTypeHash
++	{
++		get;
++		set;
++	}
++	public bool IsTypeTreeDefinition
++	{
++		get;
++		set;
++	} = true;
+ 
+ 	internal void Read(SerializedReader reader, bool hasTypeTree)
+ 	{
+@@ -78,7 +88,10 @@
+ 
+ 		if (hasTypeTree)
+ 		{
+-			OldType.Read(reader);
++			if (reader.Generation == FormatVersion.Unity65)
++				Generation23Metadata.ReadTypeTree(reader, this);
++			else
++				OldType.Read(reader);
+ 			if (reader.Generation < FormatVersion.HasTypeTreeHashes)
+ 			{
+ 				//OldTypeHash gets recalculated here in a complicated way on 2023.
+@@ -121,7 +134,10 @@
+ 
+ 		if (hasTypeTree)
+ 		{
+-			OldType.Write(writer);
++			if (writer.Generation == FormatVersion.Unity65)
++				Generation23Metadata.WriteTypeTree(writer, this);
++			else
++				OldType.Write(writer);
+ 			if (HasTypeDependencies(writer.Generation))
+ 			{
+ 				WriteTypeDependencies(writer);
+
+diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/Generation23Metadata.cs b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/Generation23Metadata.cs
+new file mode 100644
+--- /dev/null
++++ b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/Generation23Metadata.cs
+@@ -0,0 +1,114 @@
++using AssetRipper.IO.Files.SerializedFiles.IO;
++
++namespace AssetRipper.IO.Files.SerializedFiles.Parser;
++
++/// <summary>The bounded generation-23 envelope around the established type-tree reader/writer.</summary>
++internal static class Generation23Metadata
++{
++	internal const long MaxMetadataBytes = 64L * 1024 * 1024;
++	internal const int MaxFrameBytes = 4 * 1024 * 1024;
++	internal const int MaxNodes = 65_536;
++	internal const int MaxStringBytes = 1024 * 1024;
++	internal const int MaxObjects = 1_000_000;
++	internal const int MaxArrayElements = 65_536;
++	private const uint TypeTreeMagic = 0x7474686d;
++	private const int EnvelopeBytes = 20;
++	private const int FrameHeaderBytes = 16;
++	private const int NodeBytes = 32;
++
++	// These are metadata allocation/iteration limits, not limits on archive payloads. The
++	// qualified Unity 6000.5 corpus reaches 2306 nodes, 2382 string bytes and a 76190-byte
++	// frame. OldType expands every NUL-delimited string into a dictionary, so the string
++	// cap bounds retained dictionary work as well as the source byte buffer.
++	internal static long GetMetadataEnd(Stream stream, SerializedFileHeader header)
++	{
++		long start = stream.Position;
++		long size = header.MetadataSize;
++		// Positive size also rejects start beyond Length; subtracting non-negative positions cannot overflow.
++		if (size <= 0 || size > MaxMetadataBytes || size > stream.Length - start ||
++			start > header.DataOffset || size > header.DataOffset - start)
++			throw new InvalidDataException("Generation-23 metadata is outside its bounded source span.");
++		return checked(start + size);
++	}
++
++	internal static int ReadCount(SerializedReader reader, int minimumElementBytes, int maximumCount)
++	{
++		RequireAvailable(reader, sizeof(int));
++		int count = reader.ReadInt32();
++		long remaining = reader.MetadataEnd - reader.BaseStream.Position;
++		if (count < 0 || count > maximumCount || count > remaining / minimumElementBytes)
++			throw new InvalidDataException("Generation-23 metadata array is outside its resource bounds.");
++		return count;
++	}
++
++	internal static Utf8String ReadString(SerializedReader reader)
++	{
++		long remaining = reader.MetadataEnd - reader.BaseStream.Position;
++		if (remaining <= 0 || !reader.ReadStringZeroTerm((int)Math.Min(remaining, MaxStringBytes), out Utf8String? value))
++			throw new InvalidDataException("Generation-23 metadata string exceeds its bounded source span.");
++		return value;
++	}
++
++	internal static void ReadTypeTree(SerializedReader reader, SerializedTypeBase type)
++	{
++		RequireAvailable(reader, EnvelopeBytes);
++		SerializedTypeBase.Hash128 hash = SerializedTypeBase.Hash128.Read(reader);
++		int size = reader.ReadInt32();
++		if (size == 0)
++		{
++			type.OldType.Nodes.Clear();
++			type.OldType.StringBuffer = [];
++			type.ExtendedTypeHash = hash;
++			type.IsTypeTreeDefinition = false;
++			return;
++		}
++		if (size < FrameHeaderBytes || size > MaxFrameBytes)
++			throw new InvalidDataException("Generation-23 type-tree frame exceeds its resource bounds.");
++		RequireAvailable(reader, size);
++		long end = checked(reader.BaseStream.Position + size);
++		if (reader.ReadUInt32() != TypeTreeMagic || reader.ReadUInt32() != (uint)FormatVersion.Unity65)
++			throw new InvalidDataException("Invalid generation-23 type-tree frame header.");
++		long nodeStart = reader.BaseStream.Position;
++		int nodes = reader.ReadInt32();
++		int strings = reader.ReadInt32();
++		if (GetFrameSize(nodes, strings) != size)
++			throw new InvalidDataException("Generation-23 type-tree frame length does not match its tables.");
++		reader.BaseStream.Position = nodeStart;
++		type.OldType.Read(reader);
++		if (reader.BaseStream.Position != end)
++			throw new InvalidDataException("Generation-23 type-tree reader did not consume its exact frame.");
++		type.ExtendedTypeHash = hash;
++		type.IsTypeTreeDefinition = true;
++	}
++
++	internal static void WriteTypeTree(SerializedWriter writer, SerializedTypeBase type)
++	{
++		if (!type.IsTypeTreeDefinition)
++		{
++			type.ExtendedTypeHash.Write(writer);
++			writer.Write(0);
++			return;
++		}
++		int size = checked((int)GetFrameSize(type.OldType.Nodes.Count, type.OldType.StringBuffer.Length));
++		type.ExtendedTypeHash.Write(writer);
++		writer.Write(size);
++		writer.Write(TypeTreeMagic);
++		writer.Write((uint)FormatVersion.Unity65);
++		type.OldType.Write(writer);
++	}
++
++	private static long GetFrameSize(int nodes, int strings)
++	{
++		if (nodes < 0 || nodes > MaxNodes || strings < 0 || strings > MaxStringBytes)
++			throw new InvalidDataException("Generation-23 type-tree tables exceed their resource bounds.");
++		return checked(FrameHeaderBytes + (long)NodeBytes * nodes + strings);
++	}
++
++	private static void RequireAvailable(SerializedReader reader, long bytes)
++	{
++		long position = reader.BaseStream.Position;
++		// Every request is positive, so a negative remaining span is rejected by the same comparison.
++		if (bytes > reader.MetadataEnd - position)
++			throw new InvalidDataException("Generation-23 metadata read exceeds its declared source span.");
++	}
++}
+
+diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedType.cs b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedType.cs
+--- a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedType.cs
++++ b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedType.cs
+@@ -39,6 +39,8 @@
+ 			&& OldType.Equals(other.OldType)
+ 			&& ScriptID == other.ScriptID
+ 			&& OldTypeHash == other.OldTypeHash
++			&& ExtendedTypeHash == other.ExtendedTypeHash
++			&& IsTypeTreeDefinition == other.IsTypeTreeDefinition
+ 			&& TypeDependencies.AsSpan().SequenceEqual(other.TypeDependencies);
+ 	}
+ 
+@@ -51,6 +53,8 @@
+ 		hash.Add(OldType);
+ 		hash.Add(ScriptID);
+ 		hash.Add(OldTypeHash);
++		hash.Add(ExtendedTypeHash);
++		hash.Add(IsTypeTreeDefinition);
+ 		foreach (int i in TypeDependencies)
+ 		{
+ 			hash.Add(i);
+
+diff --git a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedTypeReference.cs b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedTypeReference.cs
+--- a/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedTypeReference.cs
++++ b/Source/AssetRipper.IO.Files/SerializedFiles/Parser/SerializedTypeReference.cs
+@@ -57,6 +57,8 @@
+ 			&& OldType.Equals(other.OldType)
+ 			&& ScriptID == other.ScriptID
+ 			&& OldTypeHash == other.OldTypeHash
++			&& ExtendedTypeHash == other.ExtendedTypeHash
++			&& IsTypeTreeDefinition == other.IsTypeTreeDefinition
+ 			&& ClassName == other.ClassName
+ 			&& Namespace == other.Namespace
+ 			&& AsmName == other.AsmName;
+@@ -71,6 +73,8 @@
+ 		hash.Add(OldType);
+ 		hash.Add(ScriptID);
+ 		hash.Add(OldTypeHash);
++		hash.Add(ExtendedTypeHash);
++		hash.Add(IsTypeTreeDefinition);
+ 		hash.Add(ClassName);
+ 		hash.Add(Namespace);
+ 		hash.Add(AsmName);

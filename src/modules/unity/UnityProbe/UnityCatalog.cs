@@ -28,9 +28,6 @@ internal enum UnityEntryKind
 
 	/// <summary>A Mesh exported as binary glTF (GLB) on demand.</summary>
 	Mesh = 6,
-
-	/// <summary>A Sprite exported as a standalone PNG cropped from its texture on demand.</summary>
-	Sprite = 7,
 }
 
 /// <summary>

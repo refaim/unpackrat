@@ -24,13 +24,11 @@ public sealed class UnityResourceDefinitionFactoryTests
 		typeof(AssetRipper.SourceGenerated.Classes.ClassID_152.IMovieTexture),
 		typeof(AssetRipper.SourceGenerated.Classes.ClassID_83.IAudioClip),
 		typeof(AssetRipper.SourceGenerated.Classes.ClassID_43.IMesh),
-		typeof(AssetRipper.SourceGenerated.Classes.ClassID_213.ISprite),
-		typeof(AssetRipper.SourceGenerated.Classes.ClassID_687078895.ISpriteAtlas),
 	];
 
 	public static IEnumerable<object[]> SupportedClassIds()
 	{
-		int[] classIds = [28, 49, 128, 329, 152, 83, 43, 213, 687078895, 89, 115, 954905827, 662584278, 1896753125, 1152215463, 48, 109, 142, 147];
+		int[] classIds = [28, 49, 128, 329, 152, 83, 43, 89, 115, 954905827, 662584278, 1896753125, 1152215463, 48, 109, 142, 147];
 		foreach (int classId in classIds)
 		{
 			foreach (string version in Versions)
@@ -56,6 +54,8 @@ public sealed class UnityResourceDefinitionFactoryTests
 	}
 
 	[Theory]
+	[InlineData(213)]
+	[InlineData(687078895)]
 	[InlineData(999999)]
 	[InlineData(123456)]
 	public void UnsupportedClassReturnsNull(int classId)
@@ -69,7 +69,7 @@ public sealed class UnityResourceDefinitionFactoryTests
 	[Fact]
 	public void ResourceDerivedClassIdsInSourceGeneratedMatchSupportedSet()
 	{
-		int[] expected = [28, 49, 128, 329, 152, 83, 43, 213, 687078895, 89, 115, 954905827, 662584278, 1896753125, 1152215463, 48, 109];
+		int[] expected = [28, 49, 128, 329, 152, 83, 43, 89, 115, 954905827, 662584278, 1896753125, 1152215463, 48, 109];
 
 		int[] actual = typeof(AssetRipper.SourceGenerated.Classes.ClassID_28.ITexture2D)
 			.Assembly

@@ -57,14 +57,14 @@ namespace
     // retry call returns. It models a backend that answers the second call with changed truth.
     struct retry_descriptor_patch
     {
-        std::optional<std::int32_t> struct_size;
-        std::optional<std::int32_t> kind;
-        std::optional<std::int32_t> reserved;
-        std::optional<std::int32_t> reserved2;
-        std::optional<std::int64_t> source_size;
-        std::optional<std::int32_t> name_length;
-        std::optional<std::int32_t> original_length;
-        std::optional<std::int32_t> extension_length;
+        std::optional<std::int32_t> struct_size{};
+        std::optional<std::int32_t> kind{};
+        std::optional<std::int32_t> reserved{};
+        std::optional<std::int32_t> reserved2{};
+        std::optional<std::int64_t> source_size{};
+        std::optional<std::int32_t> name_length{};
+        std::optional<std::int32_t> original_length{};
+        std::optional<std::int32_t> extension_length{};
         int status = UNITY_OK;
     };
 
@@ -819,7 +819,7 @@ namespace
         return stub_entry{.kind = UNITY_KIND_TEXT_RAW, .name = name, .payload = std::move(payload)};
     }
 
-    // The additional resource kinds use their frozen external numeric ids (3..8) from
+    // The additional resource kinds use their frozen external numeric ids (3..7) from
     // the canonical header; the first Font case used the literal 3 so it compiled
     // before the header gained the named constants.
     stub_entry font_entry(const std::u16string &name, std::string payload = {})
@@ -845,11 +845,6 @@ namespace
     stub_entry mesh_entry(const std::u16string &name, std::string payload = {})
     {
         return stub_entry{.kind = UNITY_KIND_MESH, .name = name, .payload = std::move(payload)};
-    }
-
-    stub_entry sprite_entry(const std::u16string &name, std::string payload = {})
-    {
-        return stub_entry{.kind = UNITY_KIND_SPRITE, .name = name, .payload = std::move(payload)};
     }
 
     // A distinct three-unit path component, base-62 coded, so no two entries of a synthetic
@@ -1023,7 +1018,7 @@ extern "C" int32_t UNPACKRAT_UNITY_CDECL unpackrat_unity_close(std::uint64_t ses
 TEST_CASE("unity adapter: module identity, signature and identity decrypt", "[unity][unit]")
 {
     const loaded_module mod;
-    REQUIRE(mod.version == MAKEMODULEVERSION(1, 0));
+    REQUIRE(mod.version == MAKEMODULEVERSION(2, 0));
     REQUIRE(mod.api_version == ACTUAL_API_VERSION);
     const GUID expected{0x4e91f7c6, 0x2a5d, 0x4973, {0x9b, 0x2c, 0x8f, 0x53, 0x71, 0xd6, 0x0a, 0x2e}};
     REQUIRE(std::memcmp(&mod.id, &expected, sizeof(GUID)) == 0);
@@ -1034,7 +1029,7 @@ TEST_CASE("unity adapter: module identity, signature and identity decrypt", "[un
     extractor::configure(L"ignored");
     extractor::reset_settings();
     const extractor::version_info version = extractor::get_version_info();
-    REQUIRE(version.major_version == 1);
+    REQUIRE(version.major_version == 2);
     REQUIRE(version.minor_version == 0);
 
     extractor::extractor adapter;
@@ -1390,6 +1385,39 @@ TEST_CASE("unity adapter: a Font entry lists with its braced folder and dynamic 
     mod.api.CloseStorage(storage);
 }
 
+TEST_CASE("unity adapter: retired sprite kind is rejected before listing or extraction", "[unity][unit]")
+{
+    stub_binding stub;
+    // External kind 8 used to request synthesized Sprite PNGs. It is retired rather
+    // than reassigned, so a stale backend must not present it as another resource.
+    stub->entries = {stub_entry{.kind = 8, .name = u"old-sprite", .payload = "pixels"}};
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == FALSE);
+    REQUIRE(stub->export_calls == 0);
+    mod.api.CloseStorage(storage);
+    REQUIRE(stub->close_calls == 1);
+}
+
+TEST_CASE("unity adapter: retired sprite fallback name is an ordinary source directory", "[unity][unit]")
+{
+    stub_binding stub;
+    stub->entries = {texture_entry(u"fallback")};
+    stub->original_paths = {u"{Sprite}/source.png"};
+    const temp_archive archive;
+    const loaded_module mod;
+
+    HANDLE storage = nullptr;
+    REQUIRE(module_open(mod, archive.path, &storage) == SOR_SUCCESS);
+    REQUIRE(mod.api.PrepareFiles(storage) == TRUE);
+    REQUIRE(item_path(mod, storage, 0) == L"{Sprite}\\source.png");
+    REQUIRE(stub->export_calls == 0);
+    mod.api.CloseStorage(storage);
+}
+
 TEST_CASE("unity adapter: every resource kind lists with its own folder and output extension", "[unity][unit]")
 {
     stub_binding stub;
@@ -1401,9 +1429,8 @@ TEST_CASE("unity adapter: every resource kind lists with its own folder and outp
         movie_entry(u"movie"), // 5 MovieTexture -> fixed ogv
         audio_entry(u"sfx"),   // 6 AudioClip  -> dynamic
         mesh_entry(u"mesh"),   // 7 Mesh       -> fixed glb
-        sprite_entry(u"icon"), // 8 Sprite     -> fixed png
     };
-    stub->extensions = {u"", u"", u"ttf", u"mp4", u"", u"ogg", u"", u""};
+    stub->extensions = {u"", u"", u"ttf", u"mp4", u"", u"ogg", u""};
     const temp_archive archive;
     const loaded_module mod;
 
@@ -1413,7 +1440,7 @@ TEST_CASE("unity adapter: every resource kind lists with its own folder and outp
 
     // Every kind, fixed or dynamic, is listed by one combined metadata call; the dynamic kinds
     // take the token that call reports, so no scalar extension getter is ever driven.
-    REQUIRE(stub->metadata_calls == 8);
+    REQUIRE(stub->metadata_calls == 7);
     REQUIRE(stub->entry_extension_query_calls == 0);
     REQUIRE(stub->entry_extension_copy_calls == 0);
     REQUIRE(stub->export_calls == 0);
@@ -1425,7 +1452,6 @@ TEST_CASE("unity adapter: every resource kind lists with its own folder and outp
     REQUIRE(item_path(mod, storage, 4) == L"{MovieTexture}\\movie.ogv");
     REQUIRE(item_path(mod, storage, 5) == L"{AudioClip}\\sfx.ogg");
     REQUIRE(item_path(mod, storage, 6) == L"{Mesh}\\mesh.glb");
-    REQUIRE(item_path(mod, storage, 7) == L"{Sprite}\\icon.png");
 
     mod.api.CloseStorage(storage);
 }
@@ -2600,16 +2626,15 @@ TEST_CASE("unity adapter: backend open failures reject the archive", "[unity][un
     }
 }
 
-TEST_CASE("unity adapter: the open count bound accepts texture-plus-sprite catalogues", "[unity][unit]")
+TEST_CASE("unity adapter: the open count bound accepts large resource catalogues", "[unity][unit]")
 {
     const temp_archive archive;
     const loaded_module mod;
 
-    // A selected bundle exposes both the Texture2D and the Sprite view of a
-    // catalogue, so the real shipping game reports 281151 entries and the finite
-    // ceiling is 400000. Only the open-time count gate is exercised here: no
+    // Large resource catalogues keep the established finite ceiling of 400000.
+    // Only the open-time count gate is exercised here: no
     // listing is requested, so no high-count fake entries are materialised.
-    SECTION("the shipping game count 281151 opens")
+    SECTION("a catalogue of 281151 entries opens")
     {
         stub_binding stub;
         stub->count_override = 281'151;

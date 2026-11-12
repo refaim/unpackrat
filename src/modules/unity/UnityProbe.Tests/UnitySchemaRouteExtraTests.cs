@@ -120,7 +120,7 @@ public sealed class UnitySchemaRouteExtraTests
 			height,
 			Field("m_Type", AssetValueType.UInt8),
 			parent,
-			Field("m_SpriteAtlas", AssetValueType.None, Field("m_PathID", AssetValueType.UInt64)));
+			Field("m_StreamData", AssetValueType.None, Field("offset", AssetValueType.UInt64)));
 		UnityProjection.State state = new(template);
 		List<byte> body = [];
 		AddScalar(body, false, AssetValueType.Int32, 321);
@@ -141,7 +141,7 @@ public sealed class UnitySchemaRouteExtraTests
 		Assert.Equal(321, result.Number("m_Width"));
 		Assert.Equal(-123, result.Number("m_Height"));
 		Assert.Equal(200, result.Number("m_Type"));
-		Assert.Equal(0xFEDCBA9876543210UL, result.Unsigned("m_SpriteAtlas/m_PathID"));
+		Assert.Equal(0xFEDCBA9876543210UL, result.Unsigned("m_StreamData/offset"));
 		Assert.DoesNotContain("ignoredFloat", result.Keys);
 		Assert.DoesNotContain("ignoredDouble", result.Keys);
 	}
@@ -284,7 +284,7 @@ public sealed class UnitySchemaRouteExtraTests
 			Assert.Equal(new[] { "m_Width" }, fallback.Keys);
 		}
 
-		AssetTypeTemplateField repeated = Field("m_RenderDataKey", AssetValueType.Array,
+		AssetTypeTemplateField repeated = Field("m_Resource", AssetValueType.Array,
 			Field("size", AssetValueType.Int32), Field("data", AssetValueType.Int64));
 		AssetTypeTemplateField repeatedTemplate = Root(repeated, Field("m_Width", AssetValueType.Int32));
 		UnityProjection.State repeatedState = new(repeatedTemplate);
@@ -297,27 +297,11 @@ public sealed class UnitySchemaRouteExtraTests
 		{
 			UnityProjection captured = UnityProjection.ReadBorrowed(input, 0, repeatedBody.Count,
 				repeatedTemplate, false, repeatedState);
-			Assert.Equal(6, captured.Number("m_RenderDataKey/data"));
+			Assert.Equal(6, captured.Number("m_Resource/data"));
 			Assert.Equal(9, captured.Number("m_Width"));
 		}
 
-		AssetTypeTemplateField texture = Field("texture", AssetValueType.ByteArray,
-			Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8));
-		AssetTypeTemplateField atlasTemplate = Root(Field("m_RenderDataMap", AssetValueType.None,
-			Field("Array", AssetValueType.Array, Field("size", AssetValueType.Int32),
-				Field("data", AssetValueType.None, Field("first", AssetValueType.Int64),
-					Field("second", AssetValueType.None, texture)))));
-		atlasTemplate.Type = "SpriteAtlas";
-		UnityProjection.State atlasState = new(atlasTemplate);
-		List<byte> atlasBody = [];
-		AddScalar(atlasBody, false, AssetValueType.Int32, 1);
-		AddScalar(atlasBody, false, AssetValueType.Int64, 7);
-		AddScalar(atlasBody, false, AssetValueType.Int32, 3);
-		atlasBody.AddRange(new byte[] { 0xAA, 0xBB, 0xCC });
-		using MemoryStream atlasInput = new(atlasBody.ToArray(), false);
-		UnityProjection atlas = UnityProjection.ReadBorrowed(atlasInput, 0, atlasBody.Count, atlasTemplate, false, atlasState);
-		Assert.Equal(7, atlas.Number("m_RenderDataMap/Array/data#0/first"));
-		Assert.Equal(new UnityProjection.ByteRange(16, 3), atlas.Bytes("m_RenderDataMap/Array/data#0/second/texture"));
+
 	}
 
 	[Fact]
@@ -391,11 +375,10 @@ public sealed class UnitySchemaRouteExtraTests
 		Assert.Equal(BitConverter.SingleToInt32Bits(1.5f), bits);
 		Assert.False(floatingResult.TryNumber("m_Width", out _));
 
-		AssetTypeTemplateField atlas = Root(Field("m_Width", AssetValueType.Int32));
-		atlas.Type = "SpriteAtlas";
-		UnityProjection.State atlasState = new(atlas);
-		using MemoryStream atlasInput = new([42, 0, 0, 0], false);
-		Assert.Equal(42, UnityProjection.ReadBorrowed(atlasInput, 0, 4, atlas, false, atlasState).Number("m_Width"));
+		AssetTypeTemplateField repeated = Root(Field("m_Width", AssetValueType.Int32), Field("m_Width", AssetValueType.Int32));
+		UnityProjection.State repeatedState = new(repeated);
+		using MemoryStream repeatedInput = new([1, 0, 0, 0, 42, 0, 0, 0], false);
+		Assert.Equal(42, UnityProjection.ReadBorrowed(repeatedInput, 0, 8, repeated, false, repeatedState).Number("m_Width"));
 	}
 
 	private static AssetTypeTemplateField Root(params AssetTypeTemplateField[] fields)

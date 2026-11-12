@@ -17,6 +17,8 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		=> new() { Name = name, Type = name, ValueType = kind, HasValue = kind != AssetValueType.None,
 			IsArray = kind is AssetValueType.Array or AssetValueType.ByteArray, Children = children.ToList() };
 	private static AssetTypeTemplateField Root(params AssetTypeTemplateField[] fields) => Field("Base", AssetValueType.None, fields);
+	private static AssetTypeTemplateField RepeatedStorageField()
+		=> Field("m_Type", AssetValueType.Array, Field("size", AssetValueType.Int32), Field("data", AssetValueType.Int32));
 	private static MemoryStream Data(Action<BinaryWriter> write)
 	{
 		MemoryStream stream = new(); using (BinaryWriter writer = new(stream, Encoding.UTF8, true)) write(writer); stream.Position = 0; return stream;
@@ -174,24 +176,24 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 	public void TypedScalarAccessorsDistinguishMissingIntegralAndBitStorage(bool dictionary)
 	{
 		AssetTypeTemplateField template = Root(
-			Field("m_RD", AssetValueType.None,
+			Field("m_StreamData", AssetValueType.None,
 				Field("settingsRaw", AssetValueType.UInt32),
 				Field("textureRect", AssetValueType.None, Field("x", AssetValueType.Float))));
-		if (dictionary) template.Type = "SpriteAtlas";
-		using MemoryStream stream = Data(w => { w.Write(0x7FC00001u); w.Write(3.25f); });
+		if (dictionary) template.Children.Add(RepeatedStorageField());
+		using MemoryStream stream = Data(w => { w.Write(0x7FC00001u); w.Write(3.25f); if (dictionary) w.Write(0); });
 		UnityProjection projection = UnityProjection.Read(stream, template, false);
-		Assert.True(projection.TryUnsigned("m_RD/settingsRaw", out ulong settings));
+		Assert.True(projection.TryUnsigned("m_StreamData/settingsRaw", out ulong settings));
 		Assert.Equal(0x7FC00001UL, settings);
-		Assert.True(projection.TryNumber("m_RD/settingsRaw", out long number));
+		Assert.True(projection.TryNumber("m_StreamData/settingsRaw", out long number));
 		Assert.Equal(0x7FC00001L, number);
-		Assert.False(projection.TryBits("m_RD/settingsRaw", out _));
-		Assert.True(projection.TryBits("m_RD/textureRect/x", out long bits));
+		Assert.False(projection.TryBits("m_StreamData/settingsRaw", out _));
+		Assert.True(projection.TryBits("m_StreamData/textureRect/x", out long bits));
 		Assert.Equal(BitConverter.SingleToInt32Bits(3.25f), bits);
-		Assert.False(projection.TryNumber("m_RD/textureRect/x", out _));
-		Assert.False(projection.TryUnsigned("m_RD/textureRect/x", out _));
-		Assert.False(projection.TryNumber("m_RD/missing", out _));
-		Assert.False(projection.TryBits("m_RD/missing", out _));
-		Assert.False(projection.TryUnsigned("m_RD/missing", out _));
+		Assert.False(projection.TryNumber("m_StreamData/textureRect/x", out _));
+		Assert.False(projection.TryUnsigned("m_StreamData/textureRect/x", out _));
+		Assert.False(projection.TryNumber("m_StreamData/missing", out _));
+		Assert.False(projection.TryBits("m_StreamData/missing", out _));
+		Assert.False(projection.TryUnsigned("m_StreamData/missing", out _));
 	}
 
 	[Theory]
@@ -200,12 +202,12 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 	public void Float32GetterRejectsDoubleAndIntegerStorage(bool dictionary)
 	{
 		AssetTypeTemplateField template = Root(
-			Field("m_RD", AssetValueType.None,
+			Field("m_StreamData", AssetValueType.None,
 				Field("textureRect", AssetValueType.None,
 					Field("x", AssetValueType.Float), Field("y", AssetValueType.Double)),
 				Field("settingsRaw", AssetValueType.UInt32)));
-		if (dictionary) template.Type = "SpriteAtlas";
-		using MemoryStream stream = Data(w => { w.Write(0x7FC00123u); w.Write(0x000000003F800000UL); w.Write(7u); });
+		if (dictionary) template.Children.Add(RepeatedStorageField());
+		using MemoryStream stream = Data(w => { w.Write(0x7FC00123u); w.Write(0x000000003F800000UL); w.Write(7u); if (dictionary) w.Write(0); });
 		UnityProjection projection = UnityProjection.Read(stream, template, false);
 		bool TryFloat32(UnityProjection value, string path, out uint bits)
 		{
@@ -221,12 +223,12 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 			bits = (uint)arguments[1]!;
 			return found;
 		}
-		Assert.True(TryFloat32(projection, "m_RD/textureRect/x", out uint single));
+		Assert.True(TryFloat32(projection, "m_StreamData/textureRect/x", out uint single));
 		Assert.Equal(0x7FC00123u, single);
-		Assert.False(TryFloat32(projection, "m_RD/textureRect/y", out _));
-		Assert.False(TryFloat32(projection, "m_RD/settingsRaw", out _));
-		Assert.False(TryFloat32(projection, "m_RD/missing", out _));
-		Assert.True(projection.TryBits("m_RD/textureRect/y", out long wide));
+		Assert.False(TryFloat32(projection, "m_StreamData/textureRect/y", out _));
+		Assert.False(TryFloat32(projection, "m_StreamData/settingsRaw", out _));
+		Assert.False(TryFloat32(projection, "m_StreamData/missing", out _));
+		Assert.True(projection.TryBits("m_StreamData/textureRect/y", out long wide));
 		Assert.Equal(unchecked((long)0x000000003F800000UL), wide);
 	}
 
@@ -240,7 +242,7 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		foreach (uint bits in patterns)
 		{
 			AssetTypeTemplateField template = Root(
-				Field("m_RD", AssetValueType.None,
+				Field("m_StreamData", AssetValueType.None,
 					Field("textureRect", AssetValueType.None,
 						Field("x", AssetValueType.Float), Field("y", AssetValueType.Double)),
 					Field("downscaleMultiplier", AssetValueType.Float)));
@@ -261,69 +263,22 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 			UnityProjection route;
 			using (MemoryStream input = new(body, false))
 				route = UnityProjection.ReadBorrowed(input, 0, body.Length, template, bigEndian, new UnityProjection.State(template));
-			Assert.True(route.TryBits("m_RD/textureRect/x", out long xBits));
-			Assert.True(route.TryBits("m_RD/textureRect/y", out long yBits));
-			Assert.True(route.TryBits("m_RD/downscaleMultiplier", out long downscaleBits));
+			Assert.True(route.TryBits("m_StreamData/textureRect/x", out long xBits));
+			Assert.True(route.TryBits("m_StreamData/textureRect/y", out long yBits));
+			Assert.True(route.TryBits("m_StreamData/downscaleMultiplier", out long downscaleBits));
 			Assert.Equal(bits, unchecked((uint)xBits));
 			Assert.Equal(unchecked((long)wideBits), yBits);
 			Assert.Equal(0x3FC00000u, unchecked((uint)downscaleBits));
 
-			template.Type = "SpriteAtlas";
 			using MemoryStream fallbackInput = new(body, false);
-			UnityProjection mature = UnityProjection.ReadBorrowed(fallbackInput, 0, body.Length, template, bigEndian, new UnityProjection.State(template));
-			Assert.True(mature.TryBits("m_RD/textureRect/x", out long fallbackX));
-			Assert.True(mature.TryBits("m_RD/textureRect/y", out long fallbackY));
-			Assert.True(mature.TryBits("m_RD/downscaleMultiplier", out long fallbackDownscale));
+			UnityProjection mature = UnityProjection.ReadBorrowed(fallbackInput, 0, body.Length, template, bigEndian, new UnityProjection.State(template), validateLayout: true);
+			Assert.True(mature.TryBits("m_StreamData/textureRect/x", out long fallbackX));
+			Assert.True(mature.TryBits("m_StreamData/textureRect/y", out long fallbackY));
+			Assert.True(mature.TryBits("m_StreamData/downscaleMultiplier", out long fallbackDownscale));
 			Assert.Equal(xBits, fallbackX);
 			Assert.Equal(yBits, fallbackY);
 			Assert.Equal(downscaleBits, fallbackDownscale);
 		}
-	}
-
-	[Fact]
-	public void AtlasProjectionCapturesOnlyTheFieldsTheSpriteResolverConsumes()
-	{
-		AssetTypeTemplateField Array(string name, AssetTypeTemplateField element)
-			=> Field(name, AssetValueType.Array, Field("size", AssetValueType.Int32), element);
-		var key = Field("first", AssetValueType.None,
-			Field("first", AssetValueType.None, Enumerable.Range(0, 4).Select(i => Field($"data[{i}]", AssetValueType.Int32)).ToArray()),
-			Field("second", AssetValueType.Int64));
-		var value = Field("second", AssetValueType.None,
-			Field("texture", AssetValueType.None, Field("m_FileID", AssetValueType.Int32), Field("m_PathID", AssetValueType.Int64)),
-			Field("textureRect", AssetValueType.None,
-				Field("x", AssetValueType.Float), Field("y", AssetValueType.Float),
-				Field("width", AssetValueType.Float), Field("height", AssetValueType.Float)),
-			Field("textureRectOffset", AssetValueType.None, Field("x", AssetValueType.Float), Field("y", AssetValueType.Float)),
-			Field("downscaleMultiplier", AssetValueType.Float),
-			Field("settingsRaw", AssetValueType.UInt32),
-			Field("packed", AssetValueType.Bool),
-			Field("packingMode", AssetValueType.Int32),
-			Field("packingRotation", AssetValueType.Int32),
-			Field("unrelated", AssetValueType.Int32),
-			Field("payload", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)),
-			Array("unrelatedArray", Field("data", AssetValueType.Int32)));
-		var template = Root(Field("m_RenderDataMap", AssetValueType.None,
-			Array("Array", Field("data", AssetValueType.None, key, value))));
-		template.Type = "SpriteAtlas";
-		using MemoryStream stream = Data(w =>
-		{
-			w.Write(1); w.Write(0x11223344); w.Write(0x55667788); w.Write(0x99AABBCC); w.Write(0xDDEEFF00);
-			w.Write(7L); w.Write(1); w.Write(9L);
-			w.Write(0f); w.Write(0f); w.Write(2f); w.Write(2f); w.Write(0f); w.Write(0f);
-			w.Write(1f); w.Write(3u); w.Write(true); w.Write(1); w.Write(4);
-			w.Write(123); w.Write(3); w.Write(new byte[] { 1, 2, 3 }); w.Write(2); w.Write(11); w.Write(12);
-		});
-		UnityProjection projection = UnityProjection.ReadBorrowed(stream, 0, stream.Length, template, false, new UnityProjection.State(template));
-		Assert.DoesNotContain(projection.Keys, path => path.EndsWith("/unrelated", StringComparison.Ordinal));
-		Assert.DoesNotContain(projection.Keys, path => path.EndsWith("/payload", StringComparison.Ordinal));
-		Assert.DoesNotContain(projection.Keys, path => path.Contains("/unrelatedArray", StringComparison.Ordinal));
-		Assert.Contains("m_RenderDataMap/Array/data#0/first/first/data[3]", projection.Keys);
-		Assert.Contains("m_RenderDataMap/Array/data#0/first/second", projection.Keys);
-		Assert.Contains("m_RenderDataMap/Array/data#0/second/texture/m_PathID", projection.Keys);
-		Assert.Contains("m_RenderDataMap/Array/data#0/second/textureRect/width", projection.Keys);
-		Assert.Contains("m_RenderDataMap/Array/data#0/second/textureRectOffset/y", projection.Keys);
-		Assert.Contains("m_RenderDataMap/Array/data#0/second/downscaleMultiplier", projection.Keys);
-		Assert.Contains("m_RenderDataMap/Array/data#0/second/settingsRaw", projection.Keys);
 	}
 
 	[Theory]
@@ -363,19 +318,19 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 			control.Position = payloadStart;
 			Assert.Throws<InvalidOperationException>(() => control.ReadByte());
 		}
-		var array = Field("m_RenderDataKey", AssetValueType.Array, Field("size", AssetValueType.Int32), Field("data", type));
+		var array = Field("m_StreamData", AssetValueType.Array, Field("size", AssetValueType.Int32), Field("data", type));
 		var payload = Field("ignoredPayload", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8));
 		var template = Root(array, payload, Field("m_Width", AssetValueType.Int32));
 		UnityProjection.State state = new(template);
 		using ScalarPayloadGuard input = new(bytes, payloadStart, payloadLength);
 		UnityProjection warm = UnityProjection.Read(input, template, false, state);
-		Assert.Equal(count - 1, warm.Number("m_RenderDataKey/data"));
+		Assert.Equal(count - 1, warm.Number("m_StreamData/data"));
 		long allocated = GC.GetAllocatedBytesForCurrentThread();
 		for (int i = 0; i < 128; i++)
 		{
 			input.Position = 0;
 			UnityProjection projection = UnityProjection.Read(input, template, false, state);
-			Assert.Equal(count - 1, projection.Number("m_RenderDataKey/data"));
+			Assert.Equal(count - 1, projection.Number("m_StreamData/data"));
 			Assert.Equal(marker, projection.Number("m_Width"));
 		}
 		allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
@@ -409,38 +364,38 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		System.Buffers.Binary.BinaryPrimitives.WriteUInt64BigEndian(bytes.AsSpan(8), 0xFEDCBA9876543210UL);
 		var boolean = Field("m_Width", AssetValueType.Bool); boolean.IsAligned = true;
 		var template = Root(boolean, Field("m_Height", AssetValueType.Int32),
-			Field("m_SpriteAtlas", AssetValueType.None, Field("m_PathID", AssetValueType.UInt64)));
+			Field("m_Resource", AssetValueType.None, Field("m_PathID", AssetValueType.UInt64)));
 		using MemoryStream input = new(bytes, false);
 		UnityProjection result = UnityProjection.Read(input, template, true, validateLayout: true);
 		Assert.Equal(1, result.Number("m_Width"));
 		Assert.Equal(-1234, result.Number("m_Height"));
-		Assert.Equal(0xFEDCBA9876543210UL, result.Unsigned("m_SpriteAtlas/m_PathID"));
+		Assert.Equal(0xFEDCBA9876543210UL, result.Unsigned("m_Resource/m_PathID"));
 		Assert.Equal(input.Length, input.Position);
 	}
 
 	[Fact]
-	public void RepeatedSpriteMetadataDoesNotAllocateDictionaryGrowthArrays()
+	public void RepeatedTextureMetadataDoesNotAllocateDictionaryGrowthArrays()
 	{
-		byte[] bytes = UnityFixtureBuilder.SerializedSprite("hero", [10, 20, 30, 255], 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0);
+		byte[] bytes = UnityFixtureBuilder.SerializedVersionedTexture("texture", AssetRipper.Primitives.UnityVersion.Parse("2021.3.0f1"), false);
 		using var fileStream = AssetRipper.IO.Files.Streams.Smart.SmartStream.CreateMemory(bytes);
-		using var file = (AssetRipper.IO.Files.SerializedFiles.SerializedFile)AssetRipper.IO.Files.SchemeReader.ReadFile(fileStream, "sprite.assets", "sprite.assets");
-		Assert.True(TypeTreeNodeStruct.TryMakeFromTpk((AssetRipper.SourceGenerated.ClassIDType)213, file.Version, out var release, out _));
+		using var file = (AssetRipper.IO.Files.SerializedFiles.SerializedFile)AssetRipper.IO.Files.SchemeReader.ReadFile(fileStream, "texture.assets", "texture.assets");
+		Assert.True(TypeTreeNodeStruct.TryMakeFromTpk((AssetRipper.SourceGenerated.ClassIDType)28, file.Version, out var release, out _));
 		var template = UnityProjection.Template(release);
 		UnityProjection.State state = new(template);
-		using MemoryStream body = new(file.Objects[1].ObjectData, false);
+		using MemoryStream body = new(file.Objects[0].ObjectData, false);
 		UnityProjection warm = UnityProjection.Read(body, template, false, state);
-		Assert.Equal("hero", warm.Text("m_Name"));
+		Assert.Equal("texture", warm.Text("m_Name"));
 		long allocated = GC.GetAllocatedBytesForCurrentThread();
 		for (int i = 0; i < 4096; i++)
 		{
 			body.Position = 0;
 			UnityProjection projection = UnityProjection.Read(body, template, false, state);
-			Assert.Equal("hero", projection.Text("m_Name"));
-			Assert.Equal(1, projection.Number("m_RD/texture/m_PathID"));
+			Assert.Equal("texture", projection.Text("m_Name"));
+			Assert.Equal(8, projection.Number("m_Width"));
 		}
 		allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
-		output.WriteLine($"Static Sprite allocation: {allocated}");
-		Assert.True(allocated < 8L * 1024 * 1024, $"4096 Sprite metadata projections allocated {allocated} bytes; known static fields should not repeatedly grow metadata dictionaries.");
+		output.WriteLine($"Static Texture allocation: {allocated}");
+		Assert.True(allocated < 8L * 1024 * 1024, $"4096 Texture metadata projections allocated {allocated} bytes; known static fields should not repeatedly grow metadata dictionaries.");
 	}
 
 	[Fact]
@@ -497,7 +452,7 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 			w.Write(new byte[payloadLength]); w.Write(marker);
 		});
 		var template = Root(
-			Field("m_RenderDataKey", AssetValueType.None,
+			Field("m_StreamData", AssetValueType.None,
 				Enumerable.Range(0, count).Select(i => Field($"data[{i}]", AssetValueType.Int64)).ToArray()),
 			Field("ignoredPayload", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)),
 			Field("m_Width", AssetValueType.Int64));
@@ -519,7 +474,7 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 			int before = comparer.HashCalls;
 			UnityProjection projection = UnityProjection.Read(input, template, false, state);
 			int captureHashes = comparer.HashCalls - before;
-			for (int i = 0; i < count; i++) Assert.Equal((long)i * 17, projection.Number($"m_RenderDataKey/data[{i}]"));
+			for (int i = 0; i < count; i++) Assert.Equal((long)i * 17, projection.Number($"m_StreamData/data[{i}]"));
 			Assert.Equal(marker, projection.Number("m_Width"));
 			Assert.Equal(count + 1, projection.Keys.Count());
 			Assert.Equal(0, input.PayloadReads);
@@ -537,122 +492,6 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 			HashCalls++;
 			return StringComparer.Ordinal.GetHashCode(value);
 		}
-	}
-
-	[Fact]
-	public void DynamicAtlasByteRangesKeepPerEntryNamesAndLastWritesWithoutReadingPayloads()
-	{
-		var payloads = new System.Collections.Generic.List<UnityProjection.ByteRange>();
-		var expected = new System.Collections.Generic.List<UnityProjection.ByteRange>();
-		using MemoryStream encoded = Data(w =>
-		{
-			w.Write(2);
-			for (int entry = 0; entry < 2; entry++)
-			{
-				w.Write(11L + entry);
-				for (int duplicate = 0; duplicate < 2; duplicate++)
-				{
-					int length = entry + duplicate + 2;
-					w.Write(length);
-					UnityProjection.ByteRange range = new(w.BaseStream.Position, length);
-					payloads.Add(range);
-					if (duplicate == 1) expected.Add(range);
-					w.Write(Enumerable.Repeat((byte)(31 + entry + duplicate), length).ToArray());
-				}
-			}
-		});
-		AssetTypeTemplateField BytesField() => Field("texture", AssetValueType.ByteArray,
-			Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8));
-		var template = Root(Field("m_RenderDataMap", AssetValueType.None,
-			Field("Array", AssetValueType.Array, Field("size", AssetValueType.Int32),
-				Field("data", AssetValueType.None, Field("first", AssetValueType.Int64),
-					Field("second", AssetValueType.None, BytesField(), BytesField())))));
-		template.Type = "SpriteAtlas";
-		UnityProjection.State state = new(template);
-		byte[] bytes = encoded.ToArray();
-		using (RangePayloadGuard control = new(bytes, payloads))
-		{
-			control.Position = payloads[0].Offset;
-			Assert.Throws<InvalidOperationException>(() => control.ReadByte());
-		}
-		using RangePayloadGuard input = new(bytes, payloads);
-		UnityProjection first = UnityProjection.Read(input, template, false, state);
-		using (MemoryStream empty = Data(w => w.Write(0)))
-		{
-			UnityProjection absent = UnityProjection.Read(empty, template, false, state);
-			Assert.Empty(absent.Keys);
-			Assert.Equal(default, absent.Bytes("m_RenderDataMap/Array/data#0/second/texture"));
-		}
-		// Fail after entering data#0 so the next read must reset dynamic path indices too.
-		using (MemoryStream malformed = Data(w => { w.Write(2); w.Write(99L); w.Write(-1); }))
-		{
-			Assert.Throws<InvalidDataException>(() => UnityProjection.Read(malformed, template, false, state));
-			Assert.True(malformed.CanRead);
-		}
-		input.Position = 0;
-		UnityProjection reused = UnityProjection.Read(input, template, false, state);
-		string[] keys = ["m_RenderDataMap/Array/data#0/first", "m_RenderDataMap/Array/data#0/second/texture",
-			"m_RenderDataMap/Array/data#1/first", "m_RenderDataMap/Array/data#1/second/texture"];
-		foreach (UnityProjection projection in new[] { first, reused })
-		{
-			Assert.Equal(keys, projection.Keys);
-			for (int entry = 0; entry < 2; entry++)
-			{
-				Assert.Equal(11L + entry, projection.Number(keys[entry * 2]));
-				string path = keys[entry * 2 + 1];
-				Assert.Equal(expected[entry], projection.Bytes(path));
-				Assert.Equal(0, projection.Number(path));
-				Assert.Equal(string.Empty, projection.Text(path));
-			}
-			Assert.Equal(default, projection.Bytes("m_RenderDataMap/Array/data#2/second/texture"));
-		}
-		Assert.Equal(0, input.PayloadReads);
-		Assert.Equal(input.Length, input.Position);
-	}
-
-	[Fact]
-	public void AtlasFieldsNamedDataAreIndexedOnlyWhenTheirParentIsAnArray()
-	{
-		var template = Root(Field("m_RenderDataMap", AssetValueType.None,
-			Field("data", AssetValueType.Int64),
-			Field("Array", AssetValueType.Array, Field("size", AssetValueType.Int32),
-				Field("data", AssetValueType.None, Field("first", AssetValueType.Int64)))));
-		template.Type = "SpriteAtlas";
-		UnityProjection.State state = new(template);
-		using MemoryStream original = Data(w => { w.Write(11L); w.Write(2); w.Write(21L); w.Write(22L); });
-		UnityProjection first = UnityProjection.Read(original, template, false, state, validateLayout: true);
-		using MemoryStream changed = Data(w => { w.Write(31L); w.Write(1); w.Write(41L); });
-		UnityProjection second = UnityProjection.Read(changed, template, false, state, validateLayout: true);
-		Assert.Equal(new[] { "m_RenderDataMap/data", "m_RenderDataMap/Array/data#0/first", "m_RenderDataMap/Array/data#1/first" }, first.Keys);
-		Assert.Equal(11, first.Number("m_RenderDataMap/data"));
-		Assert.Equal(21, first.Number("m_RenderDataMap/Array/data#0/first"));
-		Assert.Equal(22, first.Number("m_RenderDataMap/Array/data#1/first"));
-		Assert.Equal(new[] { "m_RenderDataMap/data", "m_RenderDataMap/Array/data#0/first" }, second.Keys);
-		Assert.Equal(31, second.Number("m_RenderDataMap/data"));
-		Assert.Equal(41, second.Number("m_RenderDataMap/Array/data#0/first"));
-		Assert.Equal(0, second.Number("m_RenderDataMap/Array/data#1/first"));
-		Assert.Equal(0, first.Number("m_RenderDataMap/data#0"));
-		Assert.Equal(0, second.Number("m_RenderDataMap/data#0"));
-		Assert.Equal(original.Length, original.Position);
-		Assert.Equal(changed.Length, changed.Position);
-	}
-	private sealed class RangePayloadGuard(byte[] bytes, System.Collections.Generic.IReadOnlyList<UnityProjection.ByteRange> payloads) : MemoryStream(bytes, false)
-	{
-		public int PayloadReads { get; private set; }
-		private void Check(int count)
-		{
-			foreach (UnityProjection.ByteRange payload in payloads)
-			{
-				if (count > 0 && Position < payload.Offset + payload.Length && Position + count > payload.Offset)
-				{
-					PayloadReads++;
-					throw new InvalidOperationException("Borrowed byte-range payload was read.");
-				}
-			}
-		}
-		public override int Read(byte[] buffer, int offset, int count) { Check(count); return base.Read(buffer, offset, count); }
-		public override int Read(Span<byte> buffer) { Check(buffer.Length); return base.Read(buffer); }
-		public override int ReadByte() { Check(1); return base.ReadByte(); }
 	}
 
 	[Fact]
@@ -753,7 +592,7 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 			for (int i = 0; i < count; i++) w.Write((long)i);
 			w.Write(payloadLength); payloadStart = w.BaseStream.Position; w.Write(new byte[payloadLength]); w.Write(17L);
 		});
-		var template = Root(Field("m_RenderDataMap", AssetValueType.None,
+		var template = Root(Field("m_StreamData", AssetValueType.None,
 			Field("Array", AssetValueType.Array, Field("size", AssetValueType.Int32), Field("data", AssetValueType.Int64))),
 			Field("ignoredPayload", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)),
 			Field("m_Width", AssetValueType.Int64));
@@ -761,7 +600,7 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		byte[] bytes = encoded.ToArray();
 		using ScalarPayloadGuard input = new(bytes, payloadStart, payloadLength);
 		UnityProjection warm = UnityProjection.Read(input, template, false, state, validateLayout: true);
-		Assert.Equal(count - 1, warm.Number("m_RenderDataMap/Array/data"));
+		Assert.Equal(count - 1, warm.Number("m_StreamData/Array/data"));
 		input.Position = 0;
 		long before = GC.GetAllocatedBytesForCurrentThread();
 		UnityProjection first = UnityProjection.Read(input, template, false, state, validateLayout: true);
@@ -769,12 +608,12 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(4 + (count - 1) * 8), 7777L);
 		input.Position = 0;
 		UnityProjection second = UnityProjection.Read(input, template, false, state, validateLayout: true);
-		Assert.Equal(new[] { "m_RenderDataMap/Array/data", "m_Width" }, first.Keys);
+		Assert.Equal(new[] { "m_StreamData/Array/data", "m_Width" }, first.Keys);
 		Assert.Equal(first.Keys, second.Keys);
-		Assert.Equal(count - 1, first.Number("m_RenderDataMap/Array/data"));
-		Assert.Equal(7777, second.Number("m_RenderDataMap/Array/data"));
+		Assert.Equal(count - 1, first.Number("m_StreamData/Array/data"));
+		Assert.Equal(7777, second.Number("m_StreamData/Array/data"));
 		Assert.Equal(17, first.Number("m_Width"));
-		Assert.Equal(0, first.Number("m_RenderDataMap/Array/data#0"));
+		Assert.Equal(0, first.Number("m_StreamData/Array/data#0"));
 		Assert.Equal(0, input.PayloadReads);
 		Assert.Equal(input.Length, input.Position);
 		output.WriteLine($"{count} static repeated captures allocated {allocated} bytes.");
@@ -925,8 +764,8 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 	{
 		var template = Root(Field("m_Name", AssetValueType.String), Field("m_Width", AssetValueType.Int64),
 			Field("m_Height", AssetValueType.Int64), Field("m_Type", AssetValueType.Int64),
-			Field("m_RenderDataKey", AssetValueType.None, Enumerable.Range(0, 4).Select(i => Field($"data[{i}]", AssetValueType.Int64)).ToArray()),
-			Field("m_SpriteAtlas", AssetValueType.None, Field("m_FileID", AssetValueType.Int64), Field("m_PathID", AssetValueType.Int64)));
+			Field("m_StreamData", AssetValueType.None, Enumerable.Range(0, 4).Select(i => Field($"data[{i}]", AssetValueType.Int64)).ToArray()),
+			Field("m_Resource", AssetValueType.None, Field("m_FileID", AssetValueType.Int64), Field("m_PathID", AssetValueType.Int64)));
 		using MemoryStream encoded = Data(w => { w.Write(4); w.Write(Encoding.UTF8.GetBytes("hero")); for (long i = 0; i < 9; i++) w.Write(i); });
 		byte[] bytes = encoded.ToArray();
 		using MemoryStream input = new(bytes, false);
@@ -945,7 +784,7 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		{
 			Assert.Equal(i, retained[i].Number("m_Width"));
 			Assert.Equal("hero", retained[i].Text("m_Name"));
-			Assert.Equal(8, retained[i].Number("m_SpriteAtlas/m_PathID"));
+			Assert.Equal(8, retained[i].Number("m_Resource/m_PathID"));
 			Assert.Equal(10, retained[i].Keys.Count());
 		}
 		output.WriteLine($"4096 retained static projections allocated {allocated} bytes.");
@@ -972,7 +811,7 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 	[Fact]
 	public void StaticKeysOnlyIncludeVisitedPathsAndKeepFirstInsertionOrder()
 	{
-		var array = Field("m_RenderDataKey", AssetValueType.Array, Field("size", AssetValueType.Int32), Field("data", AssetValueType.Int64));
+		var array = Field("m_StreamData", AssetValueType.Array, Field("size", AssetValueType.Int32), Field("data", AssetValueType.Int64));
 		var template = Root(array, Field("m_Width", AssetValueType.Int64), Field("m_Width", AssetValueType.Int64), Field("m_Name", AssetValueType.String));
 		UnityProjection.State state = new(template);
 		using MemoryStream empty = Data(w => { w.Write(0); w.Write(1L); w.Write(2L); w.Write(0); });
@@ -981,26 +820,26 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 		Assert.Equal(2, first.Number("m_Width"));
 		using MemoryStream populated = Data(w => { w.Write(2); w.Write(7L); w.Write(8L); w.Write(3L); w.Write(4L); w.Write(0); });
 		UnityProjection second = UnityProjection.Read(populated, template, false, state);
-		Assert.Equal(new[] { "m_RenderDataKey/data", "m_Width", "m_Name" }, second.Keys);
-		Assert.Equal(8, second.Number("m_RenderDataKey/data"));
+		Assert.Equal(new[] { "m_StreamData/data", "m_Width", "m_Name" }, second.Keys);
+		Assert.Equal(8, second.Number("m_StreamData/data"));
 		Assert.Equal(new[] { "m_Width", "m_Name" }, first.Keys);
 	}
 
 	[Fact]
 	public void RepeatedByteRangesKeepTheLastBorrowedRangeAndTypedDefaults()
 	{
-		var array = Field("m_RenderDataKey", AssetValueType.Array, Field("size", AssetValueType.Int32),
+		var array = Field("m_StreamData", AssetValueType.Array, Field("size", AssetValueType.Int32),
 			Field("data", AssetValueType.ByteArray, Field("size", AssetValueType.Int32), Field("data", AssetValueType.UInt8)));
 		using MemoryStream input = Data(w => { w.Write(2); w.Write(0); w.Write(3); w.Write(new byte[] { 1, 2, 3 }); w.Write(7L); });
 		UnityProjection projection = UnityProjection.Read(input, Root(array, Field("m_Width", AssetValueType.Int64)), false);
-		Assert.Equal(new UnityProjection.ByteRange(12, 3), projection.Bytes("m_RenderDataKey/data"));
-		Assert.Equal(string.Empty, projection.Text("m_RenderDataKey/data"));
-		Assert.Equal(0, projection.Number("m_RenderDataKey/data"));
+		Assert.Equal(new UnityProjection.ByteRange(12, 3), projection.Bytes("m_StreamData/data"));
+		Assert.Equal(string.Empty, projection.Text("m_StreamData/data"));
+		Assert.Equal(0, projection.Number("m_StreamData/data"));
 		Assert.Equal(string.Empty, projection.Text("missing"));
 		Assert.Equal(0, projection.Number("missing"));
 		Assert.Equal(default, projection.Bytes("missing"));
 		Assert.Equal(7, projection.Number("m_Width"));
-		Assert.Equal(new[] { "m_RenderDataKey/data", "m_Width" }, projection.Keys);
+		Assert.Equal(new[] { "m_StreamData/data", "m_Width" }, projection.Keys);
 	}
 	[Fact]
 	public void BorrowedSubrangeChecksBoundsAndEveryReadFormWithoutOwningTheSource()
@@ -1028,17 +867,17 @@ public sealed class UnityProjectionTests(ITestOutputHelper output)
 	}
 
 	[Fact]
-	public void BorrowedDynamicAtlasScratchReplacesOldDictionaryCapturesOnEveryRead()
+	public void BorrowedRepeatedMetadataScratchReplacesOldDictionaryCapturesOnEveryRead()
 	{
-		var template = Root(Field("m_RenderDataMap", AssetValueType.None, Field("Array", AssetValueType.Array,
+		var template = Root(Field("m_StreamData", AssetValueType.None, Field("Array", AssetValueType.Array,
 			Field("size", AssetValueType.Int32), Field("data", AssetValueType.None,
 				Field("first", AssetValueType.Int64), Field("second", AssetValueType.None, Field("texture", AssetValueType.None,
 					Field("m_FileID", AssetValueType.Int32), Field("m_PathID", AssetValueType.Int64)))))));
-		template.Type = "SpriteAtlas";
 		UnityProjection.State state = new(template);
 		using MemoryStream first = Data(w => { w.Write(1); w.Write(7L); w.Write(0); w.Write(9L); });
 		UnityProjection scratch = UnityProjection.ReadBorrowed(first, 0, first.Length, template, false, state);
-		Assert.Contains(scratch.Keys, key => key.Contains("data#0"));
+		Assert.Contains("m_StreamData/Array/data/first", scratch.Keys);
+		Assert.Equal(7, scratch.Number("m_StreamData/Array/data/first"));
 		using MemoryStream empty = Data(w => w.Write(0));
 		Assert.Same(scratch, UnityProjection.ReadBorrowed(empty, 0, empty.Length, template, false, state)); Assert.Empty(scratch.Keys);
 	}

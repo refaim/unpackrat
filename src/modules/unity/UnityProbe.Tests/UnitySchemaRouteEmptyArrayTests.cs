@@ -25,14 +25,14 @@ public sealed class UnitySchemaRouteEmptyArrayTests
                 Field("m_PathID", AssetValueType.Int64))));
         AssetTypeTemplateField template = Root(
             Field("m_Name", AssetValueType.String),
-            ArrayField("m_AtlasTags", Field("data", AssetValueType.String)),
+            ArrayField("tags", Field("data", AssetValueType.String)),
             secondary,
             Field("m_Width", AssetValueType.Int32));
         UnityProjection.State state = new(template);
         Assert.NotNull(state.Route);
 
         List<byte> body = [];
-        AddString(body, false, "sprite");
+        AddString(body, false, "texture");
         AddScalar(body, false, AssetValueType.Int32, 0);
         AddScalar(body, false, AssetValueType.Int32, 0);
         AddScalar(body, false, AssetValueType.Int32, 513);
@@ -40,7 +40,7 @@ public sealed class UnitySchemaRouteEmptyArrayTests
         using CountingStream input = new(Embed(body.ToArray(), offset, 5));
         UnityProjection result = UnityProjection.ReadBorrowed(input, offset, body.Count, template, false, state);
 
-        Assert.Equal("sprite", result.Text("m_Name"));
+        Assert.Equal("texture", result.Text("m_Name"));
         Assert.Equal(513, result.Number("m_Width"));
         Assert.All(input.Reads, read => Assert.InRange(read.Offset, offset, offset + body.Count - read.Count));
     }
@@ -48,7 +48,7 @@ public sealed class UnitySchemaRouteEmptyArrayTests
     [Fact]
     public void AlignedEmptyVariableArrayStartingAfterAByteAlignsTheNextField()
     {
-        AssetTypeTemplateField tags = ArrayField("m_AtlasTags", Field("data", AssetValueType.String));
+        AssetTypeTemplateField tags = ArrayField("tags", Field("data", AssetValueType.String));
         tags.IsAligned = true;
         AssetTypeTemplateField template = Root(
             Field("m_Type", AssetValueType.UInt8),
@@ -73,7 +73,7 @@ public sealed class UnitySchemaRouteEmptyArrayTests
     [Fact]
     public void UnalignedEmptyVariableArrayKeepsTheNextFieldAtTheCountEnd()
     {
-        AssetTypeTemplateField tags = ArrayField("m_AtlasTags", Field("data", AssetValueType.String));
+        AssetTypeTemplateField tags = ArrayField("tags", Field("data", AssetValueType.String));
         AssetTypeTemplateField template = Root(
             Field("m_Type", AssetValueType.UInt8),
             tags,
@@ -113,7 +113,7 @@ public sealed class UnitySchemaRouteEmptyArrayTests
             Field("indexCount", AssetValueType.UInt16)));
         fixedArray.IsAligned = true;
         AssetTypeTemplateField template = Root(
-            ArrayField("m_AtlasTags", Field("data", AssetValueType.String)),
+            ArrayField("tags", Field("data", AssetValueType.String)),
             ArrayField("secondaryTextures", Field("data", AssetValueType.None,
                 Field("name", AssetValueType.String),
                 Field("texture", AssetValueType.None, Field("m_PathID", AssetValueType.Int64)))),
@@ -145,7 +145,7 @@ public sealed class UnitySchemaRouteEmptyArrayTests
     {
         AssetTypeTemplateField template = Root(
             Field("m_Name", AssetValueType.String),
-            ArrayField("m_AtlasTags", Field("data", AssetValueType.String)),
+            ArrayField("tags", Field("data", AssetValueType.String)),
             Field("m_Width", AssetValueType.Int32));
         UnityProjection.State routeState = new(template);
         UnityProjection.State matureState = new(template);
@@ -183,7 +183,7 @@ public sealed class UnitySchemaRouteEmptyArrayTests
     {
         AssetTypeTemplateField template = Root(
             Field("m_Name", AssetValueType.String),
-            ArrayField("m_AtlasTags", Field("data", AssetValueType.String)),
+            ArrayField("tags", Field("data", AssetValueType.String)),
             Field("m_Width", AssetValueType.Int32));
         UnityProjection.State state = new(template);
         Assert.NotNull(state.Route);
@@ -229,7 +229,7 @@ public sealed class UnitySchemaRouteEmptyArrayTests
     public void MalformedVariableArrayCountsMatchTheMatureFailure(int count)
     {
         AssetTypeTemplateField template = Root(
-            ArrayField("m_AtlasTags", Field("data", AssetValueType.String)),
+            ArrayField("tags", Field("data", AssetValueType.String)),
             Field("m_Width", AssetValueType.Int32));
         UnityProjection.State routeState = new(template);
         UnityProjection.State matureState = new(template);
@@ -255,7 +255,7 @@ public sealed class UnitySchemaRouteEmptyArrayTests
     public void TruncatedVariableArrayCountMatchesTheMatureCursor()
     {
         AssetTypeTemplateField template = Root(
-            ArrayField("m_AtlasTags", Field("data", AssetValueType.String)),
+            ArrayField("tags", Field("data", AssetValueType.String)),
             Field("m_Width", AssetValueType.Int32));
         UnityProjection.State routeState = new(template);
         UnityProjection.State matureState = new(template);

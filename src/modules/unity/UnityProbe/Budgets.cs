@@ -9,24 +9,15 @@ namespace Unpackrat.UnityProbe;
 internal static class Budgets
 {
 	/// <summary>
-	/// Largest decoded texture we will materialise, in bytes. 256 MiB is exactly the decoded
-	/// size of a 4096x4096 texture at <see cref="TextureBytesPerPixel"/>, so real assets up to
-	/// that size still export while larger or hostile dimensions are rejected first.
+	/// Largest decoded texture or PNG input buffer we will materialise, in bytes.
 	/// </summary>
 	public const long MaxTextureBytes = 256L * 1024 * 1024;
 
 	/// <summary>
-	/// Bytes per decoded pixel assumed for the texture bound. RGBAFloat/ARGBFloat, the widest
-	/// common decoded pixel, is four 32-bit floats, sixteen bytes; the bound stays a safe
-	/// over-estimate for narrower formats.
+	/// Widest supported decoded pixel, and the legacy bound for paths whose intermediate
+	/// allocations have not been audited for larger textures.
 	/// </summary>
 	public const int TextureBytesPerPixel = 16;
-
-	/// <summary>
-	/// Largest decoded pixel layer count allowed, derived from <see cref="MaxTextureBytes"/> so
-	/// the decoded size check is a single comparison against that constant.
-	/// </summary>
-	private const long MaxTexturePixels = MaxTextureBytes / TextureBytesPerPixel;
 
 	/// <summary>
 	/// Largest raw text payload copied out of a text asset. Comfortably above real config and
@@ -40,7 +31,7 @@ internal static class Budgets
 	/// while keeping the copy bounded; a hostile asset can declare an enormous streamed size that
 	/// must be refused from its declared length alone, before the adapter copies it.
 	/// </summary>
-	public const long MaxTextureSourceBytes = 128L * 1024 * 1024;
+	public const long MaxTextureSourceBytes = 256L * 1024 * 1024;
 
 	/// <summary>
 	/// Largest raw VideoClip media payload copied out on request. Checked against the asset's own
@@ -135,26 +126,31 @@ internal static class Budgets
 	/// must be refused without decoding.
 	/// </remarks>
 	public static bool TryGetTextureBytes(int width, int height, int depth, out long bytes)
+		=> TryGetTextureBytes(width, height, depth, TextureBytesPerPixel, out bytes);
+
+	/// <summary>Checks the actual decoded pixel size before multiplying untrusted dimensions.</summary>
+	public static bool TryGetTextureBytes(int width, int height, int depth, int bytesPerPixel, out long bytes)
 	{
 		bytes = 0;
-		if (width <= 0 || height <= 0 || depth <= 0)
+		if (width <= 0 || height <= 0 || depth <= 0 || bytesPerPixel <= 0 || bytesPerPixel > TextureBytesPerPixel)
 		{
 			return false;
 		}
 
+		long maxPixels = MaxTextureBytes / bytesPerPixel;
 		long planar = (long)width * height;
-		if (planar > MaxTexturePixels)
+		if (planar > maxPixels)
 		{
 			return false;
 		}
 
 		long layered = planar * depth;
-		if (layered > MaxTexturePixels)
+		if (layered > maxPixels)
 		{
 			return false;
 		}
 
-		bytes = layered * TextureBytesPerPixel;
+		bytes = layered * bytesPerPixel;
 		return true;
 	}
 }

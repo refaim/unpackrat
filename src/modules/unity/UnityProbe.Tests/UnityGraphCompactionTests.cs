@@ -11,7 +11,6 @@ using AssetRipper.Assets.Bundles;
 using AssetRipper.Assets.Collections;
 using AssetRipper.Assets.Generics;
 using AssetRipper.Assets.IO;
-using AssetRipper.Assets.IO.Writing;
 using AssetRipper.Assets.Metadata;
 using AssetRipper.Import.AssetCreation;
 using AssetRipper.Import.Structure.Assembly.Managers;
@@ -28,7 +27,7 @@ namespace Unpackrat.UnityProbe.Tests;
 
 public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 {
-	private static readonly byte[] Pixels = Enumerable.Repeat(new byte[] { 10, 20, 30, 255 }, 4).SelectMany(p => p).ToArray();
+	private static readonly byte[] Pixels = [10, 20, 30, 255];
 	private static readonly BindingFlags PrivateFields = BindingFlags.Instance | BindingFlags.NonPublic;
 	private static object? Property(object value, string name) => value.GetType().GetProperty(name)!.GetValue(value);
 	private static bool Deferred(IUnityObjectBase value) => value.GetType().Name == "DeferredObject";
@@ -60,7 +59,6 @@ public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 	[InlineData("video")]
 	[InlineData("audio")]
 	[InlineData("mesh")]
-	[InlineData("sprite")]
 	public void EveryResourceViewReusesItsOrdinaryIdentityAndExportsAfterProjectionRelease(string family)
 	{
 		byte[] payload = [1, 2, 3, 4];
@@ -73,7 +71,6 @@ public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 			"video" => UnityFixtureBuilder.SerializedVideoClip("resource", "movie.mp4", "media.resS", 4),
 			"audio" => UnityFixtureBuilder.SerializedLegacyAudioClip("resource", payload),
 			"mesh" => UnityFixtureBuilder.SerializedTriangleMesh("resource"),
-			"sprite" => UnityFixtureBuilder.SerializedSprite("resource", Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0),
 			_ => throw new InvalidOperationException(),
 		};
 		string directory = Temp.NewDirectory();
@@ -219,7 +216,6 @@ public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 				foreach (FieldInfo field in projection.GetType().GetFields(PrivateFields))
 					if (field.GetValue(projection) is Array { Length: > 0 } values) watched.Add(new(values));
 			}
-			if (Property(identity, "AtlasTextures") is { } index) watched.Add(new(index));
 		}
 		return watched.ToArray();
 	}
@@ -229,25 +225,25 @@ public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 	[InlineData(true)]
 	public void AllSelectedSnapshotsFinishBeforeSelectedAndDependencyProjectionStorageIsReleased(bool failedFirstExport)
 	{
-		(byte[] firstBytes, byte[] atlasBytes) = UnityFixtureBuilder.SerializedAtlasSprite("hero", Pixels, 2, 2, Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 7, 7);
-		(byte[] secondBytes, _) = UnityFixtureBuilder.SerializedAtlasSprite("background", Pixels, 2, 2, Pixels, 2, 2, 0, 0, 2, 2, 0, 0, 2, 7, 7);
-		SerializedFile firstFile = Read(firstBytes, "first.assets"), secondFile = Read(secondBytes, "second.assets"), atlasFile = Read(atlasBytes, UnityFixtureBuilder.AtlasDependencyName);
+		byte[] firstBytes = UnityFixtureBuilder.SerializedInlineTexture("first", Pixels, dependencies: ["dependency.assets"]);
+		byte[] dependencyBytes = UnityFixtureBuilder.SerializedTextAsset("dependency", "payload");
+		byte[] secondBytes = UnityFixtureBuilder.SerializedInlineTexture("second", Pixels, dependencies: ["dependency.assets"]);
+		SerializedFile firstFile = Read(firstBytes, "first.assets"), secondFile = Read(secondBytes, "second.assets"), dependencyFile = Read(dependencyBytes, "dependency.assets");
 		GameBundle root = new(); FullReader reader = new(); UnitySource.LazyAssetFactory factory = new(reader);
 		SerializedAssetCollection first = root.AddCollectionFromSerializedFile(firstFile, factory);
 		SerializedAssetCollection second = root.AddCollectionFromSerializedFile(secondFile, factory);
-		root.AddCollectionFromSerializedFile(atlasFile, factory); root.InitializeAllDependencyLists();
-		Assert.Equal(2, factory.Describe(first).Count); // Populate the shared atlas index before capturing weak references.
-		Assert.Contains(root.FetchAssets().Where(Deferred), asset => Property(asset, "AtlasTextures") is not null);
+		root.AddCollectionFromSerializedFile(dependencyFile, factory); root.InitializeAllDependencyLists();
+		Assert.Single(factory.Describe(first));
 		WeakReference[] watched = WatchProjectionStorage(root);
-		Assert.True(watched.Length >= 12);
-		using UnityGraph graph = new(root, firstFile, [first, second], 1, [secondFile, atlasFile], [], factory);
+		Assert.True(watched.Length >= 3);
+		using UnityGraph graph = new(root, firstFile, [first, second], 1, [secondFile, dependencyFile], [], factory);
 		using UnitySession session = UnitySession.FromGraph(graph);
-		Assert.Equal(new[] { "local_texture", "hero", "local_texture", "background" }, session.Entries.Select(e => e.Name));
-		Assert.Equal(new long[] { 16, 0, 16, 0 }, session.Entries.Select(e => e.SourceSize));
-		Assert.Equal(new[] { 0, 0, 1, 1 }, session.Entries.Select(e => e.CollectionIndex));
+		Assert.Equal(new[] { "first", "second" }, session.Entries.Select(e => e.Name));
+		Assert.Equal(new long[] { 4, 4 }, session.Entries.Select(e => e.SourceSize));
+		Assert.Equal(new[] { 0, 1 }, session.Entries.Select(e => e.CollectionIndex));
 		IUnityObjectBase[] identities = root.FetchAssets().Where(Deferred).ToArray();
-		Assert.Equal(6, identities.Length);
-		Assert.All(identities, identity => { Assert.Null(Property(identity, "Projection")); Assert.Null(Property(identity, "AtlasTextures")); });
+		Assert.Equal(3, identities.Length);
+		Assert.All(identities, identity => { Assert.Null(Property(identity, "Projection")); });
 		GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
 		Assert.All(watched, weak => Assert.False(weak.IsAlive));
 		Assert.Empty(reader.Reads);
@@ -255,11 +251,11 @@ public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 		{
 			OutOfMemoryException failure = new("texture sentinel"); reader.TextureFailure = failure;
 			using MemoryStream failed = new();
-			Assert.Same(failure, Assert.Throws<OutOfMemoryException>(() => session.Export(3, failed)));
+			Assert.Same(failure, Assert.Throws<OutOfMemoryException>(() => session.Export(1, failed)));
 			Assert.Empty(failed.ToArray()); reader.TextureFailure = null;
 			Assert.All(identities, identity => Assert.Same(identity, identity.Collection.Single(a => a.PathID == identity.PathID)));
 		}
-		foreach (int index in new[] { 1, 3, 1, 3 })
+		foreach (int index in new[] { 0, 1, 0, 1 })
 		{
 			using MemoryStream destination = new(); Assert.True(session.Export(index, destination));
 			Assert.Equal(Pixels, PngDecoder.Decode(destination.ToArray()).Rgba);
@@ -276,50 +272,6 @@ public sealed class UnityGraphCompactionTests(ITestOutputHelper output)
 		IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 	}
 
-	[Fact]
-	public void ALaterSelectedSpriteCanDescribeAndExportItsEarlierSelectedTextureBeforeProjectionRelease()
-	{
-		byte[] pixel = [10, 20, 30, 255];
-		UnityVersion version = UnityVersion.Parse("2021.3.0f1");
-		ProcessedAssetCollection earlierDefinitions = AssetCreator.CreateCollection(version);
-		var textureDefinition = AssetCreator.CreateTexture2D(earlierDefinitions);
-		ProcessedAssetCollection laterDefinitions = AssetCreator.CreateCollection(version);
-		var spriteDefinition = AssetCreator.CreateSprite(laterDefinitions);
-		spriteDefinition.Name = new Utf8String("later");
-		spriteDefinition.Rect.Width = 1; spriteDefinition.Rect.Height = 1;
-		spriteDefinition.Pivot.X = .5f; spriteDefinition.Pivot.Y = .5f;
-		spriteDefinition.PixelsToUnits = 100;
-		spriteDefinition.RD.Texture.SetAsset(laterDefinitions, textureDefinition);
-		spriteDefinition.RD.TextureRect.Width = 1; spriteDefinition.RD.TextureRect.Height = 1;
-		spriteDefinition.RD.SettingsRaw = 2;
-		Assert.Equal(1, spriteDefinition.RD.Texture.FileID);
-		Assert.Equal(textureDefinition.PathID, spriteDefinition.RD.Texture.PathID);
-		using MemoryStream body = new();
-		using (AssetWriter writer = new(body, laterDefinitions)) spriteDefinition.WriteRelease(writer);
-		SerializedFile earlierFile = Read(UnityFixtureBuilder.SerializedInlineTexture("earlier", pixel, textureDefinition.PathID), "earlier.assets");
-		SerializedFile laterFile = Read(UnityFixtureBuilder.SerializedSprite("later", pixel, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0,
-			dependencies: ["earlier.assets"]), "later.assets");
-		ObjectInfo spriteDescriptor = laterFile.Objects.ToArray().Single(info => info.TypeID == 213);
-		spriteDescriptor.ObjectData = body.ToArray();
-		typeof(SerializedFile).GetField("m_objects", PrivateFields)!.SetValue(laterFile, new[] { spriteDescriptor });
-		GameBundle root = new(); FullReader reader = new(); UnitySource.LazyAssetFactory factory = new(reader);
-		SerializedAssetCollection earlier = root.AddCollectionFromSerializedFile(earlierFile, factory);
-		SerializedAssetCollection later = root.AddCollectionFromSerializedFile(laterFile, factory);
-		root.InitializeAllDependencyLists();
-		using UnityGraph graph = new(root, earlierFile, [earlier, later], 0, [laterFile], [], factory);
-		using UnitySession session = UnitySession.FromGraph(graph);
-		Assert.Equal(new[] { "earlier", "later" }, session.Entries.Select(entry => entry.Name));
-		Assert.Equal(new long[] { 4, 4 }, session.Entries.Select(entry => entry.SourceSize));
-		Assert.Equal(new[] { 0, 1 }, session.Entries.Select(entry => entry.CollectionIndex));
-		Assert.All(root.FetchAssets(), identity => Assert.Null(Property(identity, "Projection")));
-		Assert.Empty(reader.Reads);
-		for (int pass = 0; pass < 2; pass++)
-		{
-			using MemoryStream destination = new(); Assert.True(session.Export(1, destination));
-			Assert.Equal(pixel, PngDecoder.Decode(destination.ToArray()).Rgba);
-		}
-		Assert.Equal(new[] { 213, 28, 213, 28 }, reader.Reads);
-	}
 
 	[Fact]
 	public void AnUnfinishedGraphBuildKeepsEveryProjectionAvailableToItsOwner()

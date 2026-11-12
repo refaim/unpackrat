@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -641,17 +640,14 @@ internal sealed unsafe class UnitySessionAbi
 			return UnityAbi.OutOfRange;
 		}
 
-		// The session already materialises the payload; the sink only lets the callback boundary be
-		// honoured without a second copy of the bytes.
-		using MemoryStream sink = new();
-		if (!session.Export(index, sink))
+		byte[]? payload = session.ExportData(index);
+		if (payload is null)
 		{
 			return UnityAbi.DataFailure;
 		}
 
-		byte[] payload = sink.GetBuffer();
-		int payloadLength = (int)sink.Length;
-		fixed (byte* pointer = payload)
+		int payloadLength = payload.Length;
+		fixed (byte* pointer = payload.AsSpan())
 		{
 			for (int offset = 0; offset < payloadLength; offset += MaxChunkSize)
 			{

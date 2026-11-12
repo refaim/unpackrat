@@ -151,9 +151,9 @@ public sealed class UnitySourceAdapterTests
 		// The 1x1 decoded size is tiny, but the streamed source payload is one byte past the
 		// source cap. The adapter must refuse it from the declared stream size alone, before the
 		// converter resolves and copies the resource, so the resource stream stays untouched.
-		byte[] payload = new byte[(128 * 1024 * 1024) + 1];
+		byte[] payload = [0, 128, 255, 255];
 		ITexture2D texture = NewTexture(1, 1, 1, TextureFormat.RGBA32, []);
-		texture.StreamData_C28!.Size = (uint)payload.Length;
+		texture.StreamData_C28!.Size = (uint)Budgets.MaxTextureSourceBytes + 1;
 		texture.StreamData_C28!.Path = new Utf8String("fixture.resource");
 
 		using ResourceFile resource = new(payload, "", "fixture.resource", writable: false);
@@ -187,9 +187,9 @@ public sealed class UnitySourceAdapterTests
 	[Fact]
 	public void OversizedInlineTextureSourceIsRejected()
 	{
-		// 128 MiB + 1 of inline data is one byte past the source cap, so it is refused from the
+		// One byte past the source cap is refused from the
 		// declared length even though the 1x1 decoded size is tiny.
-		ITexture2D texture = NewTexture(1, 1, 1, TextureFormat.RGBA32, new byte[(128 * 1024 * 1024) + 1]);
+		ITexture2D texture = NewTexture(1, 1, 1, TextureFormat.RGBA32, new byte[Budgets.MaxTextureSourceBytes + 1]);
 
 		IProbeTexture wrapped = Assert.IsAssignableFrom<IProbeTexture>(WrapOne(texture));
 		Assert.Null(wrapped.RenderPng());

@@ -44,13 +44,13 @@ public sealed class UnityScalarBatchTests
 		int secondOffset = 113;
 		byte[] secondImage = [0x7E, 0x7F];
 		(byte[] secondObject, long secondWidthRun, long secondStreamRun, long secondPayload) =
-			TextureObject(bigEndian, "sprite", 16, 8, secondImage, "r",
+			TextureObject(bigEndian, "texture", 16, 8, secondImage, "r",
 				0x0102030405060708UL, 0x0A0B0C0DUL);
 		using BatchCountingStream secondInput = new(Embed(secondObject, secondOffset));
 		UnityProjection second = UnityProjection.ReadBorrowed(secondInput, secondOffset, secondObject.Length,
 			template, bigEndian, state);
 
-		Assert.Equal("sprite", second.Text("m_Name"));
+		Assert.Equal("texture", second.Text("m_Name"));
 		Assert.Equal(16, second.Number("m_Width"));
 		Assert.Equal(8, second.Number("m_Height"));
 		Assert.Equal("r", second.Text("m_StreamData/path"));

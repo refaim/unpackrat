@@ -8,12 +8,16 @@ using Xunit;
 
 namespace Unpackrat.UnityProbe.Tests;
 
+[CollectionDefinition("AssetRipper temporary file ownership", DisableParallelization = true)]
+public sealed class AssetRipperTemporaryFileOwnershipCollection;
+
 /// <summary>
 /// Resource-ownership regressions over real <c>FileContainer</c>-based bundles: every stream the
 /// container produced must be released once the owning graph is disposed, both on a normal close
 /// and when classifying an internal entry fails partway through. The hosting container type does
 /// not dispose its children itself, so the adapter has to own that tree.
 /// </summary>
+[Collection("AssetRipper temporary file ownership")]
 public sealed class UnitySourceOwnershipTests
 {
 	private static string Write(string directory, string name, byte[] bytes)
@@ -29,7 +33,10 @@ public sealed class UnitySourceOwnershipTests
 		using FileStream exclusive = new(path, FileMode.Open, FileAccess.Read, FileShare.None);
 	}
 
-	/// <summary>The set of temp files the AssetRipper temp directory currently holds.</summary>
+	/// <summary>
+	/// The set of files in AssetRipper's process-wide temp directory. This collection runs alone
+	/// so unrelated spill operations cannot be mistaken for files leaked by the tested session.
+	/// </summary>
 	private static HashSet<string> SnapshotTemporaryFiles()
 	{
 		string directory = LocalFileSystem.Instance.TemporaryDirectory;

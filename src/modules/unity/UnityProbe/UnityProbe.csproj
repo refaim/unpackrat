@@ -49,12 +49,6 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<!--
-			Exact PNG/JPEG reader used only to normalise a small cropped bitmap back to a fixed
-			four-byte RGBA buffer. Pinned to the cached 2.30.15 release; it is a pure managed port
-			of stb_image with no native binaries, licensed Public Domain or MIT.
-		-->
-		<PackageReference Include="StbImageSharp" Version="2.30.15" />
 		<!-- Bounded catalogue projection; MIT, pure managed, no native runtime dependency. -->
 		<PackageReference Include="AssetsTools.NET" Version="3.0.5" />
 	</ItemGroup>

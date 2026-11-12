@@ -76,8 +76,9 @@ extern "C"
     /*
      * Entry kind discriminator. The numeric ids are the frozen external contract:
      * 1 Texture2D/png, 2 TextAsset/bin, 3 Font/dynamic, 4 VideoClip/dynamic,
-     * 5 MovieTexture/ogv, 6 AudioClip/dynamic, 7 Mesh/glb, 8 Sprite/png. A managed
-     * enum may stay 0-based and convert explicitly with +1.
+     * 5 MovieTexture/ogv, 6 AudioClip/dynamic, 7 Mesh/glb. Id 8 is retired and
+     * must not be emitted or reassigned. A managed enum may stay 0-based and
+     * convert explicitly with +1.
      */
     typedef enum UnityEntryKind
     {
@@ -88,7 +89,7 @@ extern "C"
         UNITY_KIND_MOVIE_TEXTURE = 5,
         UNITY_KIND_AUDIO_CLIP = 6,
         UNITY_KIND_MESH = 7,
-        UNITY_KIND_SPRITE = 8
+        UNITY_KIND_RESERVED_8 = 8
     } UnityEntryKind;
 
 #pragma pack(push, 8)

@@ -8,6 +8,7 @@ using AssetRipper.Assets.Collections;
 using AssetRipper.Assets.Generics;
 using AssetRipper.Assets.IO.Writing;
 using AssetRipper.Import.AssetCreation;
+using AssetRipper.Import.Structure.Assembly.TypeTrees;
 using AssetRipper.IO.Endian;
 using AssetRipper.IO.Files;
 using AssetRipper.IO.Files.Streams.Smart;
@@ -41,6 +42,13 @@ using MeshTopology = AssetRipper.SourceGenerated.Enums.MeshTopology;
 using TextureFormat = AssetRipper.SourceGenerated.Enums.TextureFormat;
 
 namespace Unpackrat.UnityProbe.Tests;
+
+internal enum Generation23TypeTreeMode
+{
+	InlineDefinition,
+	ExternalReference,
+	EmptyDefinition,
+}
 
 /// <summary>
 /// Test-only generator of tiny legal Unity fixtures. It writes the serialized-file and UnityFS
@@ -96,6 +104,120 @@ internal static class UnityFixtureBuilder
 		builder.Objects.Add(new ObjectInfo { FileID = 1, TypeID = classId, ClassID = unchecked((short)classId),
 			SerializedTypeIndex = 0, Type = builder.Types[0], ObjectData = WriteAssetBytes(collection, asset) });
 		return Serialize(builder.Build());
+	}
+
+	/// <summary>A two-by-two inline texture written with the requested serialized-file generation.</summary>
+	public static byte[] SerializedGenerationTexture(int generation, string name, byte[] imageData)
+	{
+		UnityVersion version = UnityVersion.Parse("6000.5.3f1");
+		ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
+		ITexture2D texture = CreateTexture(collection, name, imageData, 2, 2);
+		if (texture.Has_CompleteImageSize_C28_UInt32())
+		{
+			texture.CompleteImageSize_C28_UInt32 = (uint)imageData.Length;
+		}
+		else
+		{
+			texture.CompleteImageSize_C28_Int32 = imageData.Length;
+		}
+		texture.MipCount_C28 = 1;
+		SerializedFileBuilder builder = NewBuilder(version, Texture2DClassId);
+		builder.Generation = (FormatVersion)generation;
+		builder.Objects.Add(new ObjectInfo
+		{
+			FileID = texture.PathID,
+			TypeID = Texture2DClassId,
+			ClassID = Texture2DClassId,
+			SerializedTypeIndex = 0,
+			Type = builder.Types[0],
+			ObjectData = WriteAssetBytes(collection, texture),
+		});
+		return Serialize(builder.Build());
+	}
+
+	/// <summary>A generation-23 texture with a framed inline type-tree definition, written by AssetsTools.</summary>
+	public static byte[] SerializedGeneration23TypedTexture(string name, byte[] imageData,
+		Generation23TypeTreeMode mode = Generation23TypeTreeMode.InlineDefinition, byte[]? extendedTypeHash = null)
+	{
+		UnityVersion version = UnityVersion.Parse("6000.5.3f1");
+		if (!TypeTreeNodeStruct.TryMakeFromTpk((AssetRipper.SourceGenerated.ClassIDType)Texture2DClassId,
+			version, out TypeTreeNodeStruct releaseRoot, out _))
+		{
+			throw new InvalidOperationException("The pinned type-tree database has no release Texture2D schema.");
+		}
+
+		byte[] serialized = SerializedGenerationTexture(22, name, imageData);
+		using MemoryStream input = new(serialized, writable: false);
+		using AssetsTools.NET.AssetsFileReader reader = new(input);
+		AssetsTools.NET.AssetsFile file = new();
+		file.Read(reader);
+		AssetsTools.NET.TypeTreeType type = TextureTypeTree(releaseRoot);
+		type.ExtTypeHash = extendedTypeHash is null
+			? AssetsTools.NET.Hash128.NewBlankHash() : new AssetsTools.NET.Hash128(extendedTypeHash);
+		type.TypeBlobIsDefinition = mode != Generation23TypeTreeMode.ExternalReference;
+		if (mode == Generation23TypeTreeMode.EmptyDefinition)
+		{
+			type.TypeBlob = new AssetsTools.NET.TypeTreeBlob { Nodes = [], StringBufferBytes = [] };
+		}
+		file.Metadata.TypeTreeEnabled = true;
+		file.Metadata.TypeTreeTypes = [type];
+		file.Header.Version = 23;
+		using MemoryStream output = new();
+		using (AssetsTools.NET.AssetsFileWriter writer = new(output))
+		{
+			file.Write(writer, 0);
+		}
+		return output.ToArray();
+	}
+
+	private static AssetsTools.NET.TypeTreeType TextureTypeTree(TypeTreeNodeStruct root)
+	{
+		// AssetsTools 3.0.5's template converter dereferences an uninitialized TypeBlob. Bridge the
+		// trusted TPK schema into its public node objects; its mature writer still owns every byte
+		// of the serialized file and generation-23 frame.
+		List<AssetsTools.NET.TypeTreeNode> nodes = [];
+		Dictionary<string, uint> offsets = new(StringComparer.Ordinal);
+		System.Text.StringBuilder strings = new();
+		uint stringBytes = 0;
+		uint StringOffset(string value)
+		{
+			if (offsets.TryGetValue(value, out uint offset)) return offset;
+			offset = stringBytes;
+			offsets.Add(value, offset);
+			strings.Append(value).Append('\0');
+			stringBytes = checked(stringBytes + (uint)System.Text.Encoding.UTF8.GetByteCount(value) + 1);
+			return offset;
+		}
+		void Add(TypeTreeNodeStruct field, byte depth)
+		{
+			AssetsTools.NET.AssetValueType kind = AssetsTools.NET.AssetTypeValueField.GetValueTypeByTypeName(field.TypeName);
+			nodes.Add(new AssetsTools.NET.TypeTreeNode
+			{
+				Version = checked((ushort)field.Version), Level = depth, Index = (uint)nodes.Count,
+				TypeFlags = field.IsArray ? AssetsTools.NET.TypeTreeNodeFlags.Array : AssetsTools.NET.TypeTreeNodeFlags.None,
+				NameStrOffset = StringOffset(field.Name), TypeStrOffset = StringOffset(field.TypeName),
+				MetaFlags = (uint)field.MetaFlag,
+				ByteSize = kind switch
+				{
+					AssetsTools.NET.AssetValueType.Bool or AssetsTools.NET.AssetValueType.Int8 or AssetsTools.NET.AssetValueType.UInt8 => 1,
+					AssetsTools.NET.AssetValueType.Int16 or AssetsTools.NET.AssetValueType.UInt16 => 2,
+					AssetsTools.NET.AssetValueType.Int32 or AssetsTools.NET.AssetValueType.UInt32 or AssetsTools.NET.AssetValueType.Float => 4,
+					AssetsTools.NET.AssetValueType.Int64 or AssetsTools.NET.AssetValueType.UInt64 or AssetsTools.NET.AssetValueType.Double => 8,
+					_ => -1,
+				},
+			});
+			foreach (TypeTreeNodeStruct child in field.SubNodes) Add(child, checked((byte)(depth + 1)));
+		}
+		Add(root, 0);
+		return new AssetsTools.NET.TypeTreeType
+		{
+			TypeId = Texture2DClassId, ScriptTypeIndex = ushort.MaxValue,
+			ScriptIdHash = AssetsTools.NET.Hash128.NewBlankHash(), TypeHash = AssetsTools.NET.Hash128.NewBlankHash(),
+			TypeDependencies = [], TypeBlob = new AssetsTools.NET.TypeTreeBlob
+			{
+				Nodes = nodes, StringBufferBytes = System.Text.Encoding.UTF8.GetBytes(strings.ToString()),
+			},
+		};
 	}
 
     public static byte[] SerializedVersionedTexture(string name, UnityVersion version, bool mipmapped)
@@ -385,6 +507,11 @@ internal static class UnityFixtureBuilder
 	public static byte[] SerializedInlineTexture(string name, byte[] imageData, long pathId = 1, params string[] dependencies)
 		=> SerializedTexture(name, imageData, null, 0, pathId, dependencies);
 
+	/// <summary>One texture whose declared dimensions and payload descriptor are independently controlled.</summary>
+	public static byte[] SerializedTextureMetadata(int width, int height, byte[] imageData, string? resourceName, uint sizeBytes,
+		TextureFormat format = TextureFormat.RGBA32)
+		=> SerializedTexture("declared", imageData, resourceName ?? string.Empty, sizeBytes, 1, [], width, height, format);
+
 	/// <summary>
 	/// A serialized asset file holding one Texture2D that carries both inline image data and a
 	/// declared streamed resource, so the inline-over-stream precedence can be exercised.
@@ -397,15 +524,16 @@ internal static class UnityFixtureBuilder
 	/// <paramref name="resourceName"/> attaches a declared streamed resource; otherwise the texture
 	/// declares no streamed resource at all.
 	/// </summary>
-	private static byte[] SerializedTexture(string name, byte[] imageData, string? resourceName, uint sizeBytes, long pathId, string[] dependencies)
+	private static byte[] SerializedTexture(string name, byte[] imageData, string? resourceName, uint sizeBytes, long pathId, string[] dependencies,
+		int width = 1, int height = 1, TextureFormat format = TextureFormat.RGBA32)
 	{
 		UnityVersion version = UnityVersion.Parse("2021.3.0f1");
 		ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
 		ITexture2D texture = AssetCreator.CreateTexture2D(collection);
-		texture.Width_C28 = 1;
-		texture.Height_C28 = 1;
+		texture.Width_C28 = width;
+		texture.Height_C28 = height;
 		texture.ImageCount_C28 = 1;
-		texture.Format_C28E = TextureFormat.RGBA32;
+		texture.Format_C28E = format;
 		texture.ImageData_C28 = imageData;
 		if (resourceName is not null)
 		{
@@ -1198,16 +1326,23 @@ internal static class UnityFixtureBuilder
 	/// font, so the raw bytes are carried verbatim and can be exported back byte for byte.
 	/// </summary>
 	public static byte[] SerializedFont(string name, byte[] fontData, long pathId = 1, params string[] dependencies)
+		=> SerializedFont(name, fontData, pathId, dependencies, UnityVersion.Parse("2021.3.0f1"), legacyBounds: false);
+
+	/// <summary>One font emitted through the mature writer for its exact serialized layout version.</summary>
+	public static byte[] SerializedVersionedFont(string name, byte[] fontData, UnityVersion version, bool legacyBounds)
+		=> SerializedFont(name, fontData, 1, [], version, legacyBounds);
+
+	private static byte[] SerializedFont(string name, byte[] fontData, long pathId, string[] dependencies, UnityVersion version, bool legacyBounds)
 	{
-		UnityVersion version = UnityVersion.Parse("2021.3.0f1");
 		ProcessedAssetCollection collection = AssetCreator.CreateCollection(version);
 		IFont font = AssetCreator.CreateFont(collection);
 		font.FontData = fontData;
 		font.Name = new Utf8String(name);
+		if (legacyBounds) font.UseLegacyBoundsCalculation = true;
 
 		byte[] objectData = WriteAssetBytes(collection, font);
 
-		SerializedFileBuilder builder = NewBuilder(FontClassId);
+		SerializedFileBuilder builder = NewBuilder(version, FontClassId);
 		builder.Objects.Add(new ObjectInfo
 		{
 			FileID = pathId,
