@@ -379,18 +379,18 @@
       "packaged": true,
       "incorporated": true,
       "declaredExpression": "MIT",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "vcpkgName": "brotli",
       "source": {
         "origin": "registry",
         "recipe": "ports/brotli/portfile.cmake",
         "patches": [],
-        "url": "https://github.com/google/brotli/archive/v1.2.0.tar.gz",
+        "url": "https://github.com/google/brotli/archive/v1.2.1.tar.gz",
         "sha512": [
-          "f94542afd2ecd96cc41fd21a805a3da314281ae558c10650f3e6d9ca732b8425bba8fde312823f0a564c7de3993bdaab5b43378edab65ebb798cefb6fd702256"
+          "460591287d428c8b5a8a2766b5b424d14501fcda12c7118b8f3cc4bfae44b90ac75ca156557f07b6e22542612724d904533e5f70019be07dbbb604c46f03ab69"
         ],
         "sha256": [
-          "816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec"
+          "98d35d11a78dc453aebb7d10c3748f3f73ff78c8267c0dc697b8631f67bf7e8f"
         ],
         "identity": "github.com/google/brotli"
       },
@@ -599,8 +599,8 @@
         "build/vcpkg/ports/drlibs/copyright": "8b2a772e9b30885997130bc8e0cfb07c238990fa433078649d251a1c5c7a3f64",
         "build/vcpkg/ports/drlibs/dr_mp3.c": "8a8f7911b316379d64400787abc871a61c2f76116e709a3e5b7001e77205af9f",
         "build/vcpkg/ports/drlibs/dr_wav.c": "550460509d1236e7ae85726f2e63511d76cef764b2730c8ead2c15a7bf0eba0e",
-        "build/vcpkg/ports/drlibs/portfile.cmake": "47acd54ed599ee14af582bf3f3831dff584b0a9f6f6fe128bfc8d5d66bbe1808",
-        "build/vcpkg/ports/drlibs/vcpkg.json": "76d471f45ecd9c537972820fa277bf806e5f5be289f1e5c1d687cf7b4c8f0090",
+        "build/vcpkg/ports/drlibs/portfile.cmake": "eaedc25792c12f5d8b6c02b1c16cbf15d0846badc350afeb28ba22837db35db2",
+        "build/vcpkg/ports/drlibs/vcpkg.json": "bf6b85a1610206a1ca4ed83ed759ffef0d10f66e4aa32c842c5b827afbe6f6ec",
         "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
         "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
       },
@@ -612,20 +612,20 @@
       "incorporated": true,
       "declaredExpression": "(Unlicense OR MIT-0)",
       "licenseChoice": null,
-      "version": "2026-08-31",
+      "version": "2026-11-11",
       "vcpkgName": "drlibs",
       "source": {
         "origin": "overlay",
         "recipe": "build/vcpkg/ports/drlibs/portfile.cmake",
         "patches": [],
-        "url": "https://github.com/mackron/dr_libs/blob/dfe8377631000664666519fdb83da193fd8037f4/dr_mp3.h",
+        "url": "https://github.com/mackron/dr_libs/blob/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_mp3.h",
         "sha512": [
-          "c21d523bdd890bf8b2e84ff7ac63f72299b235834b424d95d281b57c4e22d260e23e423ed8d829e710cbd11d8814c69afef24cb9e576bbb9cb0b704be94bf8ed",
-          "277ada6b7cf940f557d38dea7985db129c8aaf034c23425da3f1681e901439bbd4152a766de5a26cc7ddb3f0a00f2ce8f6496f61c359bc65889eeac25e356bd3"
+          "d31c0161928d7e3c2158b9a79a8db2b1ac37b8c81d4087ea499bb37f6b2591e6922e1288ae12047907da8c91ee828832f968b7cff44f8fd81e681a7b69ccbde9",
+          "88a622fa07f7bea5a4467340743ee20c7987170a2dba7579a5f44aff2d5e24ce73d9294cf591df8740df4bba6b64dc9ee18e5a21173b54ba72e649175c91e255"
         ],
         "sha256": [
-          "997b7ee18de6e6b81e2a83f1ea9fc62aef25c62b28d48db95635f49e65de0a2f",
-          "03e70c1a2d9787cd7ed3e966c075bea7bac6373f759db9cd7ca9ccdfc4ec4493"
+          "7a6cc38b0afdb55cfc9eec991d9169d67beb8fd910be2995121510cdaa99c356",
+          "7c9660d75361ad6175e6217c63a1075c9512445c06bc951197fc479179f76b39"
         ],
         "identity": "github.com/mackron/dr_libs"
       },

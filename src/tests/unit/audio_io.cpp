@@ -144,6 +144,19 @@ namespace
     }
 } // namespace
 
+TEST_CASE("audio: incomplete MP3 frames clear the decoder layer metadata", "[audio][mp3][dependency]")
+{
+    const std::array<drmp3_uint8, 4> header{0xff, 0xfb, 0x90, 0x64};
+    for (const int bytes : std::array{0, 1, 4}) {
+        const auto decoder = std::make_unique<drmp3dec>();
+        drmp3dec_init(decoder.get());
+        drmp3dec_frame_info info{};
+        info.layer = 3;
+        CHECK(drmp3dec_decode_frame(decoder.get(), header.data(), bytes, nullptr, &info) == 0);
+        CHECK(info.layer == 0);
+    }
+}
+
 TEST_CASE("audio: mp3 silence decodes to a known rate, channel count and length")
 {
     const pcm_audio mono = decode_mp3(test::support::make_mp3_silence(4, false));

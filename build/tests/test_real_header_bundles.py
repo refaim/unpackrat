@@ -23,6 +23,11 @@ They fail against the shortened audit data and are meant to pass once the select
 and the artifact table carry the real names.  The production red was proven by the
 primary against the real CLI archives; this unit fixture is a narrow selector and
 naming pin, not a claim of full end-to-end coverage.
+
+Later qualified snapshots use separately recorded upstream-byte identities from
+verified_header_snapshots.json. The historical CI capture stays byte-for-byte
+unchanged; neither those source calculations nor the current selectors claim a
+new scanner observation.
 """
 
 from __future__ import annotations
@@ -61,11 +66,14 @@ def _bundle_members(data: bytes) -> list[str]:
 
 
 class ActualHeaderBundles(unittest.TestCase):
-    """The ORT selectors and the approved artifact table target the real bundles."""
+    """Current selectors use verified bytes; the historical capture stays frozen."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.actual = _load("actual_header_bundles.json")
+        cls.historical = _load("actual_header_bundles.json")
+        cls.snapshots = _load("verified_header_snapshots.json")
+        cls.current = {row["name"]: row for row in cls.historical["components"]}
+        cls.current.update({row["name"]: row for row in cls.snapshots["components"]})
         cls.expected = {
             component["name"]: component
             for component in _load("expected_artifacts.json")["components"]
@@ -74,8 +82,14 @@ class ActualHeaderBundles(unittest.TestCase):
     def _configuration(self, name: str) -> dict:
         return json.loads((CONFIGURATIONS / f"{name}.yml").read_text(encoding="utf-8"))
 
+    def test_historical_capture_is_not_rewritten_as_a_new_observation(self) -> None:
+        raw = (FIXTURES / "actual_header_bundles.json").read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), self.snapshots.get("historical_snapshot_sha256"))
+        self.assertEqual({row["name"] for row in self.snapshots["components"]}, {"drlibs"})
+        self.assertIn("not a scanner observation", self.snapshots["provenance"])
+
     def test_approved_artifact_table_matches_the_real_bundles(self) -> None:
-        for component in self.actual["components"]:
+        for component in self.current.values():
             name = component["name"]
             with self.subTest(component=name):
                 approved = self.expected[name]
@@ -86,7 +100,7 @@ class ActualHeaderBundles(unittest.TestCase):
                 )
 
     def test_configurations_address_the_real_artifact(self) -> None:
-        for component in self.actual["components"]:
+        for component in self.current.values():
             name = component["name"]
             with self.subTest(component=name):
                 configuration = self._configuration(name)
@@ -96,7 +110,7 @@ class ActualHeaderBundles(unittest.TestCase):
                 )
 
     def test_curation_selectors_address_the_real_bundle_members(self) -> None:
-        for component in self.actual["components"]:
+        for component in self.current.values():
             name = component["name"]
             with self.subTest(component=name):
                 configuration = self._configuration(name)
@@ -112,7 +126,7 @@ class ActualHeaderBundles(unittest.TestCase):
             "bcdec": b"bcdec tiny payload\n",
             "drlibs": b"dr_libs tiny payload\n",
         }
-        for component in self.actual["components"]:
+        for component in self.current.values():
             name = component["name"]
             with self.subTest(component=name):
                 payload = payloads[name]

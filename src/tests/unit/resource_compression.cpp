@@ -13,8 +13,9 @@
 #include <string>
 #include <vector>
 
-#ifdef _DEBUG
 #include <brotli/decode.h>
+
+#ifdef _DEBUG
 #include <crtdbg.h>
 #include <zlib.h>
 #define ZSTD_STATIC_LINKING_ONLY
@@ -157,6 +158,11 @@ namespace
         return out;
     }
 } // namespace
+
+TEST_CASE("resource compression: links the qualified fixed Brotli decoder", "[godot][brotli-version]")
+{
+    CHECK(BrotliDecoderVersion() == 0x01002001U);
+}
 
 TEST_CASE("resource compression: round trips every mode with exact output")
 {

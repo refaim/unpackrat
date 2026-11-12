@@ -11,7 +11,8 @@
     "download name rather than the shortened name an earlier manual audit used. The",
     "header bytes are identical between the shortened and the real bundles, so the",
     "reviewed scan line matches are unchanged; only the member name and the resulting",
-    "deterministic tar hash differ."
+    "deterministic tar hash differ.",
+    "Brotli1.2.1 and drlibs2026-11-11 identities were renewed2026-11-12 from verified official source bytes; scanner observations remain historical and current test expectations are explicitly labelled derived."
   ],
   "components": [
     {
@@ -31,9 +32,9 @@
     },
     {
       "name": "brotli",
-      "version": "1.2.0",
-      "sha256": "816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec",
-      "artifact_filename": "816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec.tar.gz",
+      "version": "1.2.1",
+      "sha256": "98d35d11a78dc453aebb7d10c3748f3f73ff78c8267c0dc697b8631f67bf7e8f",
+      "artifact_filename": "98d35d11a78dc453aebb7d10c3748f3f73ff78c8267c0dc697b8631f67bf7e8f.tar.gz",
       "extension": ".tar.gz"
     },
     {
@@ -45,9 +46,9 @@
     },
     {
       "name": "drlibs",
-      "version": "2026-08-31",
-      "sha256": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34",
-      "artifact_filename": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34.tar",
+      "version": "2026-11-11",
+      "sha256": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a",
+      "artifact_filename": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a.tar",
       "extension": ".tar",
       "bundle": true
     },

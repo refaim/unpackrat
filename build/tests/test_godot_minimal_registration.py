@@ -6,8 +6,8 @@ The behaviour it pins is the *observable* integration contract:
 
 * Godot is a default module of the selection that drives the native audit
   and packaging routes (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
-* the default packaging route ships ``godot-1.2.1-bin-x64.zip``,
-  ``godot-1.2.1-bin-x86.zip`` and ``godot-1.2.1-pdb.zip`` with the shipped
+* the default packaging route ships ``godot-1.2.2-bin-x64.zip``,
+  ``godot-1.2.2-bin-x86.zip`` and ``godot-1.2.2-pdb.zip`` with the shipped
   payload, registration and notices;
 * ``build/projects/tests.vcxproj`` references ``godot.vcxproj`` with the fixed
   project GUID and ``LinkLibraryDependencies=false``;
@@ -24,6 +24,7 @@ constant.  ``GuardedCase`` forbids any real native subprocess.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -44,7 +45,7 @@ PROJECTS = REPOSITORY_ROOT / "build" / "projects"
 NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 
 GODOT = "godot"
-GODOT_VERSION = "1.2.1"
+GODOT_VERSION = "1.2.2"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
 BASELINE = "9eec002df1cd109f8f104cd966a763daf9751489"
 WOLFRPG = "wolfrpg"
@@ -581,17 +582,26 @@ class GodotDocsContract(GuardedCase):
         self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), GODOT_VERSION)
 
     def test_godot_runtime_recipe_reports_the_approved_release_history(self) -> None:
+        history_hashes = {
+            "en": "ec6241bebfd15e7d5a5c2525059241d3ed81cbc4b72236b0ee199ab911039fde",
+            "ru": "0efd4b69d15f85fd26e060ec08956848a1aaf084f5b47358f85dead7338367c1",
+        }
+        security_notes = {
+            "en": " * Fixed a vulnerability when processing Brotli-compressed resources.",
+            "ru": " * Исправлена уязвимость обработки ресурсов со сжатием Brotli.",
+        }
         for language in ("en", "ru"):
             with self.subTest(language=language):
                 notes = (REPOSITORY_ROOT / f"src/modules/godot/ChangeLog.{language}.txt").read_text(encoding="utf-8")
                 headers = list(re.finditer(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE))
-                self.assertEqual([header.group(1) for header in headers], ["1.2.1", "1.2.0", "1.0.0"])
+                self.assertEqual([header.group(1) for header in headers], ["1.2.2", "1.2.1", "1.2.0", "1.0.0"])
                 top_block = notes[headers[0].end():headers[1].start()]
-                runtime_block, published_history = notes[headers[1].end():headers[2].start()], notes[headers[2].start():]
-                # The reviewed 1.2.1 patch leaves the 1.2.0 runtime block and the published
-                # 1.0.0 history intact, with their original four and eight entries.
-                self.assertEqual([len(re.findall(r"^ [+*] ", block, re.MULTILINE)) for block in (top_block, runtime_block)], [1, 4])
-                self.assertEqual(len(re.findall(r"^ [+*] ", published_history, re.MULTILINE)), 8)
+                self.assertEqual([line for line in top_block.splitlines() if line.startswith(" * ")],
+                                 [security_notes[language]])
+                # Every previously reviewed release section remains byte-identical after LF normalization.
+                published_history = notes[headers[1].start():]
+                self.assertEqual(hashlib.sha256(published_history.encode("utf-8")).hexdigest(),
+                                 history_hashes[language])
 
 
 if __name__ == "__main__":  # pragma: no cover
