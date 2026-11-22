@@ -97,7 +97,7 @@ class StageCase(unittest.TestCase):
         self.tidy.with_name("run-clang-tidy").write_text("# installed LLVM script", encoding="utf-8")
         # ``_msbuild_command`` forwards the selected legacy servicing toolset.
         self.vs = self.root / "vs"
-        (self.vs / "VC" / "Tools" / "MSVC" / "14.51.36231").mkdir(parents=True)
+        (self.vs / "VC" / "Tools" / "MSVC" / "14.52.36231").mkdir(parents=True)
 
     def tools(self, run: RecordingRun):
         """Patch the tool-lookup seams and the single ``main.run`` entry."""

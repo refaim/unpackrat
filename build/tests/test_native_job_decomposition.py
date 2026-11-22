@@ -159,7 +159,7 @@ class NativeJobDecompositionTests(unittest.TestCase):
     def test_only_source_and_clang_tidy_provision_the_llvm_23_analysis_tools(self) -> None:
         for name in (
             "Restore the pinned LLVM tools",
-            "Provision the pinned LLVM 23.1.3 tools",
+            "Provision the pinned LLVM 23.1.6 tools",
             "Verify pinned clang-tidy and system-header skipping",
             "Save the pinned LLVM tools",
         ):

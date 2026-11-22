@@ -137,24 +137,24 @@ CLEANUP_PROBE_MARKER = "unpackrat-lazy-cleanup-fatal-"
 CLEANUP_PROBE_TIMEOUT = 30
 # The shipped binaries and dependencies use one numeric servicing version of VS2026's v145.
 VS_TOOLSET_COMPONENT = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
-TOOLSET_VERSION = "14.51"
+TOOLSET_VERSION = "14.52"
 # The family glob also matches stray files and ``.backup`` siblings; only a fully
 # numeric servicing name that is a real directory is a toolset, so nothing displaces the choice.
 _TOOLSET_NAME = re.compile(r"\d+(?:\.\d+)*")
-# The standalone analyzer and formatter are provisioned separately from the VS LLVM toolset;
-# the official LLVM 23 x64 archive has no 32-bit runtime, so these stay analyze/format-only.
-LLVM_VERSION = "23.1.3"
+# The analyzer, formatter and instrumentation use one LLVM release. CI supplements the
+# official x64 tools with source-built runtimes for the supported x86 target.
+LLVM_VERSION = "23.1.6"
 # The official runner prints decoded child bytes; preserve native CRLF on Windows instead of
 # translating its LF a second time and introducing blank diagnostic lines.
 _CLANG_TIDY_RUNNER_BOOTSTRAP = (
     "import runpy,sys;sys.stdout.reconfigure(newline='');sys.stderr.reconfigure(newline='');"
     "sys.argv=sys.argv[1:];runpy.run_path(sys.argv[0],run_name='__main__')"
 )
-# Instrumentation uses an explicit, paired LLVM21 installation. Local tool installation is
-# operator-owned; CI supplies the same verified x86/x64 pair through a same-run artifact.
+# Instrumentation uses an explicit matched LLVM tree. Local tool installation is
+# operator-owned; CI supplies verified host tools and x86/x64 runtimes in a same-run artifact.
 LLVM_INSTRUMENTATION_ENV = "UNPACKRAT_LLVM_INSTRUMENTATION"
-LLVM_INSTRUMENTATION_VERSION = "21.1.8"
-LLVM_MAJOR_VERSION = "21"
+LLVM_INSTRUMENTATION_VERSION = LLVM_VERSION
+LLVM_MAJOR_VERSION = LLVM_VERSION.split(".", 1)[0]
 _LLVM_INSTRUMENTATION_TOOLS = ("clang-cl", "lld-link", "llvm-cov", "llvm-profdata")
 _LLVM_VERSION_PATTERN = re.compile(
     rf"(?<![\d.]){re.escape(LLVM_INSTRUMENTATION_VERSION)}(?![\d.])"
@@ -363,7 +363,7 @@ def _vs_installation() -> Path:
     vswhere = Path(base) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
     completed = run(
         [
-            str(vswhere), "-products", "*",
+            str(vswhere), "-latest", "-products", "*",
             "-version", "[18.0,19.0)",
             "-requires", "Microsoft.Component.MSBuild",
             "-requires", VS_TOOLSET_COMPONENT,
@@ -380,7 +380,7 @@ def _vs_installation() -> Path:
 
 
 def _msvc_toolset_version(installation: Path) -> str:
-    """Return the numeric-maximum installed 14.51 servicing toolset; never another family."""
+    """Return the numeric-maximum installed 14.52 servicing toolset; never another family."""
 
     root = Path(installation) / "VC" / "Tools" / "MSVC"
     versions = sorted(
@@ -420,7 +420,7 @@ def _native_tools() -> tuple[Path, Path]:
 
 
 def _llvm_home() -> Path:
-    """Return the x64 compiler home from the operator's explicit paired LLVM21 root."""
+    """Return the x64 compiler home from the operator's explicit matched LLVM root."""
 
     override = os.environ.get(LLVM_INSTRUMENTATION_ENV)
     if not override:
@@ -529,7 +529,7 @@ def _asan_runtime(architecture: str) -> Path:
     if installation is None:
         raise FileNotFoundError(f"cannot locate the Visual Studio installation from {msbuild}")
     # The staged ASan runtime must come from the very toolset that produced the binaries, so
-    # it uses the same selected 14.51 servicing version as the compiler.
+    # it uses the same selected 14.52 servicing version as the compiler.
     version = _msvc_toolset_version(installation)
     runtime = (installation / "VC" / "Tools" / "MSVC" / version / "bin" / "Hostx64"
                / architecture / _ASAN_RUNTIMES[architecture])
@@ -1274,8 +1274,8 @@ def _sanitizer(
 ) -> Path:
     configuration = "ASan" if sanitizer == "asan" else "UBSan"
     _restore(repository, architecture, configuration, vcpkg)
-    # ASan is the MSVC 14.51 dynamic ASan build and takes no LLVM toolchain; only UBSan forwards
-    # the matched LLVM 21 runtime to MSBuild.
+    # ASan is the MSVC 14.52 dynamic ASan build and takes no LLVM toolchain; only UBSan forwards
+    # the matched LLVM runtime to MSBuild.
     props = None if sanitizer == "asan" else llvm
     run(
         _msbuild_command(repository, repository / TEST_PROJECT, architecture, configuration, jobs, msbuild, vcpkg, llvm=props),
@@ -1690,7 +1690,7 @@ def _dispatch(
             _coverage(repository, architecture, msbuild, vcpkg, _runtime(llvm, architecture), corpus=corpus, jobs=jobs)
     elif stage == "asan":
         for architecture in architectures:
-            # The MSVC 14.51 dynamic ASan build needs no LLVM 21 instrumentation toolchain, so
+            # The MSVC 14.52 dynamic ASan build needs no LLVM instrumentation toolchain, so
             # this stage never has to resolve one.
             _sanitizer(repository, "asan", architecture, msbuild, vcpkg, None, jobs=jobs)
     elif stage == "ubsan":

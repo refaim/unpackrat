@@ -102,7 +102,7 @@ class PipelineRun:
             if "vswhere" in name:
                 return subprocess.CompletedProcess(list(recorded), 0, self._vswhere)
             if name == "clang-format.exe":
-                return subprocess.CompletedProcess(list(recorded), 0, "clang-format version 23.1.3\n")
+                return subprocess.CompletedProcess(list(recorded), 0, "clang-format version 23.1.6\n")
             if name == "dumpbin.exe" and self._dumpbin is not None:
                 return subprocess.CompletedProcess(list(recorded), 0, self._dumpbin(recorded))
             if "llvm-cov" in name:
@@ -160,8 +160,8 @@ class DriverCase(unittest.TestCase):
         self.msbuild = self.root / "MSBuild.exe"
         self.vcpkg = self.root / "vcpkg.exe"
         self.vs_install = self.root / "vs"
-        # The driver selects the selected 14.51 servicing toolset from the chosen VS install.
-        cl = (self.vs_install / "VC" / "Tools" / "MSVC" / "14.51.36231"
+        # The driver selects the selected 14.52 servicing toolset from the chosen VS install.
+        cl = (self.vs_install / "VC" / "Tools" / "MSVC" / "14.52.36231"
               / "bin" / "Hostx64" / "x64" / "cl.exe")
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.write_bytes(b"x")
@@ -399,7 +399,7 @@ class DriverCase(unittest.TestCase):
         formatter = self.root / "path" / "clang-format.exe"
         formatter.parent.mkdir(parents=True)
         formatter.write_bytes(b"x")
-        dumpbin = install / "VC" / "Tools" / "MSVC" / "14.51.36231" / "bin" / "Hostx64" / "x64" / "dumpbin.exe"
+        dumpbin = install / "VC" / "Tools" / "MSVC" / "14.52.36231" / "bin" / "Hostx64" / "x64" / "dumpbin.exe"
         dumpbin.parent.mkdir(parents=True, exist_ok=True)
         dumpbin.write_bytes(b"x")
         pf86 = self.root / "pf86"
@@ -514,7 +514,7 @@ class AttestationInvalidationCase(unittest.TestCase):
             _vs_installation=mock.Mock(return_value=self.vs),
             # newmaster's ``_restore`` resolves the servicing toolset for the child
             # environment, so the faked Visual Studio tree needs a mocked lookup too.
-            _msvc_toolset_version=mock.Mock(return_value="14.51.36231"),
+            _msvc_toolset_version=mock.Mock(return_value="14.52.36231"),
             _msbuild_command=mock.Mock(return_value=("MSBuild.exe", "tests.vcxproj")),
             _cleanup_fatal_probe=mock.Mock(),
         )

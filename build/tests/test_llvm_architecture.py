@@ -1,6 +1,6 @@
 """Behavioral contract for architecture-specific LLVM instrumentation-toolchain resolution.
 
-Coverage, UBSan and fuzz use a matched LLVM21 pair selected only through the explicit,
+Coverage, UBSan and fuzz use a matched LLVM23 pair selected only through the explicit,
 absolute ``UNPACKRAT_LLVM_INSTRUMENTATION`` root. The x64 distribution supplies host tools;
 each architecture retains its own resource/runtime directory. No PATH LLVM or old Visual
 Studio installation may silently satisfy this contract. Local missing tools fail closed.
@@ -21,7 +21,7 @@ from unittest import mock
 import main
 
 
-VERSION = "21"
+VERSION = "23"
 X64_RUNTIMES = (
     "clang_rt.profile-x86_64.lib",
     "clang_rt.fuzzer-x86_64.lib",
@@ -40,7 +40,7 @@ I386_RUNTIMES = (
 )
 
 
-def _tool_runner(version: str = "21.1.8"):
+def _tool_runner(version: str = "23.1.6"):
     """A ``main.run`` stand-in that reports one natural ``--version`` response."""
 
     def runner(argv, **options: object) -> subprocess.CompletedProcess[str]:
@@ -128,7 +128,7 @@ class LlvmArchitectureResolutionTests(unittest.TestCase):
         seed_home(self.install / "x64", X64_RUNTIMES)
 
         def runner(argv, **options: object) -> subprocess.CompletedProcess[str]:
-            version = "23.1.0" if Path(argv[0]).stem == "lld-link" else "21.1.8"
+            version = "23.1.0" if Path(argv[0]).stem == "lld-link" else "23.1.6"
             return subprocess.CompletedProcess(list(argv), 0, f"LLVM version {version}\n")
 
         with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch.object(
@@ -170,7 +170,7 @@ class LlvmArchitectureResolutionTests(unittest.TestCase):
         self.assertEqual(resolve().runtime.name, "windows")
         # A tool that reports a different version must fail closed rather than mix versions.
         with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch.object(
-            main, "run", side_effect=_tool_runner("21.1.9")
+            main, "run", side_effect=_tool_runner("23.1.7")
         ), self.assertRaises(main.BuildError):
             main._llvm("x64")
         # A missing header breaks the same contract.
@@ -272,11 +272,11 @@ class CiArchLlvmRoutingTests(unittest.TestCase):
         self.assertIs(ubsan[0].args[5], resolved["x64"])
 
     def test_msvc_asan_stage_needs_no_llvm_while_ubsan_still_requires_it(self) -> None:
-        # ASan is the MSVC 14.51 dynamic ASan build, not the LLVM 21 clang sanitizer, so an
+        # ASan is the MSVC 14.52 dynamic ASan build, not the LLVM 23 clang sanitizer, so an
         # unavailable LLVM instrumentation toolchain must not block the asan stage. UBSan still
-        # depends on the matched LLVM 21 runtime and must fail closed without it.
+        # depends on the matched LLVM 23 runtime and must fail closed without it.
         def unavailable(architecture: str = "x64") -> mock.Mock:
-            raise FileNotFoundError("no LLVM 21.1.8 instrumentation toolchain")
+            raise FileNotFoundError("no LLVM 23.1.8 instrumentation toolchain")
 
         sanitizer = mock.Mock()
         with mock.patch.multiple(

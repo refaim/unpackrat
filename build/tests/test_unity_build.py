@@ -169,7 +169,7 @@ class UnityCase(unittest.TestCase):
         self.msbuild = self.root / "MSBuild.exe"
         self.vcpkg = self.root / "vcpkg.exe"
         self.vs = self.root / "vs"
-        cl = self.vs / "VC" / "Tools" / "MSVC" / "14.51.36231" / "bin" / "Hostx64" / "x64" / "cl.exe"
+        cl = self.vs / "VC" / "Tools" / "MSVC" / "14.52.36231" / "bin" / "Hostx64" / "x64" / "cl.exe"
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.write_bytes(b"x")
 

@@ -17,7 +17,7 @@ import main  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 MSBUILD = "{http://schemas.microsoft.com/developer/msbuild/2003}"
 # The exact release provenance line the owner's installed clang-tidy/clang-format print.
-VCS_SUFFIX = "(https://github.com/llvm/llvm-project 0d261d1ca552c95a8f007e061c787ac7132fbcbc)"
+VCS_SUFFIX = "(https://github.com/llvm/llvm-project 5b10d2d74929eae78912771222c9855af97496f4)"
 
 
 class ClangTidySelectionTests(unittest.TestCase):
@@ -57,7 +57,7 @@ class ClangTidySelectionTests(unittest.TestCase):
         with mock.patch("shutil.which", return_value=str(self.exe)) as which, \
              mock.patch.object(
                  main, "run",
-                 return_value=self._version("LLVM (https://llvm.org/):\n  LLVM version 23.1.3\n"),
+                 return_value=self._version("LLVM (https://llvm.org/):\n  LLVM version 23.1.6\n"),
              ) as invoked:
             self.assertEqual(main._clang_tidy(), self.exe.resolve())
         which.assert_called_once_with("clang-tidy.exe")
@@ -68,7 +68,7 @@ class ClangTidySelectionTests(unittest.TestCase):
         # be the standard PATH and must not touch that directory at all.
         cache = self.root / "localappdata"
         with mock.patch("shutil.which", return_value=str(self.exe)), \
-             mock.patch.object(main, "run", return_value=self._version("LLVM version 23.1.3")), \
+             mock.patch.object(main, "run", return_value=self._version("LLVM version 23.1.6")), \
              mock.patch.dict(os.environ, {"LOCALAPPDATA": str(cache)}, clear=True):
             self.assertEqual(main._clang_tidy(), self.exe.resolve())
         self.assertFalse(cache.exists())
@@ -78,7 +78,7 @@ class ClangTidySelectionTests(unittest.TestCase):
         override.parent.mkdir()
         override.write_bytes(b"test executable")
         with mock.patch("shutil.which") as which, \
-             mock.patch.object(main, "run", return_value=self._version("LLVM version 23.1.3")):
+             mock.patch.object(main, "run", return_value=self._version("LLVM version 23.1.6")):
             with mock.patch.dict(os.environ, {"UNPACKRAT_CLANG_TIDY": str(override)}, clear=True):
                 self.assertEqual(main._clang_tidy(), override.resolve())
         which.assert_not_called()
@@ -91,7 +91,7 @@ class ClangTidySelectionTests(unittest.TestCase):
         try:
             os.chdir(self.root)
             with mock.patch.dict(os.environ, {"UNPACKRAT_CLANG_TIDY": "custom/clang-tidy.exe"}, clear=True), \
-                 mock.patch.object(main, "run", return_value=self._version("LLVM version 23.1.3")):
+                 mock.patch.object(main, "run", return_value=self._version("LLVM version 23.1.6")):
                 self.assertEqual(main._clang_tidy(), override.resolve())
         finally:
             os.chdir(original)
@@ -106,7 +106,8 @@ class ClangTidySelectionTests(unittest.TestCase):
     def test_wrong_or_missing_version_fails_closed(self) -> None:
         for output in (
             "LLVM version 19.1.5",
-            "LLVM version 23.1.30",
+            "LLVM version 23.1.3",
+            "LLVM version 23.1.60",
             "LLVM version 23.1.80",
             "clang-tidy unknown",
         ):
@@ -119,7 +120,7 @@ class ClangTidySelectionTests(unittest.TestCase):
     def test_accepts_the_official_release_vcs_suffix(self) -> None:
         # clang-tidy reports the bare tested line; the same official build may append its
         # git commit, which must still satisfy the pinned-version contract.
-        output = f"LLVM (https://llvm.org/):\n  LLVM version 23.1.3 {VCS_SUFFIX}\n"
+        output = f"LLVM (https://llvm.org/):\n  LLVM version 23.1.6 {VCS_SUFFIX}\n"
         with mock.patch("shutil.which", return_value=str(self.exe)), \
              mock.patch.object(main, "run", return_value=self._version(output)):
             self.assertEqual(main._clang_tidy(), self.exe.resolve())
@@ -178,8 +179,8 @@ class ClangTidySelectionTests(unittest.TestCase):
         # resolve them.
         self.assertIn("if: inputs.stage == 'clang-tidy' || inputs.stage == 'source'", workflow)
         self.assertIn("UNPACKRAT_CLANG_TIDY", workflow)
-        self.assertIn("23.1.3", workflow)
-        self.assertIn("9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8", workflow.lower())
+        self.assertIn("23.1.6", workflow)
+        self.assertIn("7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155", workflow.lower())
         # The verified tool tree is preserved through the split restore/save cache pair: the
         # later save must not replace the completed restore action the cache step now uses.
         self.assertIn("actions/cache/restore@", workflow)
@@ -188,7 +189,7 @@ class ClangTidySelectionTests(unittest.TestCase):
         self.assertIn("'bin/run-clang-tidy'", workflow)
         self.assertIn("(root / 'bin/run-clang-tidy').is_file()", workflow)
         self.assertIn("$runner = Join-Path $root 'bin/run-clang-tidy'", workflow)
-        self.assertEqual(workflow.count("parallel-cache-v2-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8"), 2)
+        self.assertEqual(workflow.count("parallel-cache-v2-7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155"), 2)
 
     def test_workflow_step_helper_locates_the_final_block_and_reports_a_missing_step(self) -> None:
         # The helper carves one step out by the next ``- name:`` line; the final step has no

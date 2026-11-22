@@ -86,7 +86,11 @@ class CoverageImageStepTests(unittest.TestCase):
         self._image_step()
         verify = [i for i, s in enumerate(self.steps) if VERIFY_NAME in s]
         self.assertEqual(1, len(verify), "verification step not found")
-        self.assertEqual(verify[0] + 1, self.image_positions[0])
+        self.assertGreater(self.image_positions[0], verify[0])
+        # CodeQL-only steps do not run in the coverage slice. No other operation may
+        # intervene before the failing coverage gate can publish its diagnostic images.
+        for step in self.steps[verify[0] + 1:self.image_positions[0]]:
+            self.assertRegex(step, r"(?m)^        if: inputs\.codeql(?: && inputs\.stage == 'native-debug')?\s*$")
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ ACTIONS = {
 CPPCHECK_MSI_SHA = "3929162bab7e71d1b9b18708ec054fb0188bfc8ea1660979ed95837f5a9f547b"
 VCPKG_EXE_SHA = "2a4ae1467b9e797964c60c919d057b9e5dc1ec03f4b9632c1150026db25201f2"
 VCPKG_BASELINE = "9eec002df1cd109f8f104cd966a763daf9751489"
-LLVM_ASSET_SHA = "9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8"
+LLVM_ASSET_SHA = "7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155"
 
 
 
@@ -125,7 +125,7 @@ class WorkflowProvisioningTests(unittest.TestCase):
         self.assertEqual(manifest["builtin-baseline"], VCPKG_BASELINE)
 
     def test_llvm_23_is_hash_verified_and_caches_tidy_format_and_headers(self) -> None:
-        self.assertIn("23.1.3", self.check)
+        self.assertIn("23.1.6", self.check)
         self.assertIn(LLVM_ASSET_SHA, self.check.lower())
         for member in ("bin/clang-tidy.exe", "bin/clang-format.exe", "lib/clang/23/include/"):
             with self.subTest(member=member):
@@ -139,10 +139,12 @@ class WorkflowProvisioningTests(unittest.TestCase):
                 self.assertIn(gate, self.check)
                 self.assertLess(save, self.check.index(gate))
 
-    def test_code_scanning_upload_does_not_invent_codeql_analysis(self) -> None:
+    def test_code_scanning_upload_and_real_codeql_analysis_use_the_same_pin(self) -> None:
         self.assertIn("github/codeql-action/upload-sarif@", self.all_workflows)
-        self.assertNotIn("github/codeql-action/init@", self.all_workflows)
-        self.assertNotIn("github/codeql-action/analyze@", self.all_workflows)
+        for action in ("upload-sarif", "init", "analyze"):
+            with self.subTest(action=action):
+                self.assertIn(f"github/codeql-action/{action}@24c54180a607b1449ed407dd24f251e4e9147c8d",
+                              self.all_workflows)
 
 
 class InstalledToolsetPreflightTests(unittest.TestCase):
@@ -154,15 +156,15 @@ class InstalledToolsetPreflightTests(unittest.TestCase):
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 installation = root / "VS ü with spaces"
-                selected = installation / "VC/Tools/MSVC/14.51.10"
+                selected = installation / "VC/Tools/MSVC/14.52.10"
                 if missing != "toolset":
-                    (installation / "VC/Tools/MSVC/14.51.9").mkdir(parents=True)
+                    (installation / "VC/Tools/MSVC/14.52.9").mkdir(parents=True)
                     for arch in ("x86", "x64"):
                         if arch != missing:
                             compiler = selected / "bin/Hostx64" / arch / "cl.exe"
                             compiler.parent.mkdir(parents=True, exist_ok=True)
                             compiler.write_bytes(b"fixture")
-                    (installation / "VC/Tools/MSVC/14.51.999.backup").mkdir(parents=True)
+                    (installation / "VC/Tools/MSVC/14.52.999.backup").mkdir(parents=True)
                 output = root / "github-output"
                 script = "$ErrorActionPreference='Stop'\n$installation=$env:FIXTURE_INSTALL\n" + body
                 completed = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -170,8 +172,8 @@ class InstalledToolsetPreflightTests(unittest.TestCase):
                     capture_output=True, text=True, check=False)
                 self.assertEqual(completed.returncode == 0, missing is None, completed.stderr)
                 if missing is None:
-                    self.assertIn("version=14.51.10", output.read_text(encoding="utf-8"))
-                    self.assertEqual(main._msvc_toolset_version(installation), "14.51.10")
+                    self.assertIn("version=14.52.10", output.read_text(encoding="utf-8"))
+                    self.assertEqual(main._msvc_toolset_version(installation), "14.52.10")
                 else:
                     self.assertIn("MSVC", completed.stderr)
 

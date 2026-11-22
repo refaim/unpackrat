@@ -1,4 +1,4 @@
-"""Dependabot opens weekly vcpkg baseline updates for the root manifest."""
+"""Dependabot opens weekly updates for the native and Python manifests."""
 
 from __future__ import annotations
 
@@ -19,7 +19,9 @@ class DependabotConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(configuration["version"], 2)
         self.assertEqual(set(configuration), {"version", "updates"})
-        self.assertEqual(configuration["updates"], [{
+        updates = [entry for entry in configuration["updates"]
+                   if entry["package-ecosystem"] == "vcpkg"]
+        self.assertEqual(updates, [{
             "package-ecosystem": "vcpkg",
             "directory": "/",
             "open-pull-requests-limit": 1,
@@ -36,9 +38,32 @@ class DependabotConfigurationTests(unittest.TestCase):
             },
         }])
 
+    def test_both_uv_projects_receive_weekly_lockfile_updates(self) -> None:
+        configuration = json.loads((REPOSITORY / ".github/dependabot.yml").read_text(encoding="utf-8"))
+        updates = [entry for entry in configuration["updates"]
+                   if entry["package-ecosystem"] == "uv"]
+        self.assertEqual(updates, [{
+            "package-ecosystem": "uv",
+            "directory": directory,
+            "open-pull-requests-limit": 1,
+            "schedule": {
+                "interval": "weekly",
+                "day": "monday",
+                "time": "09:00",
+                "timezone": "Asia/Vladivostok",
+            },
+        } for directory in ("/build", "/src/tests/framework/tools")])
+        self.assertEqual(len(configuration["updates"]), 3)
+        for update in updates:
+            with self.subTest(directory=update["directory"]):
+                project = REPOSITORY / update["directory"].lstrip("/")
+                self.assertTrue((project / "pyproject.toml").is_file())
+                self.assertTrue((project / "uv.lock").is_file())
+
     def test_baseline_prs_skip_older_releases_and_keep_future_releases_eligible(self) -> None:
         configuration = json.loads((REPOSITORY / ".github/dependabot.yml").read_text(encoding="utf-8"))
-        update, = configuration["updates"]
+        update, = [entry for entry in configuration["updates"]
+                   if entry["package-ecosystem"] == "vcpkg"]
         self.assertEqual(update["allow"], [{"dependency-name": "github.com/microsoft/vcpkg"}])
         ignored, = update["ignore"]
         self.assertEqual(ignored["dependency-name"], "github.com/microsoft/vcpkg")

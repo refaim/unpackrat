@@ -1,9 +1,8 @@
 name: CI instrumentation toolchain
 
-# A matched official LLVM21 pair supplies x64 host tools and x86/x64 compiler-rt, and the x64
-# C++ UBSan runtime is rebuilt once from hash-verified official source with the DLL CRT that our
-# /MD UBSan executables link against. Provisioning is confined to ephemeral CI runners; local
-# installations remain operator-owned.
+# Official LLVM23 host tools supply x64 compiler-rt. Verified matching source supplies x86
+# runtimes, annotated /MT libFuzzer archives for both architectures and the x64 UBSan C++ /MD
+# archive. Provisioning is confined to ephemeral CI runners; local installations are operator-owned.
 on:
   workflow_call:
 
@@ -19,10 +18,10 @@ jobs:
           persist-credentials: false
 
       # The rebuild and the unconditional cached-toolchain verification both need the same
-      # installed VS2026 v145 14.51 toolset the driver uses, so select it once here, before the
+      # installed VS2026 v145 14.52 toolset the driver uses, so select it once here, before the
       # cache lookup, and publish the exact servicing version and cache identity the cache key and
       # the provenance checks bind to.  vcvarsall is asked for the toolset's full numeric version;
-      # the family flag '-vcvars_ver=14.51' selects by descending substring and can land on a
+      # the family flag '-vcvars_ver=14.52' selects by descending substring and can land on a
       # backup or wrong servicing toolset, so the imported VCToolsVersion and VCToolsInstallDir are
       # verified fail-closed against the selection.  Only the named developer variables are
       # persisted; the whole inherited dev shell is never dumped into the protected GITHUB_ENV.
@@ -42,9 +41,9 @@ jobs:
           $installation = $selected[0].Trim()
           $toolsetRoot = Join-Path $installation 'VC/Tools/MSVC'
           $toolsets = @(Get-ChildItem -LiteralPath $toolsetRoot -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^14\.51(?:\.\d+)+$' } |
+            Where-Object { $_.Name -match '^14\.52(?:\.\d+)+$' } |
             Sort-Object -Property @{ Expression = { [version] $_.Name } })
-          if ($toolsets.Count -eq 0) { throw "No MSVC 14.51 toolset below $toolsetRoot." }
+          if ($toolsets.Count -eq 0) { throw "No MSVC 14.52 toolset below $toolsetRoot." }
           $toolset = $toolsets[-1]
           $vcvarsall = Join-Path $installation 'VC/Auxiliary/Build/vcvarsall.bat'
           if (-not (Test-Path -LiteralPath $vcvarsall -PathType Leaf)) { throw "Missing vcvarsall: $vcvarsall" }
@@ -87,73 +86,59 @@ jobs:
           "toolset_version=$($toolset.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "cache_environment=$($toolset.Name)-sdk$sdkVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Restore the pinned LLVM 21.1.8 toolchain
+      - name: Restore the pinned LLVM 23.1.6 toolchain
         id: llvm-instrumentation
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/unpackrat/tools/llvm/21.1.8
-          key: llvm-instrumentation-21.1.8-lld-link-v1-0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181-7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113-ubsan-runtime-md-crt-v1-4633a23617fa31a3-v145-${{ steps.ubsan-build-environment.outputs.cache_environment }}
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.6
+          key: llvm-instrumentation-23.1.6-runtime-supplement-v3-7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155-d3b86ab29cfb4445a6652e5c2642ccc75e04e38084dde3701d323320f35a31da-ubsan-runtime-md-crt-v1-v145-${{ steps.ubsan-build-environment.outputs.cache_environment }}
 
-      - name: Provision the pinned LLVM 21.1.8 toolchain
-        if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/21.1.8'
-          $downloads = Join-Path $env:RUNNER_TEMP 'llvm-21.1.8-payloads'
-          New-Item -ItemType Directory -Force -Path $downloads | Out-Null
-          $payloads = @(
-            @{ Arch = 'x86'; Name = 'LLVM-21.1.8-win32.exe'; Sha = '0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181'; Size = 349589289 },
-            @{ Arch = 'x64'; Name = 'LLVM-21.1.8-win64.exe'; Sha = '7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113'; Size = 374129373 }
-          )
-          foreach ($payload in $payloads) {
-            gh release download llvmorg-21.1.8 --repo llvm/llvm-project --pattern $payload.Name --dir $downloads
-            if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM download failed.' }
-            $file = Join-Path $downloads $payload.Name
-            if ((Get-Item -LiteralPath $file).Length -ne $payload.Size) { throw 'Unexpected LLVM payload size.' }
-            if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $payload.Sha) {
-              throw 'Pinned LLVM SHA-256 validation failed.'
-            }
-            $destination = Join-Path $root $payload.Arch
-            # The installed archiver reads the official NSIS container without running its installer.
-            & 7z x $file "-o$destination" '-r' '-y' 'bin/clang-cl.exe' 'bin/lld-link.exe' 'bin/llvm-cov.exe' `
-              'bin/llvm-profdata.exe' 'bin/*.dll' 'lib/clang/21/*'
-            if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM extraction failed.' }
-          }
-
-      # The official x64 clang_rt.ubsan_standalone_cxx archive is built with the static CRT, which
-      # cannot link into our /MD UBSan executables. compiler-rt's top-level CMakeLists.txt forces
-      # CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded for the whole runtime, while sanitizer_common
-      # overrides it back to the DLL CRT only for its own subdirectory. Rebuild just this one
-      # archive from the hash-verified official source with that single literal patched to the DLL
-      # CRT, then drop it into the verified toolchain. The standalone archive and the whole x86
-      # slice stay untouched.
-      - name: Rebuild the UBSan C++ runtime with the DLL CRT
+      - name: Provision the pinned LLVM 23.1.6 toolchain
         if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/21.1.8'
-          $worktree = Join-Path $env:RUNNER_TEMP 'llvm-21.1.8-ubsan-runtime'
-          $sourceRoot = Join-Path $worktree 'source'
-          $ownedBuild = Join-Path $worktree 'build'
-          $sourceAsset = 'llvm-project-21.1.8.src.tar.xz'
-          $sourceSha = '4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa142'
-          $sourceSize = 158958576
-          $runtimePatch = 'ubsan-runtime-md-crt-v1'
-          $windowsLibs = Join-Path $root 'x64/lib/clang/21/lib/windows'
-          $standalone = Join-Path $windowsLibs 'clang_rt.ubsan_standalone-x86_64.lib'
-          $cxx = Join-Path $windowsLibs 'clang_rt.ubsan_standalone_cxx-x86_64.lib'
-          foreach ($library in @($standalone, $cxx)) {
-            if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {
-              throw "Missing official UBSan library: $library"
-            }
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6'
+          $downloads = Join-Path $env:RUNNER_TEMP 'llvm-23.1.6-payloads'
+          $payload = 'clang+llvm-23.1.6-x86_64-pc-windows-msvc.tar.zst'
+          $folder = $payload.Substring(0, $payload.Length - 8)
+          $payloadSha = '7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155'
+          $payloadSize = 276226344
+          New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+          gh release download llvmorg-23.1.6 --repo llvm/llvm-project --pattern $payload --dir $downloads
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM download failed.' }
+          $file = Join-Path $downloads $payload
+          if ((Get-Item -LiteralPath $file).Length -ne $payloadSize) { throw 'Unexpected LLVM payload size.' }
+          if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $payloadSha) {
+            throw 'Pinned LLVM SHA-256 validation failed.'
           }
+          & 7z x $file "-o$downloads" '-y'
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM zstd extraction failed.' }
+          $tarball = Join-Path $downloads "$folder.tar"
+          $staging = Join-Path $downloads 'extracted'
+          $members = @('bin/clang-cl.exe', 'bin/lld-link.exe', 'bin/llvm-cov.exe', 'bin/llvm-profdata.exe',
+                       'bin/*.dll', 'lib/clang/23/*') | ForEach-Object { "$folder/$_" }
+          & 7z x $tarball "-o$staging" '-r' '-y' @members
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM extraction failed.' }
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Move-Item -LiteralPath (Join-Path $staging $folder) -Destination (Join-Path $root 'x64')
+
+      - name: Prepare the verified LLVM 23.1.6 runtime source
+        if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $worktree = Join-Path $env:RUNNER_TEMP 'llvm-23.1.6-runtime-source'
+          $sourceRoot = Join-Path $worktree 'source'
+          $sourceAsset = 'llvm-project-23.1.6.src.tar.xz'
+          $sourceSha = 'd3b86ab29cfb4445a6652e5c2642ccc75e04e38084dde3701d323320f35a31da'
+          $sourceSize = 179172364
           New-Item -ItemType Directory -Force -Path $worktree | Out-Null
-          gh release download llvmorg-21.1.8 --repo llvm/llvm-project --pattern $sourceAsset --dir $worktree
+          gh release download llvmorg-23.1.6 --repo llvm/llvm-project --pattern $sourceAsset --dir $worktree
           if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM source download failed.' }
           $asset = Join-Path $worktree $sourceAsset
           if ((Get-Item -LiteralPath $asset).Length -ne $sourceSize) { throw 'Unexpected LLVM source asset size.' }
@@ -162,24 +147,170 @@ jobs:
           }
           & 7z x $asset "-o$worktree" '-y'
           if ($LASTEXITCODE -ne 0) { throw 'LLVM source xz extraction failed.' }
-          $tarball = Join-Path $worktree 'llvm-project-21.1.8.src.tar'
+          $tarball = Join-Path $worktree 'llvm-project-23.1.6.src.tar'
           if (-not (Test-Path -LiteralPath $tarball -PathType Leaf)) { throw 'Missing extracted LLVM source tarball.' }
           New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
-          # The upstream tar ships six relative symlinks under the unrelated clang and lldb test
-          # trees; 7-Zip refuses those dangerous link paths and exits nonzero. The rebuild only
-          # needs the cmake, compiler-rt, runtimes and llvm component trees, so unpack exactly
-          # those four whole trees and never touch the rest of the archive.
           $sourceTrees = @(
-            'llvm-project-21.1.8.src/cmake/*'
-            'llvm-project-21.1.8.src/compiler-rt/*'
-            'llvm-project-21.1.8.src/runtimes/*'
-            'llvm-project-21.1.8.src/llvm/*'
+            'llvm-project-23.1.6.src/cmake/*'
+            'llvm-project-23.1.6.src/compiler-rt/*'
+            'llvm-project-23.1.6.src/runtimes/*'
+            'llvm-project-23.1.6.src/llvm/*'
           )
           & 7z x $tarball "-o$sourceRoot" '-y' @sourceTrees
           if ($LASTEXITCODE -ne 0) { throw 'LLVM source tar extraction failed.' }
-          $source = Join-Path $sourceRoot 'llvm-project-21.1.8.src'
+          $source = Join-Path $sourceRoot 'llvm-project-23.1.6.src'
           if (-not (Test-Path -LiteralPath (Join-Path $source 'runtimes/CMakeLists.txt') -PathType Leaf)) {
             throw 'Unexpected LLVM source layout.'
+          }
+
+      - name: Build the x86 LLVM 23.1.6 runtimes
+        if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6'
+          $worktree = Join-Path $env:RUNNER_TEMP 'llvm-23.1.6-runtime-source'
+          $source = Join-Path $worktree 'source/llvm-project-23.1.6.src'
+          $ownedBuild = Join-Path $worktree 'build-x86'
+          $toolsetVersion = $env:VCToolsVersion
+          $vcvarsall = Join-Path $env:VCINSTALLDIR 'Auxiliary/Build/vcvarsall.bat'
+          $devShell = & cmd.exe /d /s /c "`"$vcvarsall`" x64_x86 10.0.26100.0 -vcvars_ver=$toolsetVersion && set"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to import the selected x86 developer environment.' }
+          foreach ($entry in $devShell) {
+            $split = $entry.IndexOf('=')
+            if ($split -gt 0) { Set-Item -Path "Env:$($entry.Substring(0, $split))" -Value $entry.Substring($split + 1) }
+          }
+          if ($env:VCToolsVersion -ne $toolsetVersion -or $env:VSCMD_ARG_TGT_ARCH -ne 'x86') {
+            throw 'The x86 developer environment does not match the selected toolset and architecture.'
+          }
+          $clangCl = Join-Path $root 'x64/bin/clang-cl.exe'
+          $lldLink = Join-Path $root 'x64/bin/lld-link.exe'
+          $libExe = Join-Path $env:VCToolsInstallDir 'bin/Hostx64/x86/lib.exe'
+          foreach ($prerequisite in @('cmake', 'ninja')) {
+            if (-not (Get-Command $prerequisite -ErrorAction SilentlyContinue)) { throw "Missing build prerequisite: $prerequisite" }
+          }
+          & cmake -S (Join-Path $source 'runtimes') -B $ownedBuild -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_C_COMPILER=$clangCl" "-DCMAKE_CXX_COMPILER=$clangCl" `
+            "-DCMAKE_LINKER=$lldLink" "-DCMAKE_AR=$libExe" `
+            -DCMAKE_C_COMPILER_TARGET=i686-pc-windows-msvc `
+            -DCMAKE_CXX_COMPILER_TARGET=i686-pc-windows-msvc `
+            -DLLVM_DEFAULT_TARGET_TRIPLE=i686-pc-windows-msvc `
+            -DLLVM_ENABLE_RUNTIMES=compiler-rt -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF `
+            -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_DOCS=OFF `
+            -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON -DCOMPILER_RT_BUILD_SANITIZERS=ON `
+            -DCOMPILER_RT_SANITIZERS_TO_BUILD=asan `
+            -DCOMPILER_RT_BUILD_PROFILE=ON -DCOMPILER_RT_BUILD_LIBFUZZER=OFF `
+            -DCOMPILER_RT_BUILD_PROFILE_ROCM=OFF -DCOMPILER_RT_BUILD_BUILTINS=OFF `
+            -DCOMPILER_RT_BUILD_CTX_PROFILE=OFF -DCOMPILER_RT_BUILD_XRAY=OFF -DCOMPILER_RT_BUILD_MEMPROF=OFF `
+            -DCOMPILER_RT_BUILD_ORC=OFF -DCOMPILER_RT_BUILD_GWP_ASAN=OFF -DCOMPILER_RT_INCLUDE_TESTS=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'x86 compiler-rt configuration failed.' }
+          & cmake --build $ownedBuild --target profile asan --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'x86 compiler-rt build failed.' }
+          $runtimeDirectory = Join-Path $root 'x86/lib/clang/23/lib/windows'
+          New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
+          $files = @(
+            'clang_rt.profile-i386.lib', 'clang_rt.asan_dynamic-i386.lib',
+            'clang_rt.asan_static_runtime_thunk-i386.lib', 'clang_rt.asan_dynamic-i386.dll'
+          )
+          foreach ($name in $files) {
+            $built = @(Get-ChildItem -LiteralPath $ownedBuild -Recurse -File -Filter $name)
+            if ($built.Count -ne 1) { throw "Expected exactly one built x86 runtime: $name" }
+            $destination = Join-Path $runtimeDirectory $name
+            Copy-Item -LiteralPath $built[0].FullName -Destination $destination
+          }
+
+      - name: Build the annotated LLVM 23.1.6 fuzzer runtimes
+        if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6'
+          $worktree = Join-Path $env:RUNNER_TEMP 'llvm-23.1.6-runtime-source'
+          $source = Join-Path $worktree 'source/llvm-project-23.1.6.src'
+          $toolsetVersion = $env:VCToolsVersion
+          $vcvarsall = Join-Path $env:VCINSTALLDIR 'Auxiliary/Build/vcvarsall.bat'
+          $clangCl = Join-Path $root 'x64/bin/clang-cl.exe'
+          $lldLink = Join-Path $root 'x64/bin/lld-link.exe'
+          # MSVC's documented _ANNOTATE_STL inserts real STL annotation code in static libraries that
+          # serve ASan and non-ASan consumers. The runtime remains /MT; no annotation is disabled.
+          foreach ($architecture in @('x86', 'x64')) {
+            $target = if ($architecture -eq 'x86') { 'i686-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+            $developerTarget = if ($architecture -eq 'x86') { 'x64_x86' } else { 'x64' }
+            $suffix = if ($architecture -eq 'x86') { 'i386' } else { 'x86_64' }
+            $devShell = & cmd.exe /d /s /c "`"$vcvarsall`" $developerTarget 10.0.26100.0 -vcvars_ver=$toolsetVersion && set"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to import the $architecture fuzzer developer environment." }
+            foreach ($entry in $devShell) {
+              $split = $entry.IndexOf('=')
+              if ($split -gt 0) { Set-Item -Path "Env:$($entry.Substring(0, $split))" -Value $entry.Substring($split + 1) }
+            }
+            if ($env:VCToolsVersion -ne $toolsetVersion -or $env:VSCMD_ARG_TGT_ARCH -ne $architecture) {
+              throw "The $architecture fuzzer developer environment differs from the selected toolset and architecture."
+            }
+            $libExe = Join-Path $env:VCToolsInstallDir "bin/Hostx64/$architecture/lib.exe"
+            $ownedBuild = Join-Path $worktree "build-$architecture-fuzzer"
+            & cmake -S (Join-Path $source 'runtimes') -B $ownedBuild -G Ninja `
+              -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS=/D_ANNOTATE_STL' `
+              "-DCMAKE_C_COMPILER=$clangCl" "-DCMAKE_CXX_COMPILER=$clangCl" `
+              "-DCMAKE_LINKER=$lldLink" "-DCMAKE_AR=$libExe" `
+              "-DCMAKE_C_COMPILER_TARGET=$target" "-DCMAKE_CXX_COMPILER_TARGET=$target" `
+              "-DLLVM_DEFAULT_TARGET_TRIPLE=$target" `
+              -DLLVM_ENABLE_RUNTIMES=compiler-rt -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF `
+              -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_DOCS=OFF `
+              -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON -DCOMPILER_RT_BUILD_SANITIZERS=OFF `
+              -DCOMPILER_RT_BUILD_PROFILE=OFF -DCOMPILER_RT_BUILD_LIBFUZZER=ON `
+              -DCOMPILER_RT_BUILD_PROFILE_ROCM=OFF -DCOMPILER_RT_BUILD_BUILTINS=OFF `
+              -DCOMPILER_RT_BUILD_CTX_PROFILE=OFF -DCOMPILER_RT_BUILD_XRAY=OFF -DCOMPILER_RT_BUILD_MEMPROF=OFF `
+              -DCOMPILER_RT_BUILD_ORC=OFF -DCOMPILER_RT_BUILD_GWP_ASAN=OFF -DCOMPILER_RT_INCLUDE_TESTS=OFF
+            if ($LASTEXITCODE -ne 0) { throw "The $architecture annotated fuzzer configuration failed." }
+            & cmake --build $ownedBuild --target fuzzer --parallel 4
+            if ($LASTEXITCODE -ne 0) { throw "The $architecture annotated fuzzer build failed." }
+            $name = "clang_rt.fuzzer-$suffix.lib"
+            $built = @(Get-ChildItem -LiteralPath $ownedBuild -Recurse -File -Filter $name)
+            if ($built.Count -ne 1) { throw "Expected exactly one built annotated fuzzer: $name" }
+            $runtimeDirectory = Join-Path $root "$architecture/lib/clang/23/lib/windows"
+            Copy-Item -LiteralPath $built[0].FullName -Destination (Join-Path $runtimeDirectory $name) -Force
+            $files = if ($architecture -eq 'x86') {
+              @('clang_rt.profile-i386.lib', 'clang_rt.fuzzer-i386.lib', 'clang_rt.asan_dynamic-i386.lib',
+                'clang_rt.asan_static_runtime_thunk-i386.lib', 'clang_rt.asan_dynamic-i386.dll')
+            } else { @('clang_rt.fuzzer-x86_64.lib') }
+            $records = foreach ($file in $files) {
+              $library = Join-Path $runtimeDirectory $file
+              [pscustomobject]@{ name = $file; size = (Get-Item -LiteralPath $library).Length;
+                sha256 = (Get-FileHash -LiteralPath $library -Algorithm SHA256).Hash }
+            }
+            [pscustomobject]@{
+              schema = 'unpackrat/runtime-source-provenance'
+              sourceRef = 'llvmorg-23.1.6'
+              sourceAssetSha256 = 'd3b86ab29cfb4445a6652e5c2642ccc75e04e38084dde3701d323320f35a31da'
+              hostAssetSha256 = '7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155'
+              targetTriple = $target; toolsetVersion = $env:VCToolsVersion; fuzzerAnnotations = '_ANNOTATE_STL'
+              compilerIdentity = (& $clangCl --version | Select-Object -First 1 | Out-String).Trim()
+              files = @($records)
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $root "$architecture-runtime-provenance.json") -Encoding utf8
+          }
+
+      - name: Rebuild the UBSan C++ runtime with the DLL CRT
+        if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6'
+          $worktree = Join-Path $env:RUNNER_TEMP 'llvm-23.1.6-runtime-source'
+          $sourceRoot = Join-Path $worktree 'source'
+          $source = Join-Path $sourceRoot 'llvm-project-23.1.6.src'
+          $ownedBuild = Join-Path $worktree 'build-ubsan'
+          $sourceAsset = 'llvm-project-23.1.6.src.tar.xz'
+          $sourceSha = 'd3b86ab29cfb4445a6652e5c2642ccc75e04e38084dde3701d323320f35a31da'
+          $sourceSize = 179172364
+          $runtimePatch = 'ubsan-runtime-md-crt-v1'
+          $windowsLibs = Join-Path $root 'x64/lib/clang/23/lib/windows'
+          $standalone = Join-Path $windowsLibs 'clang_rt.ubsan_standalone-x86_64.lib'
+          $cxx = Join-Path $windowsLibs 'clang_rt.ubsan_standalone_cxx-x86_64.lib'
+          foreach ($library in @($standalone, $cxx)) {
+            if (-not (Test-Path -LiteralPath $library -PathType Leaf)) { throw "Missing official UBSan library: $library" }
           }
           # The selection step already imported this runner's exact MSVC v145 toolset, so derive
           # the archiver from the persisted VCToolsInstallDir rather than re-selecting a toolset.
@@ -234,7 +365,7 @@ jobs:
           $compilerIdentity = (& $clangCl --version | Select-Object -First 1 | Out-String).Trim()
           [pscustomobject]@{
             schema = 'unpackrat/ubsan-runtime-provenance'
-            sourceRef = 'llvmorg-21.1.8'
+            sourceRef = 'llvmorg-23.1.6'
             sourceAsset = $sourceAsset
             sourceAssetSha256 = $sourceSha
             sourceAssetSize = $sourceSize
@@ -250,44 +381,42 @@ jobs:
             rebuiltCxxSize = (Get-Item -LiteralPath $cxx).Length
           } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'ubsan-runtime-provenance.json') -Encoding utf8
 
-      - name: Verify the pinned LLVM 21.1.8 toolchain
+      - name: Verify the pinned LLVM 23.1.6 toolchain
         shell: pwsh
         env:
-          LLVM_ROOT: ${{ runner.temp }}/unpackrat/tools/llvm/21.1.8
+          LLVM_ROOT: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.6
         run: |
           $root = $env:LLVM_ROOT
           $llvmCompilerHome = Join-Path $root 'x64'
-          foreach ($architecture in @('x86', 'x64')) {
-            foreach ($tool in @('clang-cl', 'lld-link', 'llvm-cov', 'llvm-profdata')) {
-              $exe = Join-Path $root "$architecture/bin/$tool.exe"
-              if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Missing LLVM tool: $exe" }
-              $version = & $exe --version | Out-String
-              if ($LASTEXITCODE -ne 0 -or $version -notmatch '21\.1\.8(?!\d)') {
-                throw "Unexpected $tool version: $version"
-              }
+          foreach ($tool in @('clang-cl', 'lld-link', 'llvm-cov', 'llvm-profdata')) {
+            $exe = Join-Path $llvmCompilerHome "bin/$tool.exe"
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Missing LLVM tool: $exe" }
+            $version = & $exe --version | Out-String
+            if ($LASTEXITCODE -ne 0 -or $version -notmatch '23\.1\.6(?!\d)') {
+              throw "Unexpected $tool version: $version"
             }
           }
           $libraries = @(
-            'x64/lib/clang/21/lib/windows/clang_rt.profile-x86_64.lib',
-            'x64/lib/clang/21/lib/windows/clang_rt.fuzzer-x86_64.lib',
-            'x64/lib/clang/21/lib/windows/clang_rt.asan_dynamic-x86_64.lib',
-            'x64/lib/clang/21/lib/windows/clang_rt.asan_static_runtime_thunk-x86_64.lib',
-            'x64/lib/clang/21/lib/windows/clang_rt.asan_dynamic-x86_64.dll',
-            'x64/lib/clang/21/lib/windows/clang_rt.ubsan_standalone-x86_64.lib',
-            'x64/lib/clang/21/lib/windows/clang_rt.ubsan_standalone_cxx-x86_64.lib',
-            'x86/lib/clang/21/lib/windows/clang_rt.profile-i386.lib',
-            'x86/lib/clang/21/lib/windows/clang_rt.fuzzer-i386.lib',
-            'x86/lib/clang/21/lib/windows/clang_rt.asan_dynamic-i386.lib',
-            'x86/lib/clang/21/lib/windows/clang_rt.asan_static_runtime_thunk-i386.lib',
-            'x86/lib/clang/21/lib/windows/clang_rt.asan_dynamic-i386.dll'
+            'x64/lib/clang/23/lib/windows/clang_rt.profile-x86_64.lib',
+            'x64/lib/clang/23/lib/windows/clang_rt.fuzzer-x86_64.lib',
+            'x64/lib/clang/23/lib/windows/clang_rt.asan_dynamic-x86_64.lib',
+            'x64/lib/clang/23/lib/windows/clang_rt.asan_static_runtime_thunk-x86_64.lib',
+            'x64/lib/clang/23/lib/windows/clang_rt.asan_dynamic-x86_64.dll',
+            'x64/lib/clang/23/lib/windows/clang_rt.ubsan_standalone-x86_64.lib',
+            'x64/lib/clang/23/lib/windows/clang_rt.ubsan_standalone_cxx-x86_64.lib',
+            'x86/lib/clang/23/lib/windows/clang_rt.profile-i386.lib',
+            'x86/lib/clang/23/lib/windows/clang_rt.fuzzer-i386.lib',
+            'x86/lib/clang/23/lib/windows/clang_rt.asan_dynamic-i386.lib',
+            'x86/lib/clang/23/lib/windows/clang_rt.asan_static_runtime_thunk-i386.lib',
+            'x86/lib/clang/23/lib/windows/clang_rt.asan_dynamic-i386.dll'
           )
           foreach ($library in $libraries) {
             if (-not (Test-Path -LiteralPath (Join-Path $root $library) -PathType Leaf)) {
               throw "Missing LLVM instrumentation library: $library"
             }
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $llvmCompilerHome 'lib/clang/21/include/stddef.h') -PathType Leaf)) {
-            throw 'Missing LLVM 21.1.8 headers.'
+          if (-not (Test-Path -LiteralPath (Join-Path $llvmCompilerHome 'lib/clang/23/include/stddef.h') -PathType Leaf)) {
+            throw 'Missing LLVM 23.1.6 headers.'
           }
           # The x64 C++ UBSan runtime is rebuilt from verified official source, so its provenance
           # and the DLL CRT it now carries must hold on every run, a restored cache hit included.
@@ -297,8 +426,8 @@ jobs:
           }
           $record = Get-Content -Raw -LiteralPath $provenance | ConvertFrom-Json
           if ($record.schema -ne 'unpackrat/ubsan-runtime-provenance') { throw 'Unexpected UBSan runtime provenance schema.' }
-          if ($record.sourceRef -ne 'llvmorg-21.1.8') { throw 'Unexpected UBSan runtime source reference.' }
-          if ($record.sourceAssetSha256 -ne '4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa142') {
+          if ($record.sourceRef -ne 'llvmorg-23.1.6') { throw 'Unexpected UBSan runtime source reference.' }
+          if ($record.sourceAssetSha256 -ne 'd3b86ab29cfb4445a6652e5c2642ccc75e04e38084dde3701d323320f35a31da') {
             throw 'Unexpected UBSan runtime source digest.'
           }
           if ($record.runtimePatch -ne 'ubsan-runtime-md-crt-v1') { throw 'Unexpected UBSan runtime patch version.' }
@@ -326,8 +455,8 @@ jobs:
               throw 'The rebuilt UBSan C++ archive does not match its provenance.'
             }
           }
-          $standalone = Join-Path $llvmCompilerHome 'lib/clang/21/lib/windows/clang_rt.ubsan_standalone-x86_64.lib'
-          $cxx = Join-Path $llvmCompilerHome 'lib/clang/21/lib/windows/clang_rt.ubsan_standalone_cxx-x86_64.lib'
+          $standalone = Join-Path $llvmCompilerHome 'lib/clang/23/lib/windows/clang_rt.ubsan_standalone-x86_64.lib'
+          $cxx = Join-Path $llvmCompilerHome 'lib/clang/23/lib/windows/clang_rt.ubsan_standalone_cxx-x86_64.lib'
           $compilerIdentity = (& (Join-Path $llvmCompilerHome 'bin/clang-cl.exe') --version | Select-Object -First 1 | Out-String).Trim()
           Assert-UbsanRuntimeProvenance -Record $record -CurrentToolsetVersion $env:VCToolsVersion `
             -CurrentCompilerIdentity $compilerIdentity `
@@ -426,7 +555,7 @@ jobs:
           Set-Content -LiteralPath $probeSource -Value $probeLines -Encoding utf8
           $probeObject = Join-Path $probeDirectory 'probe.obj'
           $probeExe = Join-Path $probeDirectory 'probe.exe'
-          # The paired LLVM 21 driver resolves the linker through the -B directory, and the same
+          # The paired LLVM 23 driver resolves the linker through the -B directory, and the same
           # absolute paired bin keeps the compiler, headers and lld-link family consistent.
           $pairedBin = Join-Path $llvmCompilerHome 'bin'
           $pairedClang = Join-Path $pairedBin 'clang-cl.exe'
@@ -453,17 +582,201 @@ jobs:
           # step failure.
           $global:LASTEXITCODE = 0
 
-      - name: Save the pinned LLVM 21.1.8 toolchain
+          # Cached source-built runtimes retain their source, compiler, selected MSVC and byte identities.
+          function Assert-RuntimeSourceProvenance {
+            param([Parameter(Mandatory)] $Record, [Parameter(Mandatory)][string] $RuntimeDirectory,
+                  [Parameter(Mandatory)][string] $ToolsetVersion, [Parameter(Mandatory)][string] $CompilerIdentity,
+                  [Parameter(Mandatory)][string[]] $ExpectedFiles, [Parameter(Mandatory)][string] $TargetTriple)
+            $identity = @{
+              schema = 'unpackrat/runtime-source-provenance'; sourceRef = 'llvmorg-23.1.6'
+              sourceAssetSha256 = 'd3b86ab29cfb4445a6652e5c2642ccc75e04e38084dde3701d323320f35a31da'
+              hostAssetSha256 = '7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155'
+              targetTriple = $TargetTriple; toolsetVersion = $ToolsetVersion; compilerIdentity = $CompilerIdentity
+              fuzzerAnnotations = '_ANNOTATE_STL'
+            }
+            foreach ($field in $identity.GetEnumerator()) {
+              if ($Record.($field.Key) -ne $field.Value) { throw "The x86 runtime provenance differs at $($field.Key)." }
+            }
+            $expected = $ExpectedFiles
+            if ((@($Record.files.name | Sort-Object) -join '|') -ne (@($expected | Sort-Object) -join '|')) {
+              throw 'The source-built runtime inventory differs from the required files.'
+            }
+            foreach ($name in $expected) {
+              $file = Join-Path $RuntimeDirectory $name
+              if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing x86 runtime: $name" }
+              $recorded = $Record.files | Where-Object { $_.name -eq $name }
+              if ((Get-Item -LiteralPath $file).Length -ne $recorded.size -or
+                  (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $recorded.sha256) {
+                throw "The x86 runtime bytes differ from their provenance: $name"
+              }
+            }
+          }
+          function Assert-RuntimeMachine {
+            param([Parameter(Mandatory)][AllowEmptyString()][string] $Headers,
+                  [Parameter(Mandatory)][ValidateSet('14C', '8664')][string] $ExpectedMachine)
+            $machines = @([regex]::Matches($Headers, '(?im)^\s*(?:([0-9A-F]+)\s+machine\b|machine\s*:\s*([0-9A-F]+)\b)') |
+              ForEach-Object { ($_.Groups[1].Value + $_.Groups[2].Value).ToUpperInvariant() })
+            if ($machines.Count -eq 0 -or @($machines | Where-Object { $_ -ne $ExpectedMachine }).Count -ne 0) {
+              throw "The runtime must contain only $ExpectedMachine COFF machine records."
+            }
+          }
+          function Assert-X86RuntimeDiagnostic {
+            param([Parameter(Mandatory)][ValidateSet('asan', 'fuzzer')][string] $Kind,
+                  [Parameter(Mandatory)][int] $ExitCode, [Parameter(Mandatory)][AllowEmptyString()][string] $Output)
+            if ($Kind -eq 'asan') {
+              if ($ExitCode -eq 0 -or $Output -notmatch 'AddressSanitizer: heap-buffer-overflow') {
+                throw 'The x86 heap overflow probe did not produce the expected ASan diagnostic.'
+              }
+            } elseif ($ExitCode -ne 0 -or $Output -notmatch 'Done \d+ runs') {
+              throw 'The x86 libFuzzer probe did not complete its bounded replay.'
+            }
+          }
+          $x86Runtime = Join-Path $root 'x86/lib/clang/23/lib/windows'
+          $x86Record = Get-Content -Raw -LiteralPath (Join-Path $root 'x86-runtime-provenance.json') | ConvertFrom-Json
+          $x86Files = @('clang_rt.profile-i386.lib', 'clang_rt.fuzzer-i386.lib', 'clang_rt.asan_dynamic-i386.lib',
+                        'clang_rt.asan_static_runtime_thunk-i386.lib', 'clang_rt.asan_dynamic-i386.dll')
+          $currentCompilerIdentity = (& $pairedClang --version | Select-Object -First 1 | Out-String).Trim()
+          Assert-RuntimeSourceProvenance -Record $x86Record -RuntimeDirectory $x86Runtime `
+            -ToolsetVersion $env:VCToolsVersion -CompilerIdentity $currentCompilerIdentity `
+            -ExpectedFiles $x86Files -TargetTriple 'i686-pc-windows-msvc'
+          $x64Runtime = Join-Path $root 'x64/lib/clang/23/lib/windows'
+          $x64Record = Get-Content -Raw -LiteralPath (Join-Path $root 'x64-runtime-provenance.json') | ConvertFrom-Json
+          Assert-RuntimeSourceProvenance -Record $x64Record -RuntimeDirectory $x64Runtime `
+            -ToolsetVersion $env:VCToolsVersion -CompilerIdentity $currentCompilerIdentity `
+            -ExpectedFiles @('clang_rt.fuzzer-x86_64.lib') -TargetTriple 'x86_64-pc-windows-msvc'
+          foreach ($file in $x86Record.files) {
+            $headers = & $dumpbin /nologo /headers (Join-Path $x86Runtime $file.name) | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "Unable to inspect x86 runtime machine: $($file.name)" }
+            Assert-RuntimeMachine -Headers $headers -ExpectedMachine '14C'
+          }
+          $headers = & $dumpbin /nologo /headers (Join-Path $x64Runtime 'clang_rt.fuzzer-x86_64.lib') | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect the x64 fuzzer runtime machine.' }
+          Assert-RuntimeMachine -Headers $headers -ExpectedMachine '8664'
+          # A fresh x86 developer environment is needed even with an explicit clang target: an inherited
+          # LIB from vcvarsall x64 takes precedence over the driver's target-specific SDK/CRT discovery.
+          $selectedToolset = $env:VCToolsVersion
+          $vcvarsall = Join-Path $env:VCINSTALLDIR 'Auxiliary/Build/vcvarsall.bat'
+          $devShell = & cmd.exe /d /s /c "`"$vcvarsall`" x64_x86 10.0.26100.0 -vcvars_ver=$selectedToolset && set"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to import the x86 probe developer environment.' }
+          foreach ($entry in $devShell) {
+            $split = $entry.IndexOf('=')
+            if ($split -gt 0) { Set-Item -Path "Env:$($entry.Substring(0, $split))" -Value $entry.Substring($split + 1) }
+          }
+          if ($env:VCToolsVersion -ne $selectedToolset -or $env:VSCMD_ARG_TGT_ARCH -ne 'x86') {
+            throw 'The x86 probe developer environment differs from the selected toolset and architecture.'
+          }
+          $runtimeProbeRoot = Join-Path $env:RUNNER_TEMP 'llvm-x86-runtime-probes'
+          New-Item -ItemType Directory -Force -Path $runtimeProbeRoot | Out-Null
+          $compileArguments = @('/nologo', '/WX', '/EHsc', '/clang:-std=c++23', '--target=i686-pc-windows-msvc', '/c')
+          $profileSource = Join-Path $runtimeProbeRoot 'profile.cpp'
+          $profileExe = Join-Path $runtimeProbeRoot 'profile.exe'
+          $profileObject = Join-Path $runtimeProbeRoot 'profile.obj'
+          @(
+            '#include <vector>',
+            'int main(int argc, char**) {',
+            '  std::vector<int> values(2, argc);',
+            '  if (argc > 1) return 0;',
+            '  return values[0] - 1;',
+            '}'
+          ) | Set-Content -LiteralPath $profileSource -Encoding utf8
+          & $pairedClang @compileArguments /MTd '/clang:-fprofile-instr-generate' '/clang:-fcoverage-mapping' `
+            $profileSource "/Fo:$profileObject"
+          if ($LASTEXITCODE -ne 0) { throw 'The x86 /MTd coverage probe failed to compile.' }
+          & $pairedLld /nologo /WX "/out:$profileExe" $profileObject `
+            /NODEFAULTLIB:clang_rt.profile.lib (Join-Path $x86Runtime 'clang_rt.profile-i386.lib')
+          if ($LASTEXITCODE -ne 0) { throw 'The x86 /MTd coverage probe failed to link.' }
+          $env:LLVM_PROFILE_FILE = Join-Path $runtimeProbeRoot 'profile.profraw'
+          & $profileExe
+          if ($LASTEXITCODE -ne 0) { throw 'The x86 coverage probe failed to execute.' }
+          $profileData = Join-Path $runtimeProbeRoot 'profile.profdata'
+          & (Join-Path $pairedBin 'llvm-profdata.exe') merge -sparse $env:LLVM_PROFILE_FILE -o $profileData
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM23 could not merge the x86 raw profile.' }
+          $coverage = & (Join-Path $pairedBin 'llvm-cov.exe') export $profileExe "-instr-profile=$profileData" | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM23 could not read the x86 coverage map.' }
+          $totals = ($coverage | ConvertFrom-Json).data[0].totals
+          if ($totals.lines.covered -le 0 -or $totals.functions.covered -le 0) {
+            throw 'The x86 profile contains no executed source lines or functions.'
+          }
+          Copy-Item -LiteralPath (Join-Path $x86Runtime 'clang_rt.asan_dynamic-i386.dll') -Destination $runtimeProbeRoot -Force
+          $asanSource = Join-Path $runtimeProbeRoot 'asan.cpp'
+          $asanExe = Join-Path $runtimeProbeRoot 'asan.exe'
+          $asanObject = Join-Path $runtimeProbeRoot 'asan.obj'
+          @(
+            '#include <vector>',
+            'int main(int argc, char**) {',
+            '  std::vector<int> values(4, argc);',
+            '  volatile int value = values.data()[argc + 3];',
+            '  return value;',
+            '}'
+          ) | Set-Content -LiteralPath $asanSource -Encoding utf8
+          & $pairedClang @compileArguments /MT '/clang:-fsanitize=address' $asanSource "/Fo:$asanObject"
+          if ($LASTEXITCODE -ne 0) { throw 'The x86 ASan probe failed to compile.' }
+          & $pairedLld /nologo /WX /DEBUG /INCREMENTAL:NO "/out:$asanExe" $asanObject "/LIBPATH:$x86Runtime" `
+            (Join-Path $x86Runtime 'clang_rt.asan_dynamic-i386.lib') `
+            "/WHOLEARCHIVE:$(Join-Path $x86Runtime 'clang_rt.asan_static_runtime_thunk-i386.lib')"
+          if ($LASTEXITCODE -ne 0) { throw 'The x86 ASan probe failed to link.' }
+          $env:ASAN_OPTIONS = 'halt_on_error=1:alloc_dealloc_mismatch=1'
+          $asanOutput = & $asanExe 2>&1 | Out-String
+          Assert-X86RuntimeDiagnostic -Kind asan -ExitCode $LASTEXITCODE -Output $asanOutput
+          $fuzzerSource = Join-Path $runtimeProbeRoot 'fuzzer.cpp'
+          $fuzzerExe = Join-Path $runtimeProbeRoot 'fuzzer.exe'
+          $fuzzerObject = Join-Path $runtimeProbeRoot 'fuzzer.obj'
+          @(
+            '#include <cstddef>',
+            '#include <cstdint>',
+            '#include <vector>',
+            'extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t*, std::size_t size) {',
+            '  std::vector<int> values(8, static_cast<int>(size));',
+            '  volatile int observed = values[0];',
+            '  return observed < 0;',
+            '}'
+          ) | Set-Content -LiteralPath $fuzzerSource -Encoding utf8
+          & $pairedClang @compileArguments /MT '/clang:-fsanitize=fuzzer,address' $fuzzerSource "/Fo:$fuzzerObject"
+          if ($LASTEXITCODE -ne 0) { throw 'The x86 /MT libFuzzer probe failed to compile.' }
+          & $pairedLld /nologo /WX /DEBUG /INCREMENTAL:NO "/out:$fuzzerExe" $fuzzerObject "/LIBPATH:$x86Runtime" `
+            (Join-Path $x86Runtime 'clang_rt.asan_dynamic-i386.lib') `
+            "/WHOLEARCHIVE:$(Join-Path $x86Runtime 'clang_rt.fuzzer-i386.lib')" `
+            "/WHOLEARCHIVE:$(Join-Path $x86Runtime 'clang_rt.asan_static_runtime_thunk-i386.lib')"
+          if ($LASTEXITCODE -ne 0) { throw 'The x86 /MT libFuzzer probe failed to link.' }
+          $fuzzerOutput = & $fuzzerExe '-runs=1' 2>&1 | Out-String
+          Assert-X86RuntimeDiagnostic -Kind fuzzer -ExitCode $LASTEXITCODE -Output $fuzzerOutput
+          $global:LASTEXITCODE = 0
+
+          $devShell = & cmd.exe /d /s /c "`"$vcvarsall`" x64 10.0.26100.0 -vcvars_ver=$selectedToolset && set"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to import the x64 fuzzer probe developer environment.' }
+          foreach ($entry in $devShell) {
+            $split = $entry.IndexOf('=')
+            if ($split -gt 0) { Set-Item -Path "Env:$($entry.Substring(0, $split))" -Value $entry.Substring($split + 1) }
+          }
+          if ($env:VCToolsVersion -ne $selectedToolset -or $env:VSCMD_ARG_TGT_ARCH -ne 'x64') {
+            throw 'The x64 probe developer environment differs from the selected toolset and architecture.'
+          }
+          $fuzzerExe = Join-Path $runtimeProbeRoot 'fuzzer-x64.exe'
+          $fuzzerObject = Join-Path $runtimeProbeRoot 'fuzzer-x64.obj'
+          Copy-Item -LiteralPath (Join-Path $x64Runtime 'clang_rt.asan_dynamic-x86_64.dll') -Destination $runtimeProbeRoot -Force
+          & $pairedClang /nologo /WX /EHsc '/clang:-std=c++23' '--target=x86_64-pc-windows-msvc' /c /MT `
+            '/clang:-fsanitize=fuzzer,address' $fuzzerSource "/Fo:$fuzzerObject"
+          if ($LASTEXITCODE -ne 0) { throw 'The x64 /MT libFuzzer probe failed to compile.' }
+          & $pairedLld /nologo /WX /DEBUG /INCREMENTAL:NO "/out:$fuzzerExe" $fuzzerObject "/LIBPATH:$x64Runtime" `
+            (Join-Path $x64Runtime 'clang_rt.asan_dynamic-x86_64.lib') `
+            "/WHOLEARCHIVE:$(Join-Path $x64Runtime 'clang_rt.fuzzer-x86_64.lib')" `
+            "/WHOLEARCHIVE:$(Join-Path $x64Runtime 'clang_rt.asan_static_runtime_thunk-x86_64.lib')"
+          if ($LASTEXITCODE -ne 0) { throw 'The x64 /MT libFuzzer probe failed to link.' }
+          $fuzzerOutput = & $fuzzerExe '-runs=1' 2>&1 | Out-String
+          Assert-X86RuntimeDiagnostic -Kind fuzzer -ExitCode $LASTEXITCODE -Output $fuzzerOutput
+          $global:LASTEXITCODE = 0
+
+      - name: Save the pinned LLVM 23.1.6 toolchain
         if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/unpackrat/tools/llvm/21.1.8
-          key: llvm-instrumentation-21.1.8-lld-link-v1-0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181-7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113-ubsan-runtime-md-crt-v1-4633a23617fa31a3-v145-${{ steps.ubsan-build-environment.outputs.cache_environment }}
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.6
+          key: llvm-instrumentation-23.1.6-runtime-supplement-v3-7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155-d3b86ab29cfb4445a6652e5c2642ccc75e04e38084dde3701d323320f35a31da-ubsan-runtime-md-crt-v1-v145-${{ steps.ubsan-build-environment.outputs.cache_environment }}
 
-      - name: Upload the LLVM 21.1.8 instrumentation toolchain
+      - name: Upload the LLVM 23.1.6 instrumentation toolchain
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: llvm-instrumentation-21.1.8
-          path: ${{ runner.temp }}/unpackrat/tools/llvm/21.1.8
+          name: llvm-instrumentation-23.1.6
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.6
           if-no-files-found: error
           retention-days: 7

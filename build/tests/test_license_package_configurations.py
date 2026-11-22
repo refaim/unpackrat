@@ -15,7 +15,7 @@ import re
 import unittest
 from pathlib import Path
 
-from native_dependency_expectations import derive_native_findings, expectation_path_for_raw_record
+from native_dependency_expectations import derive_native_findings, expectation_for_raw_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / ".ort" / "package-configurations"
@@ -327,36 +327,36 @@ class PackageConfigurationTests(unittest.TestCase):
             ],
             "mbedtls": [
                 {
-                    "path": "mbedtls-4.1.1/LICENSE",
+                    "path": "mbedtls-4.1.2/LICENSE",
                     "start_lines": 2,
                     "line_count": 1,
                     "detected_license": "GPL-2.0-or-later",
                     "concluded_license": "Apache-2.0",
                 },
                 {
-                    "path": "mbedtls-4.1.1/LICENSE",
+                    "path": "mbedtls-4.1.2/LICENSE",
                     "start_lines": 215,
                     "line_count": 339,
                     "detected_license": "GPL-2.0-only",
                     "concluded_license": "Apache-2.0",
                 },
                 {
-                    "path": "mbedtls-4.1.1/tf-psa-crypto/LICENSE",
+                    "path": "mbedtls-4.1.2/tf-psa-crypto/LICENSE",
                     "start_lines": 2,
                     "line_count": 1,
                     "detected_license": "GPL-2.0-or-later",
                     "concluded_license": "Apache-2.0",
                 },
                 {
-                    "path": "mbedtls-4.1.1/tf-psa-crypto/LICENSE",
+                    "path": "mbedtls-4.1.2/tf-psa-crypto/LICENSE",
                     "start_lines": 214,
                     "line_count": 339,
                     "detected_license": "GPL-2.0-only",
                     "concluded_license": "Apache-2.0",
                 },
                 {
-                    "path": "mbedtls-4.1.1/tf-psa-crypto/include/psa/crypto_config.h",
-                    "start_lines": 1625,
+                    "path": "mbedtls-4.1.2/tf-psa-crypto/include/psa/crypto_config.h",
+                    "start_lines": 1636,
                     "line_count": 1,
                     "detected_license": "GPL-2.0-or-later",
                     "concluded_license": "NONE",
@@ -403,12 +403,12 @@ class PackageConfigurationTests(unittest.TestCase):
                 ("zlib", "zlib-ng-2.3.3/FAQ.zlib", 172, "GPL-1.0-or-later"),
                 (
                     "mbedtls",
-                    "mbedtls-4.1.1/tf-psa-crypto/include/psa/crypto_config.h",
-                    1625,
+                    "mbedtls-4.1.2/tf-psa-crypto/include/psa/crypto_config.h",
+                    1636,
                     "GPL-2.0-or-later",
                 ),
-                ("drlibs", "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_mp3.h", 2, "LicenseRef-scancode-unknown-license-reference"),
-                ("drlibs", "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_wav.h", 2, "LicenseRef-scancode-unknown-license-reference"),
+                ("drlibs", "dr_libs-e381981afa52800b9a3864df548353ff67252fbc-dr_mp3.h", 2, "LicenseRef-scancode-unknown-license-reference"),
+                ("drlibs", "dr_libs-e381981afa52800b9a3864df548353ff67252fbc-dr_wav.h", 2, "LicenseRef-scancode-unknown-license-reference"),
                 ("bcdec", "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h", 48, "LicenseRef-scancode-unknown-license-reference"),
                 (
                     "zlib",
@@ -427,9 +427,9 @@ class PackageConfigurationTests(unittest.TestCase):
             "nlohmann-json": ["json-3.12.0/tests/**"],
             "xxhash": ["xxHash-0.8.4/cli/**", "xxHash-0.8.4/tests/**"],
             "mbedtls": [
-                "mbedtls-4.1.1/tf-psa-crypto/drivers/everest/**",
-                "mbedtls-4.1.1/tf-psa-crypto/drivers/p256-m/**",
-                "mbedtls-4.1.1/tf-psa-crypto/drivers/pqcp/**",
+                "mbedtls-4.1.2/tf-psa-crypto/drivers/everest/**",
+                "mbedtls-4.1.2/tf-psa-crypto/drivers/p256-m/**",
+                "mbedtls-4.1.2/tf-psa-crypto/drivers/pqcp/**",
             ],
             "libspng": ["libspng-0.7.4/tests/**"],
             "brotli": ["brotli-1.2.1/CONTRIBUTING.md"],
@@ -542,7 +542,7 @@ class PackageConfigurationTests(unittest.TestCase):
              "detected_license": "GPL-2.0-only"},
             {"path": "brotli-1.2.1/c/enc/new_gpl.c", "start_lines": 1,
              "line_count": 1, "detected_license": "GPL-3.0-only"},
-            {"path": "mbedtls-4.1.1/library/new_gpl.c", "start_lines": 1,
+            {"path": "mbedtls-4.1.2/library/new_gpl.c", "start_lines": 1,
              "line_count": 1, "detected_license": "GPL-2.0-only"},
             {"path": "zstd-1.5.7/COPYING", "start_lines": 42, "line_count": 1,
              "detected_license": "GPL-2.0-only"},
@@ -673,12 +673,13 @@ class PackageConfigurationTests(unittest.TestCase):
         self.assertTrue(evidence)
         for record in evidence:
             with self.subTest(package=record["package"], rule=record["rule"]):
+                expected = expectation_for_raw_record(record, updates)
                 config = find_config(self.configs, record["package"])
-                start, end = record["start_lines"], record["end_lines"]
+                start, end = expected["start_lines"], expected["end_lines"]
                 matching = [
                     c
                     for c in config.get("license_finding_curations", [])
-                    if c["path"] == expectation_path_for_raw_record(record, updates)
+                    if c["path"] == expected["path"]
                     and c["start_lines"] == start
                     and c["line_count"] == end - start + 1
                     and c["detected_license"] == record["raw_expression"]

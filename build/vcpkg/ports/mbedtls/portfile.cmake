@@ -5,7 +5,7 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_download_distfile(ARCHIVE
     URLS "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${VERSION}/mbedtls-${VERSION}.tar.bz2"
     FILENAME "mbedtls-${VERSION}.tar.bz2"
-    SHA512 1b82100511e9da298480a17e1093546eb26fe10fe6d391c8310e034fc57cd066d5837ab487f8ee06a669f6b29a20522901b74eb83b18ac6410aeb12d57ab2d12
+    SHA512 c9bd7086ab3cbc3948ceb4231772262dcf1322409069d1c0e0a8b75aaba0661dd513b3cbe497b2ca3bb6388dab2432ea600f4d78a6b5431ac91c94e12b2ca6e2
 )
 vcpkg_extract_source_archive(SOURCE_PATH
     ARCHIVE "${ARCHIVE}"

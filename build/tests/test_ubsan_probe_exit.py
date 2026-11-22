@@ -6,8 +6,9 @@
 residual ``$LASTEXITCODE`` 1 is still standing when GitHub's appended ``pwsh`` trailer runs
 ``exit $LASTEXITCODE``, so the step fails even though the diagnosis was validated.
 
-These tests run the real Verify-step tail - the overflow invocation through to the end of the
-step - under an emulated GitHub trailer.  The child exit code comes from a harmless
+These tests run the real Verify-step UBSan segment - the overflow invocation through its success
+reset - under an emulated GitHub trailer. Later native probes have independent behavioral tests.
+The child exit code comes from a harmless
 ``cmd.exe /d /c exit N`` (no file-system work, no compiler), so the native ``$LASTEXITCODE`` the
 tail observes is genuine and the constant diagnosis is written after it, leaving that exit code
 standing.  The accepted nonzero exit must become a step success, and every exit the diagnosis
@@ -36,7 +37,7 @@ from test_ubsan_runtime_provisioning import (  # noqa: E402
 )
 
 
-# The exact first line of the Verify-step tail: the probe invocation the fix must follow.
+# The exact first line of the UBSan segment: the probe invocation the fix must follow.
 OVERFLOW_INVOCATION = "$overflow = & $probeExe overflow"
 # The trailer GitHub appends to every ``pwsh`` step, which turns the residual exit code into the
 # step's own exit status.
@@ -45,12 +46,15 @@ VALID_DIAGNOSIS = "runtime error: signed integer overflow: 2147483647 + 1 cannot
 
 
 def verify_tail(workflow: str) -> str:
-    """Return the real Verify-step tail from the probe invocation to the end of the step."""
+    """Return the real UBSan segment through its first explicit successful-exit reset."""
 
     lines = step_block(workflow, VERIFY_STEP).splitlines()
     for index, line in enumerate(lines):
         if OVERFLOW_INVOCATION in line:
-            return "\n".join(lines[index:])
+            for end in range(index + 1, len(lines)):
+                if lines[end].strip() == "$global:LASTEXITCODE = 0":
+                    return "\n".join(lines[index:end + 1])
+            raise AssertionError(f"the UBSan success reset is missing from: {VERIFY_STEP}")
     raise AssertionError(f"the overflow probe invocation is missing from: {VERIFY_STEP}")
 
 
@@ -128,14 +132,37 @@ class TailExtractionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.workflow = PREP_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_the_tail_starts_at_the_overflow_invocation_and_ends_the_step(self) -> None:
+    def test_the_tail_starts_at_the_overflow_invocation_and_ends_at_its_reset(self) -> None:
         tail = verify_tail(self.workflow)
         self.assertTrue(tail.lstrip().startswith(OVERFLOW_INVOCATION))
         self.assertIn(f"{DIAGNOSIS_FUNCTION} -ExitCode $LASTEXITCODE -Output $overflow", tail)
-        # The tail stops at the end of the Verify step and never reaches a later step.
+        self.assertTrue(tail.rstrip().endswith("$global:LASTEXITCODE = 0"))
+        # The segment never reaches another native probe or a later workflow step.
         self.assertNotIn("- name: ", tail)
 
     def test_a_workflow_without_the_overflow_invocation_fails_loudly(self) -> None:
         stub = "jobs:\n  x:\n    steps:\n      - name: " + VERIFY_STEP + "\n        run: echo hi\n"
         with self.assertRaises(AssertionError):
+            verify_tail(stub)
+
+    def test_the_ubsan_segment_stops_before_later_native_probes(self) -> None:
+        stub = (
+            "      - name: " + VERIFY_STEP + "\n        run: |\n"
+            "          " + OVERFLOW_INVOCATION + "\n"
+            "          Assert-UbsanRuntimeDiagnosis -ExitCode $LASTEXITCODE -Output $overflow\n"
+            "          $global:LASTEXITCODE = 0\n"
+            "          throw 'another native probe must be tested independently'\n"
+            "          $global:LASTEXITCODE = 0\n"
+        )
+        tail = verify_tail(stub)
+        self.assertEqual(tail.count("$global:LASTEXITCODE = 0"), 1)
+        self.assertNotIn("another native probe", tail)
+
+    def test_a_workflow_without_the_ubsan_success_reset_fails_loudly(self) -> None:
+        stub = (
+            "      - name: " + VERIFY_STEP + "\n        run: |\n"
+            "          " + OVERFLOW_INVOCATION + "\n"
+            "          Assert-UbsanRuntimeDiagnosis -ExitCode $LASTEXITCODE -Output $overflow\n"
+        )
+        with self.assertRaisesRegex(AssertionError, "success reset"):
             verify_tail(stub)

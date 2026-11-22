@@ -60,7 +60,14 @@ class RenovateConfigurationTests(unittest.TestCase):
         return [match.groupdict() for pattern in manager["matchStrings"] for match in expression(pattern).finditer(contents)]
 
     def test_dashboard_requires_approval_and_has_no_automatic_upgrade_path(self) -> None:
-        self.assertTrue(self.configuration["dependencyDashboard"])
+        dashboard = self.configuration["dependencyDashboard"]
+        self.assertIsInstance(dashboard, dict)
+        self.assertTrue(dashboard["enabled"])
+        self.assertEqual(dashboard["title"], "Dependency updates")
+        self.assertIn("Upstream library updates for manual review.", dashboard["header"])
+        self.assertIn("draft PR", dashboard["header"])
+        self.assertNotIn("dependencyDashboardTitle", self.configuration)
+        self.assertNotIn("dependencyDashboardHeader", self.configuration)
         self.assertTrue(self.configuration["dependencyDashboardApproval"])
         self.assertFalse(self.configuration["automerge"])
         self.assertTrue(self.configuration["draftPR"])

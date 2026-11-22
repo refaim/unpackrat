@@ -10,7 +10,7 @@
 #   * VCPKG_PLATFORM_TOOLSET=v145, VCPKG_LOAD_VCVARS_ENV=ON and VCPKG_CRT_LINKAGE=static
 #     are already set, and VCPKG_TARGET_ARCHITECTURE is populated from the triplet.
 #   * This file is exported as VCPKG_CHAINLOAD_TOOLCHAIN_FILE.
-#   * CI has already verified the pinned LLVM 21.1.8 x64 clang-cl/lld-link pair exists.
+#   * CI has already verified the pinned LLVM 23.1.6 x64 clang-cl/lld-link pair exists.
 #
 # This file only arranges CMake configuration metadata: it points the configure at the
 # pinned clang-cl/lld-link, maps the vcpkg architecture onto the LLVM triple, adds the
@@ -65,7 +65,7 @@ set(CMAKE_CXX_COMPILER_TARGET "${_unpackrat_llvm_triple}")
 # <root>/<arch>/lib/clang/<major>/lib/windows. The LLVM resource major is confirmed by
 # the existing CI preflight. Require the directory so a mismatched pin fails clearly.
 set(_unpackrat_llvm_runtime_dir
-    "${_unpackrat_llvm_root}/${VCPKG_TARGET_ARCHITECTURE}/lib/clang/21/lib/windows")
+    "${_unpackrat_llvm_root}/${VCPKG_TARGET_ARCHITECTURE}/lib/clang/23/lib/windows")
 if(NOT IS_DIRECTORY "${_unpackrat_llvm_runtime_dir}")
     message(FATAL_ERROR
         "The pinned LLVM root has no architecture-matched runtime library directory at "

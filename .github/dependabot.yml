@@ -20,6 +20,28 @@
         "time": "09:00",
         "timezone": "Asia/Vladivostok"
       }
+    },
+    {
+      "package-ecosystem": "uv",
+      "directory": "/build",
+      "open-pull-requests-limit": 1,
+      "schedule": {
+        "interval": "weekly",
+        "day": "monday",
+        "time": "09:00",
+        "timezone": "Asia/Vladivostok"
+      }
+    },
+    {
+      "package-ecosystem": "uv",
+      "directory": "/src/tests/framework/tools",
+      "open-pull-requests-limit": 1,
+      "schedule": {
+        "interval": "weekly",
+        "day": "monday",
+        "time": "09:00",
+        "timezone": "Asia/Vladivostok"
+      }
     }
   ]
 }

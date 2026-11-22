@@ -1,6 +1,6 @@
 """The official x64 UBSan C++ runtime is rebuilt from verified source with the DLL CRT.
 
-The matched LLVM 21.1.8 toolchain ships ``clang_rt.ubsan_standalone_cxx-x86_64.lib`` built with
+The matched LLVM 23.1.6 toolchain ships ``clang_rt.ubsan_standalone_cxx-x86_64.lib`` built with
 the static CRT, which cannot link into our ``/MD`` UBSan executables. compiler-rt's top-level
 ``CMakeLists.txt`` forces ``CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded`` for the whole runtime while
 ``sanitizer_common`` overrides it back to the DLL CRT only for its own subdirectory. The
@@ -26,24 +26,23 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[2]
 PREP_WORKFLOW = REPOSITORY / ".github" / "workflows" / "ci-instrumentation.yml"
 
-SOURCE_ASSET = "llvm-project-21.1.8.src.tar.xz"
-SOURCE_SHA = "4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa142"
-SOURCE_SIZE = "158958576"
+SOURCE_ASSET = "llvm-project-23.1.6.src.tar.xz"
+SOURCE_SHA = "d3b86ab29cfb4445a6652e5c2642ccc75e04e38084dde3701d323320f35a31da"
+SOURCE_SIZE = "179172364"
 RUNTIME_PATCH = "ubsan-runtime-md-crt-v1"
 PATCH_FROM = "set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)"
 PATCH_TO = "set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)"
-X86_SHA = "0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181"
-X64_SHA = "7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113"
+X64_SHA = "7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155"
 CACHE_KEY = (
-    "llvm-instrumentation-21.1.8-lld-link-v1-"
-    f"{X86_SHA}-{X64_SHA}-{RUNTIME_PATCH}-{SOURCE_SHA[:16]}-"
+    "llvm-instrumentation-23.1.6-runtime-supplement-v3-"
+    f"{X64_SHA}-{SOURCE_SHA}-{RUNTIME_PATCH}-"
     "v145-${{ steps.ubsan-build-environment.outputs.cache_environment }}"
 )
 
 SELECT_STEP = "Select the UBSan runtime build environment"
 SELECT_ID = "ubsan-build-environment"
 REBUILD_STEP = "Rebuild the UBSan C++ runtime with the DLL CRT"
-VERIFY_STEP = "Verify the pinned LLVM 21.1.8 toolchain"
+VERIFY_STEP = "Verify the pinned LLVM 23.1.6 toolchain"
 PROVENANCE_NAME = "ubsan-runtime-provenance.json"
 PATCH_FUNCTION = "Set-UbsanRuntimeSourcePatch"
 DIRECTIVE_FUNCTION = "Assert-UbsanRuntimeCrtDirectives"
@@ -289,23 +288,23 @@ class ToolsetEnvironmentGuardTests(unittest.TestCase):
 
     def test_matching_toolset_is_accepted_even_with_a_trailing_separator(self) -> None:
         result = self._check(
-            "14.51.36231", r"C:\VS\VC\Tools\MSVC\14.51.36231",
-            "14.51.36231", r"C:\VS\VC\Tools\MSVC\14.51.36231" + "\\",
+            "14.52.36231", r"C:\VS\VC\Tools\MSVC\14.52.36231",
+            "14.52.36231", r"C:\VS\VC\Tools\MSVC\14.52.36231" + "\\",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_wrong_servicing_version_is_rejected(self) -> None:
         result = self._check(
-            "14.51.36231", r"C:\VS\VC\Tools\MSVC\14.51.36231",
-            "14.51.36230", r"C:\VS\VC\Tools\MSVC\14.51.36231",
+            "14.52.36231", r"C:\VS\VC\Tools\MSVC\14.52.36231",
+            "14.52.36230", r"C:\VS\VC\Tools\MSVC\14.52.36231",
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("VCToolsVersion", result.stderr)
 
     def test_a_wrong_toolset_root_is_rejected(self) -> None:
         result = self._check(
-            "14.51.36231", r"C:\VS\VC\Tools\MSVC\14.51.36231",
-            "14.51.36231", r"C:\VS\VC\Tools\MSVC\14.51.36231\backup",
+            "14.52.36231", r"C:\VS\VC\Tools\MSVC\14.52.36231",
+            "14.52.36231", r"C:\VS\VC\Tools\MSVC\14.52.36231\backup",
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("VCToolsInstallDir", result.stderr)
@@ -314,8 +313,8 @@ class ToolsetEnvironmentGuardTests(unittest.TestCase):
         # A descending substring family selection can land on this sibling, which a plain prefix
         # compare would wrongly accept, so the guard compares normalized paths exactly.
         result = self._check(
-            "14.51.36231", r"C:\VS\VC\Tools\MSVC\14.51.36231",
-            "14.51.36231", r"C:\VS\VC\Tools\MSVC\14.51.362311",
+            "14.52.36231", r"C:\VS\VC\Tools\MSVC\14.52.36231",
+            "14.52.36231", r"C:\VS\VC\Tools\MSVC\14.52.362311",
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("VCToolsInstallDir", result.stderr)
@@ -324,8 +323,8 @@ class ToolsetEnvironmentGuardTests(unittest.TestCase):
 class ProvenanceGuardTests(unittest.TestCase):
     """Cached provenance must describe the toolset and compiler the current runner selected."""
 
-    CURRENT_VERSION = "14.51.36231"
-    CURRENT_IDENTITY = "clang version 21.1.8"
+    CURRENT_VERSION = "14.52.36231"
+    CURRENT_IDENTITY = "clang version 23.1.6"
     STANDALONE_HASH = "AA"
     CXX_HASH = "BB"
 
@@ -357,7 +356,7 @@ class ProvenanceGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_cached_toolset_mismatch_is_rejected(self) -> None:
-        result = self._check(self._record(toolsetVersion="14.51.36230"))
+        result = self._check(self._record(toolsetVersion="14.52.36230"))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("toolset", result.stderr)
 
@@ -384,19 +383,20 @@ class WorkflowContractTests(unittest.TestCase):
         self.prep = PREP_WORKFLOW.read_text(encoding="utf-8")
         self.select = step_block(self.prep, SELECT_STEP)
         self.rebuild = step_block(self.prep, REBUILD_STEP)
+        self.source = step_block(self.prep, "Prepare the verified LLVM 23.1.6 runtime source")
         self.verify = step_block(self.prep, VERIFY_STEP)
 
     def test_the_source_asset_is_hash_and_size_verified_before_extraction(self) -> None:
-        for token in (SOURCE_ASSET, SOURCE_SHA, SOURCE_SIZE, "gh release download llvmorg-21.1.8",
+        for token in (SOURCE_ASSET, SOURCE_SHA, SOURCE_SIZE, "gh release download llvmorg-23.1.6",
                       "Get-FileHash", "SHA256"):
             with self.subTest(token=token):
-                self.assertIn(token, self.rebuild)
-        self.assertLess(self.rebuild.index("Get-FileHash"), self.rebuild.index("& 7z x $asset"))
-        self.assertLess(self.rebuild.index("& 7z x $asset"), self.rebuild.index("& 7z x $tarball"))
+                self.assertIn(token, self.source)
+        self.assertLess(self.source.index("Get-FileHash"), self.source.index("& 7z x $asset"))
+        self.assertLess(self.source.index("& 7z x $asset"), self.source.index("& 7z x $tarball"))
 
     def test_the_official_runtimes_entrypoint_builds_only_the_x64_cxx_archive(self) -> None:
         for token in (
-            "$source = Join-Path $sourceRoot 'llvm-project-21.1.8.src'",
+            "$source = Join-Path $sourceRoot 'llvm-project-23.1.6.src'",
             "-S (Join-Path $source 'runtimes') -B $ownedBuild -G Ninja",
             "-DCMAKE_C_COMPILER=$clangCl", "-DCMAKE_CXX_COMPILER=$clangCl",
             "-DCMAKE_LINKER=$lldLink", "-DCMAKE_AR=$libExe",
@@ -428,7 +428,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_the_select_step_matches_the_driver_toolset_policy(self) -> None:
         # The one selection step mirrors the driver's VS18 install and exact numeric v145
         # servicing choice, and imports the toolset's full version rather than the family flag.
-        for token in ("vswhere.exe", "'[18.0,19.0)'", "^14\\.51(?:\\.\\d+)+$",
+        for token in ("vswhere.exe", "'[18.0,19.0)'", "^14\\.52(?:\\.\\d+)+$",
                       "vcvarsall.bat", "$sdkVersion = '10.0.26100.0'",
                       "-vcvars_ver=$($toolset.Name)"):
             with self.subTest(token=token):
@@ -443,8 +443,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("$home", self.rebuild)
         # The family flag would be selected by descending substring and could pick a backup or
         # wrong servicing toolset, so it must never appear.
-        self.assertNotIn("-vcvars_ver=14.51", self.select)
-        self.assertNotIn("-vcvars_ver=14.51", self.rebuild)
+        self.assertNotIn("-vcvars_ver=14.52", self.select)
+        self.assertNotIn("-vcvars_ver=14.52", self.rebuild)
 
     def test_the_select_step_publishes_the_exact_toolset_and_env_outputs(self) -> None:
         self.assertIn(f"id: {SELECT_ID}", self.select)
@@ -485,7 +485,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_the_cache_key_encodes_source_digest_patch_and_resolved_toolset(self) -> None:
         keys = re.findall(r"^          key: (llvm-instrumentation-.*)$", self.prep, re.MULTILINE)
         self.assertEqual(keys, [CACHE_KEY] * 2)
-        for component in (X86_SHA, X64_SHA, RUNTIME_PATCH, SOURCE_SHA[:16], "v145",
+        for component in (SOURCE_SHA, X64_SHA, RUNTIME_PATCH, SOURCE_SHA[:16], "v145",
                           "${{ steps." + SELECT_ID + ".outputs.cache_environment }}"):
             with self.subTest(component=component):
                 self.assertIn(component, CACHE_KEY)
@@ -555,7 +555,7 @@ class WorkflowContractTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.verify)
-        self.assertNotIn("-vcvars_ver=14.51", self.verify)
+        self.assertNotIn("-vcvars_ver=14.52", self.verify)
         self.assertNotIn("vswhere.exe", self.verify)
 
 

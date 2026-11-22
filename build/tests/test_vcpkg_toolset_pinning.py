@@ -1,7 +1,7 @@
-"""vcpkg builds every dependency with the same v145 14.51 toolset.
+"""vcpkg builds every dependency with the same v145 14.52 toolset.
 
 Every triplet (x86/x64, standard, ASan and the standalone Fuzz variant) must pin
-``VCPKG_PLATFORM_TOOLSET`` to ``v145`` and ``VCPKG_PLATFORM_TOOLSET_VERSION`` to ``14.51``
+``VCPKG_PLATFORM_TOOLSET`` to ``v145`` and ``VCPKG_PLATFORM_TOOLSET_VERSION`` to ``14.52``
 so a dependency compiled for the shipped binaries never mixes a second toolset, while
 shipping Release retains the ``/MT`` self-contained contract. ASan uses the DLL CRT to
 permit module unload; the never-unloaded standalone Fuzz executables keep the static CRT.
@@ -72,7 +72,7 @@ class VcpkgTripletPinTests(unittest.TestCase):
             with self.subTest(triplet=name):
                 effective = evaluate_triplet(name)
                 self.assertEqual(effective["toolset"], "v145")
-                self.assertEqual(effective["version"], "14.51")
+                self.assertEqual(effective["version"], "14.52")
                 self.assertEqual(effective["crt"], crt)
                 self.assertEqual(effective["library"], "static")
 
@@ -97,13 +97,13 @@ class RestoreEnvironmentTests(unittest.TestCase):
     def test_restore_pins_the_selected_installation_in_the_child_environment_only(self) -> None:
         original = dict(os.environ)
         with mock.patch.object(main, "_vs_installation", return_value=self.installation), \
-             mock.patch.object(main, "_msvc_toolset_version", return_value="14.51.36231"), \
+             mock.patch.object(main, "_msvc_toolset_version", return_value="14.52.36231"), \
              mock.patch.object(main, "run") as invoked:
             main._restore(self.repository, "x64", "Debug", self.vcpkg)
 
         env = invoked.call_args.kwargs["env"]
         self.assertEqual(env["VCPKG_VISUAL_STUDIO_PATH"], os.fspath(self.installation))
-        self.assertEqual(env["VCPKG_PLATFORM_TOOLSET_VERSION"], "14.51.36231")
+        self.assertEqual(env["VCPKG_PLATFORM_TOOLSET_VERSION"], "14.52.36231")
         self.assertEqual(env["VCPKG_FORCE_SYSTEM_BINARIES"], "1")
         self.assertIn("PATH", env["VCPKG_KEEP_ENV_VARS"].split(";"))
         # The pin travels through the child environment; the host environment is untouched.
@@ -117,7 +117,7 @@ class RestoreEnvironmentTests(unittest.TestCase):
             with self.subTest(inherited=inherited), mock.patch.dict(
                     os.environ, {"VCPKG_KEEP_ENV_VARS": inherited}), \
                  mock.patch.object(main, "_vs_installation", return_value=self.installation), \
-                 mock.patch.object(main, "_msvc_toolset_version", return_value="14.51.36231"), \
+                 mock.patch.object(main, "_msvc_toolset_version", return_value="14.52.36231"), \
                  mock.patch.object(main, "run") as invoked:
                 main._restore(self.repository, "x64", "Debug", self.vcpkg)
                 self.assertEqual(invoked.call_args.kwargs["env"]["VCPKG_KEEP_ENV_VARS"], expected)

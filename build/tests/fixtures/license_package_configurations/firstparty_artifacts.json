@@ -36,9 +36,9 @@
     {
       "name": "unpackrat-build-main",
       "member": "build/main.py",
-      "version": "149dd6edfaacaf6771f60f8b378a6c16e6e9651883257ed8047cf79c46dee647",
-      "sha256": "149dd6edfaacaf6771f60f8b378a6c16e6e9651883257ed8047cf79c46dee647",
-      "artifact_filename": "149dd6edfaacaf6771f60f8b378a6c16e6e9651883257ed8047cf79c46dee647.tar",
+      "version": "aab0ca46a56ffe3eadda544035cd6ca0c5ca31f0db35c7ff816aaed189c838a9",
+      "sha256": "aab0ca46a56ffe3eadda544035cd6ca0c5ca31f0db35c7ff816aaed189c838a9",
+      "artifact_filename": "aab0ca46a56ffe3eadda544035cd6ca0c5ca31f0db35c7ff816aaed189c838a9.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -129,9 +129,9 @@
     {
       "name": "unpackrat-build-tests-wolfrpg-license-registration",
       "member": "build/tests/test_wolfrpg_license_registration.py",
-      "version": "ec9e2b3ce452b9950dfb1f6fe07145fca586847e9d0fcbd705e20b3aa7a8dbf7",
-      "sha256": "ec9e2b3ce452b9950dfb1f6fe07145fca586847e9d0fcbd705e20b3aa7a8dbf7",
-      "artifact_filename": "ec9e2b3ce452b9950dfb1f6fe07145fca586847e9d0fcbd705e20b3aa7a8dbf7.tar",
+      "version": "31ceaecbb587b9cd90d74ccaeaeab69e08d5663c9d2fa25d81e73165b5cbeca5",
+      "sha256": "31ceaecbb587b9cd90d74ccaeaeab69e08d5663c9d2fa25d81e73165b5cbeca5",
+      "artifact_filename": "31ceaecbb587b9cd90d74ccaeaeab69e08d5663c9d2fa25d81e73165b5cbeca5.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -148,9 +148,9 @@
     {
       "name": "unpackrat-build-tests-license-package-configurations",
       "member": "build/tests/test_license_package_configurations.py",
-      "version": "47c9335cf1ef63875cf2c2402c81b9c3ac47d9e0ac4068674f51cabfbd014b6b",
-      "sha256": "47c9335cf1ef63875cf2c2402c81b9c3ac47d9e0ac4068674f51cabfbd014b6b",
-      "artifact_filename": "47c9335cf1ef63875cf2c2402c81b9c3ac47d9e0ac4068674f51cabfbd014b6b.tar",
+      "version": "e1a22c1d99807ed7145f5b74804b921efb96d9d7325b9afa1e38ec052d9ce193",
+      "sha256": "e1a22c1d99807ed7145f5b74804b921efb96d9d7325b9afa1e38ec052d9ce193",
+      "artifact_filename": "e1a22c1d99807ed7145f5b74804b921efb96d9d7325b9afa1e38ec052d9ce193.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -368,9 +368,9 @@
     {
       "name": "unpackrat-build-tests-main-cli",
       "member": "build/tests/test_main_cli.py",
-      "version": "36ef3008c7f78d4990c9e55ab58d7ac2441032e6233e917adc36a06980182977",
-      "sha256": "36ef3008c7f78d4990c9e55ab58d7ac2441032e6233e917adc36a06980182977",
-      "artifact_filename": "36ef3008c7f78d4990c9e55ab58d7ac2441032e6233e917adc36a06980182977.tar",
+      "version": "ba69dc42be293d55ef191972a6c166c624bf1e077d77fe47c4fdcdba7e4accfe",
+      "sha256": "ba69dc42be293d55ef191972a6c166c624bf1e077d77fe47c4fdcdba7e4accfe",
+      "artifact_filename": "ba69dc42be293d55ef191972a6c166c624bf1e077d77fe47c4fdcdba7e4accfe.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -387,9 +387,9 @@
     {
       "name": "unpackrat-build-tests-minimal-build",
       "member": "build/tests/test_minimal_build.py",
-      "version": "786e19e04f99f74737692dd2ee18e7b525dab857d2feeef43fd670944f779f18",
-      "sha256": "786e19e04f99f74737692dd2ee18e7b525dab857d2feeef43fd670944f779f18",
-      "artifact_filename": "786e19e04f99f74737692dd2ee18e7b525dab857d2feeef43fd670944f779f18.tar",
+      "version": "48885b64afee6674f0236c12675a6077c88284b8b9480565e1b216844f651744",
+      "sha256": "48885b64afee6674f0236c12675a6077c88284b8b9480565e1b216844f651744",
+      "artifact_filename": "48885b64afee6674f0236c12675a6077c88284b8b9480565e1b216844f651744.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -479,9 +479,9 @@
     {
       "name": "unpackrat-build-tests-review-driver-findings",
       "member": "build/tests/test_review_driver_findings.py",
-      "version": "f07377cc55bdb845a24ae1c94adfb9791b874e4879ce3656005d98023ae45d62",
-      "sha256": "f07377cc55bdb845a24ae1c94adfb9791b874e4879ce3656005d98023ae45d62",
-      "artifact_filename": "f07377cc55bdb845a24ae1c94adfb9791b874e4879ce3656005d98023ae45d62.tar",
+      "version": "a04eb9ad7fbf7ddc4a141f2596b8521e32470749a25450b467d356de9a3f2993",
+      "sha256": "a04eb9ad7fbf7ddc4a141f2596b8521e32470749a25450b467d356de9a3f2993",
+      "artifact_filename": "a04eb9ad7fbf7ddc4a141f2596b8521e32470749a25450b467d356de9a3f2993.tar",
       "extension": ".tar",
       "curations": [
         {
@@ -517,9 +517,9 @@
     {
       "name": "unpackrat-build-tests-workflow-contract",
       "member": "build/tests/test_workflow_contract.py",
-      "version": "e7ca8e0c4ad171ae27cd4f1834859c6daabcd374cfbe0affd515af2953cacf69",
-      "sha256": "e7ca8e0c4ad171ae27cd4f1834859c6daabcd374cfbe0affd515af2953cacf69",
-      "artifact_filename": "e7ca8e0c4ad171ae27cd4f1834859c6daabcd374cfbe0affd515af2953cacf69.tar",
+      "version": "481c9043e85aa239ff23b187cda2922930f285c9c9b2b8dcf712846f879ee8e4",
+      "sha256": "481c9043e85aa239ff23b187cda2922930f285c9c9b2b8dcf712846f879ee8e4",
+      "artifact_filename": "481c9043e85aa239ff23b187cda2922930f285c9c9b2b8dcf712846f879ee8e4.tar",
       "extension": ".tar",
       "curations": [
         {

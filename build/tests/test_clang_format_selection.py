@@ -1,4 +1,4 @@
-"""The source format gate uses one pinned standalone clang-format 23.1.3.
+"""The source format gate uses one pinned standalone clang-format 23.1.6.
 
 The formatter resolves from the standard ``PATH`` (the owner installs it there) or is named by
 an explicit ``UNPACKRAT_CLANG_FORMAT`` override; its version is validated and it is never
@@ -23,7 +23,7 @@ import main
 
 
 # The exact release provenance line the owner's installed clang-format prints.
-VCS_SUFFIX = "(https://github.com/llvm/llvm-project 0d261d1ca552c95a8f007e061c787ac7132fbcbc)"
+VCS_SUFFIX = "(https://github.com/llvm/llvm-project 5b10d2d74929eae78912771222c9855af97496f4)"
 
 
 class ClangFormatSelectionTests(unittest.TestCase):
@@ -47,7 +47,7 @@ class ClangFormatSelectionTests(unittest.TestCase):
         with mock.patch("shutil.which", return_value=str(self.exe)) as which, \
              mock.patch.object(
                  main, "run",
-                 return_value=self._version("clang-format version 23.1.3\n"),
+                 return_value=self._version("clang-format version 23.1.6\n"),
              ) as invoked:
             self.assertEqual(main._clang_format(), self.exe.resolve())
         which.assert_called_once_with("clang-format.exe")
@@ -56,7 +56,7 @@ class ClangFormatSelectionTests(unittest.TestCase):
     def test_default_never_reads_or_creates_a_user_cache(self) -> None:
         cache = self.root / "localappdata"
         with mock.patch("shutil.which", return_value=str(self.exe)), \
-             mock.patch.object(main, "run", return_value=self._version("clang-format version 23.1.3")), \
+             mock.patch.object(main, "run", return_value=self._version("clang-format version 23.1.6")), \
              mock.patch.dict(os.environ, {"LOCALAPPDATA": str(cache)}, clear=True):
             self.assertEqual(main._clang_format(), self.exe.resolve())
         self.assertFalse(cache.exists())
@@ -66,7 +66,7 @@ class ClangFormatSelectionTests(unittest.TestCase):
         override.parent.mkdir()
         override.write_bytes(b"test executable")
         with mock.patch("shutil.which") as which, mock.patch.object(
-            main, "run", return_value=self._version("clang-format version 23.1.3")
+            main, "run", return_value=self._version("clang-format version 23.1.6")
         ), mock.patch.dict(os.environ, {"UNPACKRAT_CLANG_FORMAT": str(override)}, clear=True):
             self.assertEqual(main._clang_format(), override.resolve())
         which.assert_not_called()
@@ -80,7 +80,7 @@ class ClangFormatSelectionTests(unittest.TestCase):
             os.chdir(self.root)
             with mock.patch.dict(
                 os.environ, {"UNPACKRAT_CLANG_FORMAT": "custom/clang-format.exe"}, clear=True
-            ), mock.patch.object(main, "run", return_value=self._version("clang-format version 23.1.3")):
+            ), mock.patch.object(main, "run", return_value=self._version("clang-format version 23.1.6")):
                 self.assertEqual(main._clang_format(), override.resolve())
         finally:
             os.chdir(original)
@@ -96,7 +96,8 @@ class ClangFormatSelectionTests(unittest.TestCase):
     def test_wrong_or_missing_version_fails_closed(self) -> None:
         for output in (
             "clang-format version 19.1.5",
-            "clang-format version 23.1.30",
+            "clang-format version 23.1.3",
+            "clang-format version 23.1.60",
             "clang-format version 23.1.80",
             "clang-format unknown",
         ):
@@ -107,7 +108,7 @@ class ClangFormatSelectionTests(unittest.TestCase):
                 main._clang_format()
 
     def test_accepts_the_official_release_vcs_suffix(self) -> None:
-        output = f"clang-format version 23.1.3 {VCS_SUFFIX}\n"
+        output = f"clang-format version 23.1.6 {VCS_SUFFIX}\n"
         with mock.patch("shutil.which", return_value=str(self.exe)), \
              mock.patch.object(main, "run", return_value=self._version(output)):
             self.assertEqual(main._clang_format(), self.exe.resolve())

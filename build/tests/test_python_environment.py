@@ -16,11 +16,11 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD = REPOSITORY / "build"
 
-REQUIRES_PYTHON = "==3.14.7"
+REQUIRES_PYTHON = "==3.14.8"
 PROJECT_VERSION = "0.8.1"
 DEPENDENCIES = {
     "coverage": "7.16.2",
-    "filelock": "4.1.1",
+    "filelock": "4.2.1",
     "psutil": "7.2.2",
     "pywin32": "312",
 }
@@ -60,6 +60,14 @@ class PythonEnvironmentPinTests(unittest.TestCase):
             with self.subTest(package=name):
                 self.assertEqual(packages.get(name), version)
         self.assertEqual(packages.get("unpackrat-build"), PROJECT_VERSION)
+
+    def test_lockfile_requirements_match_the_fixed_dependency_pins(self) -> None:
+        project = next(entry for entry in self.lock["package"] if entry["name"] == "unpackrat-build")
+        requirements = project["metadata"]["requires-dist"]
+        self.assertEqual(
+            {entry["name"]: entry["specifier"] for entry in requirements},
+            {name: f"=={version}" for name, version in DEPENDENCIES.items()},
+        )
 
 
 if __name__ == "__main__":

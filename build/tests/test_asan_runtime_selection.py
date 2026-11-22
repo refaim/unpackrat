@@ -1,8 +1,8 @@
-"""The staged ASan runtime comes from the same v145 14.51 toolset the build uses.
+"""The staged ASan runtime comes from the same v145 14.52 toolset the build uses.
 
 ``clang_rt.asan_dynamic-*.dll`` must match the compiler toolset that produced the
-instrumented binaries.  When both the legacy 14.44 and the newer 14.51 runtimes are
-installed, the driver must copy the 14.51 runtime for both architectures and must
+instrumented binaries.  When both the legacy 14.44 and the newer 14.52 runtimes are
+installed, the driver must copy the 14.52 runtime for both architectures and must
 fail closed - never silently pick the old 14.44 DLL - when the selected runtime is
 missing.  Falling back to a second compiler family is the regression.
 """
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import main
 
 
-TOOLSET_VERSION = "14.51.10"
+TOOLSET_VERSION = "14.52.10"
 OLD_VERSION = "14.44.35207"
 RUNTIMES = {"x86": "clang_rt.asan_dynamic-i386.dll", "x64": "clang_rt.asan_dynamic-x86_64.dll"}
 
@@ -69,7 +69,7 @@ class AsanRuntimeSelectionTests(unittest.TestCase):
                 )
 
     def test_a_real_v145_toolset_missing_its_runtime_fails_even_when_the_old_dll_exists(self) -> None:
-        # The 14.51 toolset directory really exists and is the one the driver selects, but
+        # The 14.52 toolset directory really exists and is the one the driver selects, but
         # it does not stage an ASan DLL; the presence of the old 14.44 DLL must not mask that.
         for architecture in ("x86", "x64"):
             self._toolset_directory(TOOLSET_VERSION)

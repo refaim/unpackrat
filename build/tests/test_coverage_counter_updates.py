@@ -167,7 +167,7 @@ class ProbeCompilerSelectionTests(unittest.TestCase):
                 ),
                 mock.patch("subprocess.run", self._version_run(version)),
             ):
-                with self.assertRaisesRegex(main.BuildError, r"23\.1\.3"):
+                with self.assertRaisesRegex(main.BuildError, r"23\.1\.6"):
                     _probe_compiler()
 
     def test_explicit_override_selects_its_compiler(self):
@@ -178,7 +178,7 @@ class ProbeCompilerSelectionTests(unittest.TestCase):
             (formatter.parent / "clang-cl.exe").touch()
             override = Path(temporary) / "clang-cl.exe"
             override.touch()
-            version = "clang version 23.1.3\nTarget: x86_64-pc-windows-msvc\n"
+            version = "clang version 23.1.6\nTarget: x86_64-pc-windows-msvc\n"
             with (
                 mock.patch.dict(
                     os.environ, {"UNPACKRAT_CLANG_CL": str(override)}, clear=True
@@ -202,7 +202,7 @@ class ProbeCompilerSelectionTests(unittest.TestCase):
             )
             vs_compiler.parent.mkdir(parents=True)
             vs_compiler.touch()
-            version = "clang version 23.1.3\nTarget: x86_64-pc-windows-msvc\n"
+            version = "clang version 23.1.6\nTarget: x86_64-pc-windows-msvc\n"
             with (
                 mock.patch.dict(os.environ, {}, clear=True),
                 mock.patch.object(main, "_clang_format", return_value=formatter),

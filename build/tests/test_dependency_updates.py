@@ -14,6 +14,14 @@ PORTS = REPOSITORY / "build" / "vcpkg" / "ports"
 
 
 class DependencyUpdateTests(unittest.TestCase):
+    def test_dependency_updates_keep_the_existing_godot_release(self) -> None:
+        module = REPOSITORY / "src/modules/godot"
+        self.assertEqual((module / "VERSION").read_text(encoding="utf-8").strip(), "1.2.2")
+        for filename, heading in (("ChangeLog.en.txt", "Version 1.2.2"),
+                                  ("ChangeLog.ru.txt", "Версия 1.2.2")):
+            with self.subTest(filename=filename):
+                self.assertTrue((module / filename).read_text(encoding="utf-8").startswith(heading))
+
     def test_brotli_requires_the_fixed_decoder_release(self) -> None:
         manifest = json.loads((REPOSITORY / "vcpkg.json").read_text(encoding="utf-8"))
         brotli = next(entry for entry in manifest["dependencies"] if entry["name"] == "brotli")
@@ -65,7 +73,7 @@ class DependencyUpdateTests(unittest.TestCase):
         manifest = json.loads((REPOSITORY / "vcpkg.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["builtin-baseline"], "9eec002df1cd109f8f104cd966a763daf9751489")
         dependencies = {dependency["name"]: dependency for dependency in manifest["dependencies"]}
-        for name, version in (("catch2", "3.16.1"), ("xxhash", "0.8.4"), ("mbedtls", "4.1.1")):
+        for name, version in (("catch2", "3.16.1"), ("xxhash", "0.8.4"), ("mbedtls", "4.1.2")):
             with self.subTest(dependency=name):
                 self.assertEqual(dependencies[name]["version>="], version)
         configuration = json.loads((REPOSITORY / "vcpkg-configuration.json").read_text(encoding="utf-8"))
@@ -97,7 +105,10 @@ class DependencyUpdateTests(unittest.TestCase):
         port = PORTS / "mbedtls"
         metadata = json.loads((port / "vcpkg.json").read_text(encoding="utf-8"))
         self.assertEqual(metadata["name"], "mbedtls")
-        self.assertEqual(metadata["version"], "4.1.1")
+        self.assertEqual(metadata["version"], "4.1.2")
+        readme = (PORTS / "README.md").read_text(encoding="utf-8")
+        self.assertIn("Mbed TLS 4.1.2", readme)
+        self.assertIn("TF-PSA-Crypto 1.1.2", readme)
         self.assertNotIn("port-version", metadata)
         recipe = (port / "portfile.cmake").read_text(encoding="utf-8")
         self.assertIn("vcpkg_download_distfile(ARCHIVE", recipe)
@@ -106,7 +117,7 @@ class DependencyUpdateTests(unittest.TestCase):
         self.assertNotIn("vcpkg_from_github", recipe)
         self.assertNotIn("empty placeholder", recipe)
         self.assertIn(
-            "1b82100511e9da298480a17e1093546eb26fe10fe6d391c8310e034fc57cd066d5837ab487f8ee06a669f6b29a20522901b74eb83b18ac6410aeb12d57ab2d12",
+            "c9bd7086ab3cbc3948ceb4231772262dcf1322409069d1c0e0a8b75aaba0661dd513b3cbe497b2ca3bb6388dab2432ea600f4d78a6b5431ac91c94e12b2ca6e2",
             recipe,
         )
         self.assertIn("vcpkg_check_linkage(ONLY_STATIC_LIBRARY)", recipe)

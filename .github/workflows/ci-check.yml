@@ -17,6 +17,11 @@ on:
         description: The driver stage to run (source, native-debug, native-release, msvc-analysis, clang-tidy, coverage, asan, ubsan, fuzz, leaks).
         required: true
         type: string
+      codeql:
+        description: Analyze the source languages or trace the x64 native and Unity builds for CodeQL.
+        required: false
+        type: boolean
+        default: false
 
 env:
   VCPKG_ROOT: C:\vcpkg
@@ -52,9 +57,9 @@ jobs:
           # Select the same numeric servicing version as the driver.
           $toolsetRoot = Join-Path $installation 'VC/Tools/MSVC'
           $toolsets = @(Get-ChildItem -LiteralPath $toolsetRoot -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^14\.51(?:\.\d+)+$' } |
+            Where-Object { $_.Name -match '^14\.52(?:\.\d+)+$' } |
             Sort-Object -Property @{ Expression = { [version] $_.Name } })
-          if ($toolsets.Count -eq 0) { throw "No MSVC 14.51 toolset below $toolsetRoot." }
+          if ($toolsets.Count -eq 0) { throw "No MSVC 14.52 toolset below $toolsetRoot." }
           $toolset = $toolsets[-1].FullName
           foreach ($architecture in @('x86', 'x64')) {
             $compiler = Join-Path $toolset "bin/Hostx64/$architecture/cl.exe"
@@ -164,23 +169,23 @@ jobs:
           "TMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
           uv sync --project build --frozen
 
-      # The instrumentation stages need the matched LLVM 21.1.8 toolchain that the separate
+      # The instrumentation stages need the matched LLVM 23.1.6 toolchain that the separate
       # instrumentation-tools job publishes. They download only this run's artifact and select it
       # through a dedicated variable, never by overriding the standalone clang-tidy/format pin.
-      # Only coverage, UBSan and fuzz consume the LLVM toolchain; ASan is the MSVC 14.51 dynamic
-      # ASan build and needs no LLVM 21 preflight.
+      # Only coverage, UBSan and fuzz consume the LLVM toolchain; ASan is the MSVC 14.52 dynamic
+      # ASan build and needs no LLVM instrumentation preflight.
       - name: Collect the instrumentation toolchain
         if: contains(fromJSON('["coverage","ubsan","fuzz"]'), inputs.stage)
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: llvm-instrumentation-21.1.8
-          path: ${{ runner.temp }}/unpackrat/tools/llvm/21.1.8
+          name: llvm-instrumentation-23.1.6
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.6
 
       - name: Select the instrumentation toolchain
         if: contains(fromJSON('["coverage","ubsan","fuzz"]'), inputs.stage)
         shell: pwsh
         run: |
-          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/21.1.8'
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6'
           $llvmCompilerHome = Join-Path $root 'x64'
           foreach ($tool in @('clang-cl', 'lld-link', 'llvm-cov', 'llvm-profdata')) {
             $exe = Join-Path $llvmCompilerHome "bin/$tool.exe"
@@ -188,12 +193,12 @@ jobs:
               throw "Missing LLVM instrumentation tool: $exe"
             }
             $version = & $exe --version | Out-String
-            if ($LASTEXITCODE -ne 0 -or $version -notmatch '21\.1\.8') {
+            if ($LASTEXITCODE -ne 0 -or $version -notmatch '23\.1\.6') {
               throw "Unexpected $tool version: $version"
             }
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $llvmCompilerHome 'lib/clang/21/include/stddef.h') -PathType Leaf)) {
-            throw 'Missing LLVM 21.1.8 headers.'
+          if (-not (Test-Path -LiteralPath (Join-Path $llvmCompilerHome 'lib/clang/23/include/stddef.h') -PathType Leaf)) {
+            throw 'Missing LLVM 23.1.6 headers.'
           }
           "UNPACKRAT_LLVM_INSTRUMENTATION=$root" | Add-Content -Path $env:GITHUB_ENV
 
@@ -235,7 +240,7 @@ jobs:
           Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
 
       # The standalone clang-format and clang-tidy come from one pinned, hash-verified LLVM
-      # 23.1.3 x64 archive: clang-format feeds the source format gate and clang-tidy feeds the
+      # 23.1.6 x64 archive: clang-format feeds the source format gate and clang-tidy feeds the
       # clang-tidy analysis slice. The MSVC build and analysis slices never provision or resolve
       # this tree. The archive ships no 32-bit runtime, so the VS-bundled compiler, coverage and
       # profile tools remain the ones the build uses.
@@ -244,10 +249,10 @@ jobs:
         id: llvm-tools
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.3
-          key: llvm-23.1.3-windows-x64-parallel-cache-v2-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.6
+          key: llvm-23.1.6-windows-x64-parallel-cache-v2-7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155
 
-      - name: Provision the pinned LLVM 23.1.3 tools
+      - name: Provision the pinned LLVM 23.1.6 tools
         if: (inputs.stage == 'clang-tidy' || inputs.stage == 'source') && steps.llvm-tools.outputs.cache-hit != 'true'
         shell: pwsh
         env:
@@ -255,31 +260,37 @@ jobs:
         run: |
           $archiveDir = Join-Path $env:RUNNER_TEMP 'llvm-archive'
           New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
-          $asset = 'clang+llvm-23.1.3-x86_64-pc-windows-msvc.tar.xz'
-          gh release download llvmorg-23.1.3 --repo llvm/llvm-project --pattern $asset --dir $archiveDir
+          $asset = 'clang+llvm-23.1.6-x86_64-pc-windows-msvc.tar.zst'
+          gh release download llvmorg-23.1.6 --repo llvm/llvm-project --pattern $asset --dir $archiveDir
           if ($LASTEXITCODE -ne 0) {
             throw 'Unable to download the pinned LLVM release asset.'
           }
           $archive = Join-Path $archiveDir $asset
-          $expected = '9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8'
+          $expected = '7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155'
           if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
             throw 'Pinned LLVM archive SHA-256 validation failed.'
           }
           $env:UNPACKRAT_LLVM_ARCHIVE = $archive
-          $env:UNPACKRAT_LLVM_ROOT = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3'
+          $env:UNPACKRAT_LLVM_ROOT = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6'
           $python = Join-Path $env:GITHUB_WORKSPACE 'build/.venv/Scripts/python.exe'
           @'
           import os
+          from compression.zstd import DecompressionParameter, ZstdFile
           from pathlib import Path
           import shutil
           import tarfile
 
-          prefix = 'clang+llvm-23.1.3-x86_64-pc-windows-msvc/'
+          prefix = 'clang+llvm-23.1.6-x86_64-pc-windows-msvc/'
           wanted = ('bin/clang-tidy.exe', 'bin/clang-format.exe', 'bin/clang-cl.exe',
                     'bin/run-clang-tidy')
           root = Path(os.environ['UNPACKRAT_LLVM_ROOT']).resolve()
           count = 0
-          with tarfile.open(os.environ['UNPACKRAT_LLVM_ARCHIVE'], mode='r|xz') as archive:
+          # The SHA-256-pinned upstream frame uses a 1 GiB window; reject larger frames.
+          with (
+              ZstdFile(os.environ['UNPACKRAT_LLVM_ARCHIVE'], 'rb',
+                       options={DecompressionParameter.window_log_max: 30}) as decoded,
+              tarfile.open(fileobj=decoded, mode='r|') as archive,
+          ):
               for member in archive:
                   if not member.isfile() or not member.name.startswith(prefix):
                       continue
@@ -307,7 +318,7 @@ jobs:
         if: inputs.stage == 'clang-tidy' || inputs.stage == 'source'
         shell: pwsh
         run: |
-          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3'
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6'
           $tool = Join-Path $root 'bin/clang-tidy.exe'
           $format = Join-Path $root 'bin/clang-format.exe'
           $clangCl = Join-Path $root 'bin/clang-cl.exe'
@@ -320,15 +331,15 @@ jobs:
             throw 'Pinned LLVM tool cache is incomplete.'
           }
           $version = & $tool --version | Out-String
-          if ($LASTEXITCODE -ne 0 -or $version -notmatch '(?m)^\s*LLVM version 23\.1\.3\s*$') {
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '(?m)^\s*LLVM version 23\.1\.6\s*$') {
             throw "Unexpected clang-tidy version: $version"
           }
           $formatVersion = & $format --version | Out-String
-          if ($LASTEXITCODE -ne 0 -or $formatVersion -notmatch 'clang-format version 23\.1\.3') {
+          if ($LASTEXITCODE -ne 0 -or $formatVersion -notmatch 'clang-format version 23\.1\.6') {
             throw "Unexpected clang-format version: $formatVersion"
           }
           $clangClVersion = & $clangCl --version | Out-String
-          if ($LASTEXITCODE -ne 0 -or $clangClVersion -notmatch 'clang version 23\.1\.3') {
+          if ($LASTEXITCODE -ne 0 -or $clangClVersion -notmatch 'clang version 23\.1\.6') {
             throw "Unexpected clang-cl version: $clangClVersion"
           }
           # The Release analysis marks restored vcpkg headers with the cl driver's -imsvc.
@@ -367,8 +378,8 @@ jobs:
         if: (inputs.stage == 'clang-tidy' || inputs.stage == 'source') && steps.llvm-tools.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.3
-          key: llvm-23.1.3-windows-x64-parallel-cache-v2-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.6
+          key: llvm-23.1.6-windows-x64-parallel-cache-v2-7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155
 
       # The same pinned SARIF Multitool combines PREfast reports and verifies the clang-tidy
       # converter's smoke fixture before either analyzer gate runs.
@@ -579,9 +590,9 @@ jobs:
           # The client stores only successful, empty-output calls. Toolchain and image versions
           # scope this tree; a commit key and shared prefix reuse unchanged translation units.
           path: ${{ runner.temp }}/clang-tidy-cache-data/${{ inputs.arch }}/${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}
-          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
+          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.6-7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
           restore-keys: |
-            ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-
+            ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.6-7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-
 
       - name: Prepare the official clang-tidy cache bridge
         if: inputs.stage == 'clang-tidy'
@@ -589,7 +600,7 @@ jobs:
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'clang-report-tools'
           $cache = Join-Path $root 'venv/Scripts/clang-tidy-cache.exe'
-          $tidy = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3/bin/clang-tidy.exe'
+          $tidy = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6/bin/clang-tidy.exe'
           if (-not (Test-Path -LiteralPath $cache -PathType Leaf) -or
               -not (Test-Path -LiteralPath $tidy -PathType Leaf)) {
             throw 'Pinned clang-tidy cache or analyzer is missing.'
@@ -624,7 +635,7 @@ jobs:
           $source = Join-Path $fixture 'clean.cpp'
           $independent = Join-Path $fixture 'independent.cpp'
           $bad = Join-Path $fixture 'bad.cpp'
-          $clangCl = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3/bin/clang-cl.exe'
+          $clangCl = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6/bin/clang-cl.exe'
           $compileCommands = Join-Path $fixture 'compile_commands.json'
           $database = @($source, $independent, $bad) | ForEach-Object {
             [pscustomobject]@{
@@ -839,6 +850,31 @@ jobs:
           $curlrc = Join-Path $curlHome '.curlrc'
           [System.IO.File]::WriteAllText($curlrc, "retry-all-errors`n", [System.Text.UTF8Encoding]::new($false))
 
+      # Manual extraction sees the same MSVC sources the native gate compiles and the real
+      # Unity project graph. The no-build C# scan cannot resolve the prepared AssetRipper tree.
+      - name: Verify the installed .NET 10 SDK for CodeQL
+        if: inputs.codeql && inputs.stage == 'native-debug'
+        shell: pwsh
+        run: |
+          $sdks = @(& dotnet --list-sdks)
+          if ($LASTEXITCODE -ne 0 -or -not ($sdks | Where-Object { $_ -match '^10\.\d+\.\d+ ' })) {
+            throw 'CodeQL Unity analysis requires an installed .NET 10 SDK.'
+          }
+
+      - name: Initialize CodeQL for the real builds
+        if: inputs.codeql && inputs.stage == 'native-debug'
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: cpp,csharp
+          build-mode: manual
+
+      - name: Initialize CodeQL for Python and Actions
+        if: inputs.codeql && inputs.stage == 'source'
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: python,actions
+          build-mode: none
+
       - name: Verify the repository sources
         if: inputs.stage == 'source'
         id: source-gate
@@ -850,6 +886,27 @@ jobs:
         id: arch-gate
         shell: pwsh
         run: ./build.ps1 ci-arch -Arch '${{ inputs.arch }}' -Stage '${{ inputs.stage }}' -Jobs 4
+
+      - name: Build Unity with its pinned project references for CodeQL
+        if: inputs.codeql && inputs.stage == 'native-debug'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUGET_PACKAGES: ${{ github.workspace }}/out/unity-nativeaot/nuget/packages
+        run: ./build.ps1 build -Module unity -Arch x64 -Config Release -Jobs 4
+
+      - name: Build the managed Unity tests for CodeQL
+        if: inputs.codeql && inputs.stage == 'native-debug'
+        shell: pwsh
+        env:
+          NUGET_PACKAGES: ${{ github.workspace }}/out/unity-nativeaot/nuget/packages
+        run: dotnet build src/modules/unity/UnityProbe.Tests/UnityProbe.Tests.csproj --configuration Release -p:PublishAot=false
+
+      - name: Analyze the CodeQL databases
+        if: inputs.codeql
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: unpackrat-${{ inputs.stage }}-${{ inputs.arch }}
 
       # A failing coverage gate still needs the exact instrumented binaries for triage, so the two
       # image files are published by name rather than as a broad directory dump.
@@ -922,7 +979,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/clang-tidy-cache-data/${{ inputs.arch }}/${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}
-          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
+          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.6-7623f582089983c1cb51030cf1996514b19464e5669099571b399e8543770155-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
 
       # The vcpkg binary cache is saved only once the gates above have populated it and the job
       # has succeeded, so a failed build never publishes a partial cache.
