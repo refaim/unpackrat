@@ -1,6 +1,6 @@
 """The UBSan runtime source is unpacked into the four component trees the rebuild needs.
 
-The official ``llvm-project-21.1.8.src.tar`` carries six relative symlink entries under the
+The official LLVM source archive carries relative symlink entries under the
 unrelated ``clang`` and ``lldb`` test trees.  7-Zip 26.04 refuses those "dangerous" link paths and
 exits nonzero, which failed the hosted CI preparation before CMake ever ran.  The rebuild only
 needs ``cmake``, ``compiler-rt``, ``runtimes`` and ``llvm``, so the provisioning job must hand the
@@ -26,11 +26,14 @@ import tempfile
 import textwrap
 import unittest
 
+from test_ubsan_runtime_provisioning import step_block
+
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 PREP_WORKFLOW = REPOSITORY / ".github" / "workflows" / "ci-instrumentation.yml"
 
-SOURCE_TREE = "llvm-project-21.1.8.src"
+SOURCE_TREE = "llvm-project-23.1.6.src"
+SOURCE_STEP = "Prepare the verified LLVM 23.1.6 runtime source"
 REQUIRED_TREES = ("cmake", "compiler-rt", "runtimes", "llvm")
 EXCLUDED_TREES = ("clang", "lldb")
 GUARD_MESSAGE = "LLVM source tar extraction failed."
@@ -92,6 +95,7 @@ def write_source_tar(path: Path, extra_link: tuple[str, str] | None = None) -> P
 def tar_extraction_script(workflow: str) -> str:
     """Return the workflow's real tar-extraction snippet: allowlist, archiver argv and exit guard."""
 
+    workflow = step_block(workflow, SOURCE_STEP)
     selector_block = SELECTOR_PATTERN.search(workflow)
     selection = [selector_block.group(0)] if selector_block else []
     parts = selection + [
@@ -163,10 +167,11 @@ class SourceExtractionTests(unittest.TestCase):
         self.assertIn(GUARD_MESSAGE, result.stderr)
 
     def test_the_verified_asset_guard_precedes_the_selected_extraction(self) -> None:
-        extraction = self.workflow_text.index("& 7z x $tarball")
-        self.assertLess(self.workflow_text.index("Pinned LLVM source SHA-256 validation failed."), extraction)
-        self.assertLess(self.workflow_text.index("Unexpected LLVM source asset size."), extraction)
-        self.assertLess(extraction, self.workflow_text.index("Unexpected LLVM source layout."))
+        source_step = step_block(self.workflow_text, SOURCE_STEP)
+        extraction = source_step.index("& 7z x $tarball")
+        self.assertLess(source_step.index("Pinned LLVM source SHA-256 validation failed."), extraction)
+        self.assertLess(source_step.index("Unexpected LLVM source asset size."), extraction)
+        self.assertLess(extraction, source_step.index("Unexpected LLVM source layout."))
 
 
 class ExtractionReaderTests(unittest.TestCase):
@@ -175,7 +180,7 @@ class ExtractionReaderTests(unittest.TestCase):
     def test_a_workflow_without_a_allowlist_yields_a_whole_archive_extraction(self) -> None:
         legacy = textwrap.dedent(
             """\
-                  - name: Rebuild the UBSan C++ runtime with the DLL CRT
+                  - name: Prepare the verified LLVM 23.1.6 runtime source
                     shell: pwsh
                     run: |
                       & 7z x $tarball "-o$sourceRoot" '-y'
@@ -192,6 +197,20 @@ class ExtractionReaderTests(unittest.TestCase):
         script = tar_extraction_script(PREP_WORKFLOW.read_text(encoding="utf-8"))
         self.assertLess(script.index("$sourceTrees = @("), script.index("& 7z x $tarball"))
         self.assertIn("@sourceTrees", script)
+
+    def test_a_host_tar_invocation_does_not_replace_the_source_invocation(self) -> None:
+        workflow = (
+            "      - name: Prepare the host\n        run: |\n"
+            "          & 7z x $tarball \"-o$staging\" '-y' @members\n"
+            "      - name: " + SOURCE_STEP + "\n        run: |\n"
+            "          $sourceTrees = @(\n            'source/component/*'\n          )\n"
+            "          & 7z x $tarball \"-o$sourceRoot\" '-y' @sourceTrees\n"
+            "          if ($LASTEXITCODE -ne 0) { throw 'LLVM source tar extraction failed.' }\n"
+        )
+        script = tar_extraction_script(workflow)
+        self.assertIn('"-o$sourceRoot"', script)
+        self.assertIn("@sourceTrees", script)
+        self.assertNotIn("@members", script)
 
 
 if __name__ == "__main__":

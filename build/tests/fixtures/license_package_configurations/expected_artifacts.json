@@ -12,7 +12,8 @@
     "header bytes are identical between the shortened and the real bundles, so the",
     "reviewed scan line matches are unchanged; only the member name and the resulting",
     "deterministic tar hash differ.",
-    "Brotli1.2.1 and drlibs2026-11-11 identities were renewed2026-11-12 from verified official source bytes; scanner observations remain historical and current test expectations are explicitly labelled derived."
+    "Brotli1.2.1 and drlibs2026-11-11 identities were renewed2026-11-12 from verified official source bytes; scanner observations remain historical and current test expectations are explicitly labelled derived.",
+    "Mbed TLS4.1.2 and drlibs2026-11-19 identities renewed2026-11-22 from verified official source bytes; scanner observations remain historical."
   ],
   "components": [
     {
@@ -46,9 +47,9 @@
     },
     {
       "name": "drlibs",
-      "version": "2026-11-11",
-      "sha256": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a",
-      "artifact_filename": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a.tar",
+      "version": "2026-11-19",
+      "sha256": "b2685569074381fdf55f05c274bd18211ba1f30b17abe3699deb164ecac15471",
+      "artifact_filename": "b2685569074381fdf55f05c274bd18211ba1f30b17abe3699deb164ecac15471.tar",
       "extension": ".tar",
       "bundle": true
     },
@@ -82,9 +83,9 @@
     },
     {
       "name": "mbedtls",
-      "version": "4.1.1",
-      "sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
-      "artifact_filename": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c.tar.bz2",
+      "version": "4.1.2",
+      "sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "artifact_filename": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126.tar.bz2",
       "extension": ".tar.bz2"
     },
     {

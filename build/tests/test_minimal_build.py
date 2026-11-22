@@ -165,8 +165,8 @@ class GuardedCase(unittest.TestCase):
         for path in (self.vcpkg_exe, self.vcpkg_props, self.msbuild_exe):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"fake")
-        # The driver forwards the selected 14.51 servicing toolset selected from this install.
-        cl = self.vs_install / "VC" / "Tools" / "MSVC" / "14.51.36231" / "bin" / "Hostx64" / "x64" / "cl.exe"
+        # The driver forwards the selected 14.52 servicing toolset selected from this install.
+        cl = self.vs_install / "VC" / "Tools" / "MSVC" / "14.52.36231" / "bin" / "Hostx64" / "x64" / "cl.exe"
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.write_bytes(b"fake")
 

@@ -7,7 +7,9 @@ import json
 from pathlib import Path
 import unittest
 
-from native_dependency_expectations import derive_native_findings, expectation_path_for_raw_record
+from native_dependency_expectations import (
+    derive_native_findings, expectation_for_raw_record, expectation_path_for_raw_record,
+)
 from test_license_package_configurations import curation_applies
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,25 +22,32 @@ class NativeDependencyExpectations(unittest.TestCase):
         self.raw = json.loads(self.raw_bytes)
         self.updates = json.loads((FIXTURES / "native_dependency_expectations.json").read_text(encoding="utf-8"))
 
-    def test_exact_three_scoped_records_preserve_all_nonidentity_fields(self) -> None:
+    def test_reviewed_relocations_and_removed_source_preserve_raw_observations(self) -> None:
         before = deepcopy(self.raw)
         result = derive_native_findings(self.raw, self.updates)
         self.assertEqual(self.raw, before)
         self.assertEqual(hashlib.sha256(self.raw_bytes).hexdigest(), self.updates["historical_fixture_sha256"])
-        self.assertEqual(len(self.updates["mappings"]), 3)
+        self.assertEqual(len(self.updates["mappings"]), 13)
+        self.assertEqual(len(self.updates["retired"]), 1)
         self.assertEqual(result["evidence_kind"], "test-only-derived-expectations-not-a-scan")
-        for original, actual in zip(self.raw["findings"], result["findings"], strict=True):
+        expected_rows = []
+        for original in self.raw["findings"]:
+            if any(row["historical"] == original for row in self.updates["retired"]):
+                continue
             mapping = next((row for row in self.updates["mappings"] if row["historical"] == original), None)
             expected = dict(original, **mapping["target"]) if mapping else original
-            self.assertEqual(actual, expected)
+            expected_rows.append(expected)
+        self.assertEqual(result["findings"], expected_rows)
 
-    def test_only_brotli_guard_paths_follow_the_new_source_prefix(self) -> None:
+    def test_only_reviewed_guard_paths_follow_the_new_source_prefixes(self) -> None:
         result = derive_native_findings(self.raw, self.updates)
-        self.assertEqual(result["prefixes"], dict(self.raw["prefixes"], brotli="brotli-1.2.1/"))
+        self.assertEqual(result["prefixes"], dict(self.raw["prefixes"], brotli="brotli-1.2.1/", mbedtls="mbedtls-4.1.2/"))
         for original, actual in zip(self.raw["protected"], result["protected"], strict=True):
             expected = dict(original)
             if original["package"] == "brotli":
                 expected["path"] = original["path"].replace("brotli-1.2.0/", "brotli-1.2.1/", 1)
+            elif original["package"] == "mbedtls":
+                expected["path"] = original["path"].replace("mbedtls-4.1.1/", "mbedtls-4.1.2/", 1)
             self.assertEqual(actual, expected)
 
     def test_unknown_license_path_or_line_is_never_retargeted_or_curated(self) -> None:
@@ -79,8 +88,29 @@ class NativeDependencyExpectations(unittest.TestCase):
     def test_mapping_cannot_change_a_nonidentity_field(self) -> None:
         updates = deepcopy(self.updates)
         updates["mappings"][0]["target"]["license"] = updates["negative_control_license"]
-        with self.assertRaisesRegex(ValueError, "package and path"):
+        with self.assertRaisesRegex(ValueError, "source coordinates"):
             derive_native_findings(self.raw, updates)
+
+    def test_relocation_cannot_change_the_reviewed_text_length(self) -> None:
+        updates = deepcopy(self.updates)
+        moved = next(row for row in updates["mappings"] if "start_lines" in row["target"])
+        moved["target"]["end_lines"] += 1
+        with self.assertRaisesRegex(ValueError, "text length"):
+            derive_native_findings(self.raw, updates)
+
+    def test_removed_source_requires_one_exact_historical_observation(self) -> None:
+        for changed in ("missing", "duplicate", "count"):
+            with self.subTest(changed=changed):
+                raw, updates = deepcopy(self.raw), deepcopy(self.updates)
+                retired = updates["retired"][0]["historical"]
+                if changed == "missing":
+                    raw["findings"].remove(retired)
+                elif changed == "duplicate":
+                    raw["findings"].append(deepcopy(retired))
+                else:
+                    updates["retired"].clear()
+                with self.assertRaises(ValueError):
+                    derive_native_findings(raw, updates)
 
     def test_changed_kind_count_or_protected_prefix_requires_review(self) -> None:
         for changed in ("kind", "count", "prefix", "guard-path"):
@@ -101,14 +131,16 @@ class NativeDependencyExpectations(unittest.TestCase):
     def test_source_proofs_bind_the_active_real_artifact_identities(self) -> None:
         artifacts = json.loads((FIXTURES / "expected_artifacts.json").read_text(encoding="utf-8"))
         by_name = {row["name"]: row for row in artifacts["components"]}
-        self.assertEqual(set(self.updates["source_proofs"]), {"brotli-contributing", "mp3-line2", "wav-line2"})
+        self.assertEqual(set(self.updates["source_proofs"]),
+                         {"brotli-contributing", "mp3-line2", "wav-line2"}
+                         | {f"mbedtls-source-{index}" for index in range(1, 12)})
         for proof in self.updates["source_proofs"].values():
             with self.subTest(proof=proof["new_source"]):
                 actual = by_name[proof["package"]]
                 self.assertEqual(actual["version"], proof["new_version"])
                 self.assertEqual(actual["sha256"], proof["new_artifact_sha256"])
                 self.assertRegex(proof["scoped_text_sha256"], r"^[0-9a-f]{64}$")
-                self.assertTrue(proof["proof_report"].startswith("outputs/dependency-updates-20261112/"))
+                self.assertTrue(proof.get("proof_report") or proof.get("scope"))
 
     def test_raw_expression_records_keep_every_field_and_retarget_only_reviewed_text(self) -> None:
         records = json.loads((FIXTURES / "scancode_evidence.json").read_text(encoding="utf-8"))["records"]
@@ -126,6 +158,13 @@ class NativeDependencyExpectations(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 unknown = dict(original, **mutation)
                 self.assertEqual(expectation_path_for_raw_record(unknown, self.updates), unknown["path"])
+
+    def test_raw_record_relocation_changes_only_reviewed_coordinates(self) -> None:
+        records = json.loads((FIXTURES / "scancode_evidence.json").read_text(encoding="utf-8"))["records"]
+        original = next(row for row in records if row["package"] == "mbedtls")
+        relocated = expectation_for_raw_record(original, self.updates)
+        self.assertEqual(relocated, dict(original, path=original["path"].replace("4.1.1", "4.1.2"),
+                                        start_lines=1636, end_lines=1636))
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ class ClangCacheWorkflowTests(unittest.TestCase):
         self.assertIn("'bin/clang-cl.exe'", workflow)
         self.assertIn("$clangCl = Join-Path $root 'bin/clang-cl.exe'", workflow)
         self.assertIn("& $clangCl --version", workflow)
-        self.assertIn("llvm-23.1.3-windows-x64-parallel-cache-v2", workflow)
+        self.assertIn("llvm-23.1.6-windows-x64-parallel-cache-v2", workflow)
 
     def test_local_success_only_cache_is_scoped_to_clang_tidy(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -142,7 +142,7 @@ class ClangCacheWorkflowTests(unittest.TestCase):
               }
               $database = @(Get-Content -LiteralPath (Join-Path $fixture 'compile_commands.json') -Raw |
                             ConvertFrom-Json)
-              $compiler = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3/bin/clang-cl.exe'
+              $compiler = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.6/bin/clang-cl.exe'
               if ($database.Count -ne 3) { throw 'Expected all three fixture compile commands.' }
               foreach ($entry in $database) {
                 $expected = '"{0}" /c /std:c++23 -Qunused-arguments /clang:-frewrite-includes /I"{1}" "{2}"' -f

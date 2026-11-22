@@ -9,6 +9,7 @@ on:
     tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*', 'godot/v*', 'wolfrpg/v*']
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -34,9 +35,10 @@ jobs:
     with:
       arch: none
       stage: source
+      codeql: true
 
-  # One real tool-provisioning job publishes the matched LLVM 21.1.8 instrumentation toolchain the
-  # coverage, UBSan and fuzz stages need. ASan is the MSVC 14.51 dynamic ASan build and needs no
+  # One real tool-provisioning job publishes the matched LLVM 23.1.6 instrumentation toolchain the
+  # coverage, UBSan and fuzz stages need. ASan is the MSVC 14.52 dynamic ASan build and needs no
   # LLVM toolchain, so it does not wait on this job. It is a provisioning step rather than an
   # aggregate gate, and it never rebuilds LLVM from source; each instrumentation slice downloads
   # the same-run artifact it publishes. The native, source, ASan and leak stages never wait on it.
@@ -65,9 +67,11 @@ jobs:
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
+      security-events: write
     with:
       arch: x64
       stage: native-debug
+      codeql: true
 
   native-release-x86:
     name: native-release-x86

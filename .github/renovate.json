@@ -1,10 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "enabledManagers": ["custom.regex"],
-  "dependencyDashboard": true,
+  "dependencyDashboard": {
+    "enabled": true,
+    "title": "Dependency updates",
+    "header": "Upstream library updates for manual review. Approving an item creates a draft PR; overlay checksums, versions, source filenames and regression tests still require manual updates. Branch monitors report repository changes, which may not touch the headers we use."
+  },
   "dependencyDashboardApproval": true,
-  "dependencyDashboardTitle": "Dependency updates",
-  "dependencyDashboardHeader": "Upstream library updates for manual review. Approving an item creates a draft PR; overlay checksums, versions, source filenames and regression tests still require manual updates. Branch monitors report repository changes, which may not touch the headers we use.",
   "automerge": false,
   "draftPR": true,
   "packageRules": [

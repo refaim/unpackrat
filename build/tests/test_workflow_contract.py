@@ -101,7 +101,7 @@ class WorkflowContractTests(unittest.TestCase):
         )
         for job in callers:
             expected = {"contents": "read", "id-token": "write"} if job in oidc else {"contents": "read"}
-            if job in {"source-checks", "msvc-analysis-x86", "msvc-analysis-x64",
+            if job in {"source-checks", "native-debug-x64", "msvc-analysis-x86", "msvc-analysis-x64",
                        "clang-tidy-x86", "clang-tidy-x64"}:
                 expected["security-events"] = "write"
             with self.subTest(job=job):
@@ -140,7 +140,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("pull_request:", workflow)
         self.assertIn("push:", workflow)
         self.assertGreaterEqual(workflow.count("branches: [master]"), 2)
-        self.assertNotIn("workflow_dispatch", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
         self.assertNotIn("schedule:", workflow)
         self.assertNotIn("pull_request_target", workflow)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
@@ -369,26 +369,26 @@ class WorkflowContractTests(unittest.TestCase):
         workflow = self.all_workflows()
 
         actions = dict(re.findall(r"uses:\s+([^@\s]+)@([^\s#]+)", workflow))
-        self.assertEqual(
-            actions,
-            {
-                "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
-                "astral-sh/setup-uv": "1c37ad07a6a961277cf70c0d37d6f313000f5884",
-                "actions/cache/restore": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-                "actions/cache/save": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-                "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
-                "actions/download-artifact": "9000827ccba6bdab643e8b6fd33ac0654aef8333",
-                "codecov/codecov-action": "303a32d7a59b442fa8d48b6a1cc6825c09c847a5",
-                "github/codeql-action/upload-sarif": "24c54180a607b1449ed407dd24f251e4e9147c8d",
-            },
-        )
+        expected = {
+            "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "astral-sh/setup-uv": "1c37ad07a6a961277cf70c0d37d6f313000f5884",
+            "actions/cache/restore": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+            "actions/cache/save": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+            "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+            "actions/download-artifact": "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+            "codecov/codecov-action": "303a32d7a59b442fa8d48b6a1cc6825c09c847a5",
+            "github/codeql-action/upload-sarif": "24c54180a607b1449ed407dd24f251e4e9147c8d",
+            "github/codeql-action/init": "24c54180a607b1449ed407dd24f251e4e9147c8d",
+            "github/codeql-action/analyze": "24c54180a607b1449ed407dd24f251e4e9147c8d",
+        }
+        self.assertEqual(actions, expected)
         for action, revision in actions.items():
             with self.subTest(action=action):
                 self.assertRegex(revision, r"^[0-9a-f]{40}$")
         self.assertIn("persist-credentials: false", workflow)
         self.assertEqual(workflow.count('version: "0.13.0"'), 3)
         pyproject = tomllib.loads((REPOSITORY / "build/pyproject.toml").read_text(encoding="utf-8"))
-        self.assertEqual(pyproject["project"]["requires-python"], "==3.14.7")
+        self.assertEqual(pyproject["project"]["requires-python"], "==3.14.8")
 
     def test_release_display_name_is_the_module_and_version_for_every_module_tag(self) -> None:
         publish_step = self.main_workflow().split("      - name: Publish the module release\n", 1)[1]
@@ -610,7 +610,7 @@ class RepositoryMetadataTests(unittest.TestCase):
     def test_build_documentation_states_the_toolchain_prerequisites(self) -> None:
         docs = (REPOSITORY / "docs" / "build-system.md").read_text(encoding="utf-8")
         requirements = (
-            "Build Tools 2026", "v145", "LLVM 21.1.8", "Spectre", "Windows 11 SDK",
+            "Build Tools 2026", "v145", "LLVM 23.1.6", "Spectre", "Windows 11 SDK",
             "PowerShell 7.4", "uv", "vcpkg", "VCPKG_ROOT",
         )
         for requirement in requirements:

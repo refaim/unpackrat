@@ -1,6 +1,6 @@
 {
   "evidence_kind": "test-only-derived-expectations-not-a-scan",
-  "description": "Historical raw observations stay unchanged. These exactly three expectations retarget only package/path after source-text identity review. A fresh scanner result must still be obtained in normal CI.",
+  "description": "Historical scanner records remain byte-identical. Thirteen reviewed relocations retain the exact licensed text; one exact observation is retired because its source file no longer exists in the verified archive. All are test-only derived expectations; normal CI must obtain a fresh scanner result.",
   "historical_fixture_sha256": "38918b612be77e76d6978ec72b35ddb0b3060b11360c029a5ff25b5af5dbcc21",
   "mappings": [
     {
@@ -29,7 +29,7 @@
       },
       "target": {
         "package": "drlibs",
-        "path": "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_mp3.h"
+        "path": "dr_libs-e381981afa52800b9a3864df548353ff67252fbc-dr_mp3.h"
       },
       "source_proof": "mp3-line2"
     },
@@ -44,9 +44,163 @@
       },
       "target": {
         "package": "drlibs",
-        "path": "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_wav.h"
+        "path": "dr_libs-e381981afa52800b9a3864df548353ff67252fbc-dr_wav.h"
       },
       "source_proof": "wav-line2"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/LICENSE",
+        "start_lines": 2,
+        "end_lines": 2,
+        "license": "GPL-2.0-or-later",
+        "disposition": "curated"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/LICENSE"
+      },
+      "source_proof": "mbedtls-source-1"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/LICENSE",
+        "start_lines": 215,
+        "end_lines": 553,
+        "license": "GPL-2.0-only",
+        "disposition": "curated"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/LICENSE"
+      },
+      "source_proof": "mbedtls-source-2"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/tf-psa-crypto/LICENSE",
+        "start_lines": 2,
+        "end_lines": 2,
+        "license": "GPL-2.0-or-later",
+        "disposition": "curated"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/tf-psa-crypto/LICENSE"
+      },
+      "source_proof": "mbedtls-source-3"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/tf-psa-crypto/LICENSE",
+        "start_lines": 214,
+        "end_lines": 552,
+        "license": "GPL-2.0-only",
+        "disposition": "curated"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/tf-psa-crypto/LICENSE"
+      },
+      "source_proof": "mbedtls-source-4"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/tf-psa-crypto/include/psa/crypto_config.h",
+        "start_lines": 1625,
+        "end_lines": 1625,
+        "license": "GPL-2.0-or-later",
+        "disposition": "curated"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/tf-psa-crypto/include/psa/crypto_config.h",
+        "start_lines": 1636,
+        "end_lines": 1636
+      },
+      "source_proof": "mbedtls-source-5"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/framework/scripts/check_files.py",
+        "start_lines": 407,
+        "end_lines": 407,
+        "license": "GPL-1.0-or-later",
+        "disposition": "excluded"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/framework/scripts/check_files.py"
+      },
+      "source_proof": "mbedtls-source-6"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/configs/ext/README.md",
+        "start_lines": 8,
+        "end_lines": 8,
+        "license": "LicenseRef-scancode-unknown",
+        "disposition": "excluded"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/configs/ext/README.md"
+      },
+      "source_proof": "mbedtls-source-7"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/README.md",
+        "start_lines": 244,
+        "end_lines": 244,
+        "license": "GPL-2.0-or-later",
+        "disposition": "excluded"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/README.md"
+      },
+      "source_proof": "mbedtls-source-9"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/ChangeLog",
+        "start_lines": 718,
+        "end_lines": 718,
+        "license": "GPL-2.0-or-later",
+        "disposition": "excluded"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/ChangeLog",
+        "start_lines": 864,
+        "end_lines": 864
+      },
+      "source_proof": "mbedtls-source-10"
+    },
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/CONTRIBUTING.md",
+        "start_lines": 87,
+        "end_lines": 87,
+        "license": "GPL-2.0-or-later",
+        "disposition": "excluded"
+      },
+      "target": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.2/CONTRIBUTING.md"
+      },
+      "source_proof": "mbedtls-source-11"
     }
   ],
   "protected_prefixes": [
@@ -55,6 +209,12 @@
       "historical": "brotli-1.2.0/",
       "target": "brotli-1.2.1/",
       "source_proof": "brotli-contributing"
+    },
+    {
+      "package": "mbedtls",
+      "historical": "mbedtls-4.1.1/",
+      "target": "mbedtls-4.1.2/",
+      "source_proof": "mbedtls-source-1"
     }
   ],
   "source_proofs": {
@@ -73,29 +233,174 @@
     "mp3-line2": {
       "package": "drlibs",
       "old_version": "2026-08-31",
-      "new_version": "2026-11-11",
+      "new_version": "2026-11-19",
       "old_artifact_sha256": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34",
-      "new_artifact_sha256": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a",
+      "new_artifact_sha256": "b2685569074381fdf55f05c274bd18211ba1f30b17abe3699deb164ecac15471",
       "scoped_text_sha256": "941157d711e68ef2cec2f4ef215dae4a58d07dc88b4fd0178f650f8af93e43df",
       "grant_footer_sha256": "6e9f945406227d3b8a6acee25eabd2ce5dc79b5c1bfab8c43fdb80bc38e25445",
       "scope": "Line2 without its line terminator and retained complete grant footer are independently byte-identical.",
       "old_source": "https://github.com/mackron/dr_libs/blob/dfe8377631000664666519fdb83da193fd8037f4/dr_mp3.h",
-      "new_source": "https://github.com/mackron/dr_libs/blob/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_mp3.h",
-      "proof_report": "outputs/dependency-updates-20261112/dr-libs-curation-text-proof.json"
+      "new_source": "https://github.com/mackron/dr_libs/blob/e381981afa52800b9a3864df548353ff67252fbc/dr_mp3.h",
+      "proof_report": "build/tests/fixtures/license_package_configurations/native_dependency_expectations.json"
     },
     "wav-line2": {
       "package": "drlibs",
       "old_version": "2026-08-31",
-      "new_version": "2026-11-11",
+      "new_version": "2026-11-19",
       "old_artifact_sha256": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34",
-      "new_artifact_sha256": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a",
+      "new_artifact_sha256": "b2685569074381fdf55f05c274bd18211ba1f30b17abe3699deb164ecac15471",
       "scoped_text_sha256": "6b49d692483ac0d50d3a3db3c39673c19c87b31865510fc69ab9d239f5f72f0e",
       "grant_footer_sha256": "bd4b418451619e6a073314e61c30e06ab6c91edc4b854fbff1b8c7d5a552ae24",
       "scope": "Line2 without its line terminator and retained complete grant footer are independently byte-identical.",
       "old_source": "https://github.com/mackron/dr_libs/blob/dfe8377631000664666519fdb83da193fd8037f4/dr_wav.h",
-      "new_source": "https://github.com/mackron/dr_libs/blob/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_wav.h",
-      "proof_report": "outputs/dependency-updates-20261112/dr-libs-curation-text-proof.json"
+      "new_source": "https://github.com/mackron/dr_libs/blob/e381981afa52800b9a3864df548353ff67252fbc/dr_wav.h",
+      "proof_report": "build/tests/fixtures/license_package_configurations/native_dependency_expectations.json"
+    },
+    "mbedtls-source-1": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "093b0c4de4369d708704aa81c3ae4a26efcc0665ffa6bc58663f14b377267b4a",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines2-2 in LICENSE are byte-identical at current lines2-2, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "9b405ef4c89342f5eae1dd828882f931747f71001cfba7d114801039b52ad09b"
+    },
+    "mbedtls-source-2": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines215-553 in LICENSE are byte-identical at current lines215-553, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "9b405ef4c89342f5eae1dd828882f931747f71001cfba7d114801039b52ad09b"
+    },
+    "mbedtls-source-3": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "093b0c4de4369d708704aa81c3ae4a26efcc0665ffa6bc58663f14b377267b4a",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines2-2 in tf-psa-crypto/LICENSE are byte-identical at current lines2-2, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "da8c58f05f135a9d15e9ffad4ecf854cfcc1f014c8abfd75ba05f62630ccc118"
+    },
+    "mbedtls-source-4": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines214-552 in tf-psa-crypto/LICENSE are byte-identical at current lines214-552, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "da8c58f05f135a9d15e9ffad4ecf854cfcc1f014c8abfd75ba05f62630ccc118"
+    },
+    "mbedtls-source-5": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "ec784123f6491621cf0dafc1908a9235f9e10a5020608c18fb7bbbc99184c627",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines1625-1625 in tf-psa-crypto/include/psa/crypto_config.h are byte-identical at current lines1636-1636, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "a60e17210982150339fbfde4d48a072bb193db15f929c965143a479b7901b8f0"
+    },
+    "mbedtls-source-6": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "438b68df1677ef904cffc321750bff43a1ed44ae0bc4100011708a39b9ecc7e0",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines407-407 in framework/scripts/check_files.py are byte-identical at current lines407-407, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "abd177b5e8f4ee3bc59770a3d517b63a998afabf27c9face059b1f7c8a3858aa"
+    },
+    "mbedtls-source-7": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "82b46390feb3e67d7939612ee593092c25f502ae620c35469b52a7328c87d444",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines8-8 in configs/ext/README.md are byte-identical at current lines8-8, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "c33be95d99ce52a40cffa3f0dbad3e6f08207c6a37fc8df73d848fa6dd42c205"
+    },
+    "mbedtls-source-8": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "f1511d57d3f9dc6face62cd17434991704770813aead5dba3fa67c4cc8f52178",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "tf-psa-crypto/drivers/pqcp/mldsa-native/test/notrandombytes/notrandombytes.c is absent from the entire verified4.1.2 archive; only its exact historical expectation is retired. This is not a new scan.",
+      "removed_member_sha256": "5c310434466568a2610891b127b48cbeb07c5598f49dfbb08b95b07971fb1610"
+    },
+    "mbedtls-source-9": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "8f868d0b1b6ec8244f3c0916ded5edb3f7a0c70501071334039a9778bc27bca3",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines244-244 in README.md are byte-identical at current lines244-244, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "430e0a9c9eabac81ee8abc0db7b7491af23ad426a496d83cdc187e0f0dd5055c"
+    },
+    "mbedtls-source-10": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "a716f98741839971bbc761b71a378a5e49de6f69bb50ae042f34362470e0d09e",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines718-718 in ChangeLog are byte-identical at current lines864-864, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "6a1730bb212c2914e16798a0993319d913a35a9c6af5ad0cb385356415fbf9fc"
+    },
+    "mbedtls-source-11": {
+      "package": "mbedtls",
+      "old_version": "4.1.1",
+      "new_version": "4.1.2",
+      "old_artifact_sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "new_artifact_sha256": "392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126",
+      "scoped_text_sha256": "e1a4c346b2cb028b4cf171971668af1860c9705fdb9c20fc2b0b6f2f2334e9ed",
+      "old_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+      "new_source": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2",
+      "scope": "Exact historical lines87-87 in CONTRIBUTING.md are byte-identical at current lines87-87, excluding line terminators. This is a derived expectation, not a new scan.",
+      "current_member_sha256": "67faab5c376c9105b949a1e9c93ee9ce10d40d5d63995e67b0cea10ca2859612"
     }
   },
-  "negative_control_license": "GPL-3.0-only"
+  "negative_control_license": "GPL-3.0-only",
+  "retired": [
+    {
+      "historical": {
+        "package": "mbedtls",
+        "path": "mbedtls-4.1.1/tf-psa-crypto/drivers/pqcp/mldsa-native/test/notrandombytes/notrandombytes.c",
+        "start_lines": 3,
+        "end_lines": 3,
+        "license": "LicenseRef-scancode-unknown-spdx OR CC0-1.0 OR 0BSD OR MIT-0 OR MIT",
+        "disposition": "excluded"
+      },
+      "source_proof": "mbedtls-source-8"
+    }
+  ]
 }

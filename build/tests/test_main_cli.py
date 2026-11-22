@@ -152,8 +152,8 @@ class MainCliCase(unittest.TestCase):
             (self.llvm.runtime / name).write_bytes(b'matched-llvm21')
         self.asan = self.root / "asan.dll"
         self.asan.write_bytes(b"x")
-        # The driver forwards the selected 14.51 servicing toolset selected from the VS install.
-        cl = (self.root / "vs" / "VC" / "Tools" / "MSVC" / "14.51.36231"
+        # The driver forwards the selected 14.52 servicing toolset selected from the VS install.
+        cl = (self.root / "vs" / "VC" / "Tools" / "MSVC" / "14.52.36231"
               / "bin" / "Hostx64" / "x64" / "cl.exe")
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.write_bytes(b"x")
@@ -342,15 +342,15 @@ class MainCliCase(unittest.TestCase):
             main._find_umdh()
 
     def _seed_llvm(self, llvm: Path) -> Path:
-        """Seed a complete LLVM 19 x64 home: the tools, the headers and the x64 runtimes."""
+        """Seed the pinned x64 tools, headers and runtimes."""
 
         (llvm / "bin").mkdir(parents=True, exist_ok=True)
         for tool in ("clang-cl", "lld-link", "llvm-cov", "llvm-profdata"):
             (llvm / "bin" / f"{tool}.exe").write_bytes(b"x")
-        include = llvm / "lib" / "clang" / "21" / "include"
+        include = llvm / "lib" / "clang" / main.LLVM_MAJOR_VERSION / "include"
         include.mkdir(parents=True, exist_ok=True)
         (include / "stddef.h").write_bytes(b"x")
-        windows = llvm / "lib" / "clang" / "21" / "lib" / "windows"
+        windows = llvm / "lib" / "clang" / main.LLVM_MAJOR_VERSION / "lib" / "windows"
         windows.mkdir(parents=True, exist_ok=True)
         for library in (
             "clang_rt.profile-x86_64.lib", "clang_rt.fuzzer-x86_64.lib",
@@ -363,7 +363,7 @@ class MainCliCase(unittest.TestCase):
 
     def _llvm_version_runner(self):
         def runner(argv, **options: object) -> subprocess.CompletedProcess[str]:
-            return subprocess.CompletedProcess(list(argv), 0, "LLVM version 21.1.8\n")
+            return subprocess.CompletedProcess(list(argv), 0, f"LLVM version {main.LLVM_INSTRUMENTATION_VERSION}\n")
 
         return runner
 
@@ -421,7 +421,7 @@ class MainCliCase(unittest.TestCase):
 
     def test_asan_runtime_resolution(self) -> None:
         install = self.root / "vs"
-        bin_dir = install / "VC" / "Tools" / "MSVC" / "14.51.36231" / "bin" / "Hostx64" / "x64"
+        bin_dir = install / "VC" / "Tools" / "MSVC" / "14.52.36231" / "bin" / "Hostx64" / "x64"
         bin_dir.mkdir(parents=True, exist_ok=True)
         runtime = bin_dir / main._ASAN_RUNTIMES["x64"]
         runtime.write_bytes(b"x")

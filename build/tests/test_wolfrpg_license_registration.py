@@ -79,9 +79,9 @@ UBERWOLF_BUILD_CONFIGURATION = {
     "build/vcpkg/ports/uberwolf/encoding-aware-legacy.patch":
         "f8eb10d561d47bde96c108902fbe1b25f0d30f58eee26680ac72a805cd290737",
     "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake":
-        "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "aa1cb23c2c030d28d2ee079dea38bb9b892f2f45dc8b8d29666add9713d5f27d",
     "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake":
-        "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7",
+        "830e02f704dded37449ca1077662d96865f979a48ac97c768972c203b6f61e56",
 }
 
 

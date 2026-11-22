@@ -52,7 +52,7 @@ SENTINEL_VALUE = "ambient sentinel value"
 
 # A version line both standalone selectors accept, so the pinned fake never lets the real
 # loader run against the ambient byte files.
-VERSION_OUTPUT = "clang-format version 23.1.3\nLLVM version 23.1.3\n"
+VERSION_OUTPUT = "clang-format version 23.1.6\nLLVM version 23.1.6\n"
 
 
 class ToolLookupEnvironmentIsolationTests(unittest.TestCase):

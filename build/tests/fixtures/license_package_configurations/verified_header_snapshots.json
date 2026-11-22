@@ -1,37 +1,37 @@
 {
-  "provenance": "Verified2026-11-12 from exact upstream header blobs read in memory; deterministic_tar reproduced the previous reviewed bundle hash before computing the new address. This is source-identity data, not a scanner observation or a claim of old CI output.",
+  "provenance": "Verified2026-11-22 from exact upstream header blobs; deterministic_tar reproduced the prior reviewed bundle hash before computing the new address. This is source-identity data, not a scanner observation or a claim of old CI output.",
   "components": [
     {
       "name": "drlibs",
-      "version": "2026-11-11",
-      "id": "SpdxDocumentFile:vcpkg:drlibs:2026-11-11",
-      "sha256": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a",
-      "artifact_filename": "aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a.tar",
-      "source_artifact_url": "http://127.0.0.1:8765/sources/aa971fb36a7a147157e7726ec2311e1d46bd2d3cc80ce70efebdda9ce61e807a.tar",
+      "version": "2026-11-19",
+      "id": "SpdxDocumentFile:vcpkg:drlibs:2026-11-19",
+      "sha256": "b2685569074381fdf55f05c274bd18211ba1f30b17abe3699deb164ecac15471",
+      "artifact_filename": "b2685569074381fdf55f05c274bd18211ba1f30b17abe3699deb164ecac15471.tar",
+      "source_artifact_url": "http://127.0.0.1:8765/sources/b2685569074381fdf55f05c274bd18211ba1f30b17abe3699deb164ecac15471.tar",
       "members": [
         {
-          "path": "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_mp3.h",
-          "size": 203953,
-          "sha256": "7a6cc38b0afdb55cfc9eec991d9169d67beb8fd910be2995121510cdaa99c356",
-          "sha512": "d31c0161928d7e3c2158b9a79a8db2b1ac37b8c81d4087ea499bb37f6b2591e6922e1288ae12047907da8c91ee828832f968b7cff44f8fd81e681a7b69ccbde9"
+          "path": "dr_libs-e381981afa52800b9a3864df548353ff67252fbc-dr_mp3.h",
+          "size": 204532,
+          "sha256": "bd539c0cafee96a73b6075607aa3caae375ca1eda7eeb8479b87b33b16212570",
+          "sha512": "7ce97e1adacb140fa2e017e4cd0bbd92ce30c5c9f7c5fd588fe4840b7cdb17d29029fbbffbdbbd1cfb6ec3f42434bebdc02de07c3b0a8cb7b24eae533e9ae51e"
         },
         {
-          "path": "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_wav.h",
-          "size": 348779,
-          "sha256": "7c9660d75361ad6175e6217c63a1075c9512445c06bc951197fc479179f76b39",
-          "sha512": "88a622fa07f7bea5a4467340743ee20c7987170a2dba7579a5f44aff2d5e24ce73d9294cf591df8740df4bba6b64dc9ee18e5a21173b54ba72e649175c91e255"
+          "path": "dr_libs-e381981afa52800b9a3864df548353ff67252fbc-dr_wav.h",
+          "size": 347576,
+          "sha256": "b36c32661cfbbfb1cc0beb19f7a9d2567065e5a297f64172dcebfff59885f37b",
+          "sha512": "7881f7db87815abb132b53af7e2b85549079c13601e393fadcaaa9db3f6edb6bd644c2ecca077815e603bbe3cfecd55e8c4f69e1be5ea98b2e44aacea5c4c1cb"
         }
       ],
       "resources": [
         {
-          "name": "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_mp3.h",
-          "url": "https://raw.githubusercontent.com/mackron/dr_libs/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_mp3.h",
-          "sha512": "d31c0161928d7e3c2158b9a79a8db2b1ac37b8c81d4087ea499bb37f6b2591e6922e1288ae12047907da8c91ee828832f968b7cff44f8fd81e681a7b69ccbde9"
+          "name": "dr_libs-e381981afa52800b9a3864df548353ff67252fbc-dr_mp3.h",
+          "url": "https://raw.githubusercontent.com/mackron/dr_libs/e381981afa52800b9a3864df548353ff67252fbc/dr_mp3.h",
+          "sha512": "7ce97e1adacb140fa2e017e4cd0bbd92ce30c5c9f7c5fd588fe4840b7cdb17d29029fbbffbdbbd1cfb6ec3f42434bebdc02de07c3b0a8cb7b24eae533e9ae51e"
         },
         {
-          "name": "dr_libs-f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c-dr_wav.h",
-          "url": "https://raw.githubusercontent.com/mackron/dr_libs/f12e197fd462e4c22873fbd70d11b1d2f2c1dc3c/dr_wav.h",
-          "sha512": "88a622fa07f7bea5a4467340743ee20c7987170a2dba7579a5f44aff2d5e24ce73d9294cf591df8740df4bba6b64dc9ee18e5a21173b54ba72e649175c91e255"
+          "name": "dr_libs-e381981afa52800b9a3864df548353ff67252fbc-dr_wav.h",
+          "url": "https://raw.githubusercontent.com/mackron/dr_libs/e381981afa52800b9a3864df548353ff67252fbc/dr_wav.h",
+          "sha512": "7881f7db87815abb132b53af7e2b85549079c13601e393fadcaaa9db3f6edb6bd644c2ecca077815e603bbe3cfecd55e8c4f69e1be5ea98b2e44aacea5c4c1cb"
         }
       ]
     }

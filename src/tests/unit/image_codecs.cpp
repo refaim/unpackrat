@@ -148,9 +148,9 @@ namespace
     thread_local bool calibrate_error_allocation = false;
     thread_local std::size_t error_allocation_size = 0;
     thread_local std::size_t reject_size = 0;
-    thread_local bool target_rejected = false;
     thread_local std::size_t rejected_at = 0;
 #ifdef _WIN64
+    thread_local bool target_rejected = false;
     thread_local bool reject_only_in_spng = false;
     thread_local DWORD64 encoder_begin = 0;
     thread_local DWORD64 encoder_end = 0;
@@ -180,7 +180,9 @@ namespace
 #endif
             ) {
                 reject_size = 0;
+#ifdef _WIN64
                 target_rejected = true;
+#endif
                 rejected_at = allocation_count;
                 return 0;
             }
@@ -202,9 +204,9 @@ namespace
             calibrate_error_allocation = false;
             error_allocation_size = 0;
             reject_size = 0;
-            target_rejected = false;
             rejected_at = 0;
 #ifdef _WIN64
+            target_rejected = false;
             reject_only_in_spng = false;
 #endif
         }

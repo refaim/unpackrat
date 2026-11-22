@@ -1,0 +1,35 @@
+name: CodeQL weekly
+
+on:
+  schedule:
+    - cron: '12 14 * * 2'
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-weekly-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      arch: x64
+      stage: native-debug
+      codeql: true
+
+  codeql-source:
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    with:
+      arch: none
+      stage: source
+      codeql: true

@@ -21,23 +21,23 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 PREP_WORKFLOW = REPOSITORY / ".github" / "workflows" / "ci-instrumentation.yml"
 GUARD_FUNCTION = "Assert-UbsanProbeLinker"
 
-# The paired linker the job would supply, matching the real 21.1.8/23.1.3 tree shape.
-PAIRED_LINKER = r"C:\Users\Roma\scoop\apps\llvm\23.1.3\bin\lld-link.exe"
+# The paired linker the job would supply, matching the real 23.1.6/23.1.6 tree shape.
+PAIRED_LINKER = r"C:\Users\Roma\scoop\apps\llvm\23.1.6\bin\lld-link.exe"
 
 # Real clang-cl ``-###`` output for the accepted ``-B`` selection: the compiler command comes
 # first, then the linker command resolved to its paired absolute path with escaped backslashes,
 # a mixed final slash and no ``.exe`` suffix.
 ACCEPTED_PREVIEW = (
-    ' "C:\\\\Users\\\\Roma\\\\scoop\\\\apps\\\\llvm\\\\23.1.3\\\\bin\\\\clang-cl.exe"'
+    ' "C:\\\\Users\\\\Roma\\\\scoop\\\\apps\\\\llvm\\\\23.1.6\\\\bin\\\\clang-cl.exe"'
     ' "-cc1" "-triple" "x86_64-pc-windows-msvc"\n'
-    ' "C:\\\\Users\\\\Roma\\\\scoop\\\\apps\\\\llvm\\\\23.1.3\\\\bin/lld-link"'
+    ' "C:\\\\Users\\\\Roma\\\\scoop\\\\apps\\\\llvm\\\\23.1.6\\\\bin/lld-link"'
     ' "-out:probe.exe" "-nologo" "/WX" "probe.obj"\n'
 )
 
 # Real clang-cl ``-###`` output for the unsafe absolute ``-fuse-ld`` path: the driver prefixes the
 # target triple to the absolute path, so the first quoted token is not a valid absolute path.
 TARGET_PREFIXED_PREVIEW = (
-    ' "x86_64-pc-windows-msvc-coff-C:\\\\Users\\\\Roma\\\\scoop\\\\apps\\\\llvm\\\\23.1.3'
+    ' "x86_64-pc-windows-msvc-coff-C:\\\\Users\\\\Roma\\\\scoop\\\\apps\\\\llvm\\\\23.1.6'
     '\\\\bin\\\\lld-link.exe" "-out:probe.exe" "-nologo" "/WX" "probe.obj"\n'
 )
 
@@ -127,13 +127,13 @@ class ResolvedLinkerGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_paired_path_with_spaces_is_accepted(self) -> None:
-        expected = r"C:\Program Files\LLVM 21.1.8\x64\bin\lld-link.exe"
+        expected = r"C:\Program Files\LLVM 23.1.6\x64\bin\lld-link.exe"
         result = self._check(preview(command(expected, "-out:probe.exe")), expected)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_differently_cased_paired_path_is_accepted(self) -> None:
-        expected = r"c:\program files\llvm 21.1.8\x64\bin\lld-link.exe"
-        actual = r"C:\PROGRAM FILES\LLVM 21.1.8\X64\BIN\LLD-LINK.EXE"
+        expected = r"c:\program files\llvm 23.1.6\x64\bin\lld-link.exe"
+        actual = r"C:\PROGRAM FILES\LLVM 23.1.6\X64\BIN\LLD-LINK.EXE"
         result = self._check(preview(command(actual, "-out:probe.exe")), expected)
         self.assertEqual(result.returncode, 0, result.stderr)
 

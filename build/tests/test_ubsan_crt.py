@@ -50,7 +50,7 @@ class UbsanCrtTests(unittest.TestCase):
         base = (triplets / "unpackrat-x64-windows-static.cmake").read_text()
         for setting in ("set(VCPKG_LIBRARY_LINKAGE static)",
                         "set(VCPKG_TARGET_ARCHITECTURE x64)", "set(VCPKG_PLATFORM_TOOLSET v145)",
-                        "set(VCPKG_PLATFORM_TOOLSET_VERSION 14.51)", "set(VCPKG_CMAKE_SYSTEM_VERSION 10.0.26100.0)"):
+                        "set(VCPKG_PLATFORM_TOOLSET_VERSION 14.52)", "set(VCPKG_CMAKE_SYSTEM_VERSION 10.0.26100.0)"):
             self.assertIn(setting, base)
         for other, crt in (("unpackrat-x64-windows-static", "static"), ("unpackrat-x86-windows-static", "static"),
                            ("unpackrat-x64-windows-static-asan", "dynamic"), ("unpackrat-x86-windows-static-asan", "dynamic"),
@@ -69,7 +69,7 @@ class UbsanCrtTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with mock.patch.object(main, "_vs_installation", return_value=root / "vs"), \
-                 mock.patch.object(main, "_msvc_toolset_version", return_value="14.51.36231"), \
+                 mock.patch.object(main, "_msvc_toolset_version", return_value="14.52.36231"), \
                  mock.patch.object(main, "run") as run:
                 main._restore(root, "x64", "UBSan", root / "vcpkg.exe")
             command = run.call_args.args[0]

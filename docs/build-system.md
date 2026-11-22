@@ -28,11 +28,11 @@ version.
 A Windows 11 host with:
 
 - [Visual Studio Build Tools 2026](https://aka.ms/vs/stable/vs_buildtools.exe) (VS18) carrying the
-  v145 14.51 toolset and matching Spectre CRT libraries for x86 and x64. Release compilation
+  v145 14.52 toolset and matching Spectre CRT libraries for x86 and x64. Release compilation
   retains `/GS` and `/Qspectre`;
-- a matched LLVM 21.1.8 instrumentation tree selected explicitly through
+- a matched LLVM 23.1.6 instrumentation tree selected explicitly through
   `UNPACKRAT_LLVM_INSTRUMENTATION`, with `x64/bin` compiler/coverage tools and
-  `x86/lib/clang/21` and `x64/lib/clang/21` resource/runtime trees. Coverage, UBSan and fuzz use
+  `x86/lib/clang/23` runtimes and `x64/lib/clang/23` resources/runtimes. Coverage, UBSan and fuzz use
   this family; ASan uses the selected MSVC v145 dynamic ASan runtime;
 - the [Windows 11 SDK 26100](https://learn.microsoft.com/en-us/windows/apps/windows-sdk/downloads),
   and the Windows 10 SDK 2004 debugging tools that provide the pinned UMDH and GFlags the leak probe
@@ -40,8 +40,8 @@ A Windows 11 host with:
   are compiled against; no SDK 28000 target is used;
 - PowerShell 7.4 or newer, the shell `build.ps1` targets;
 - `uv` 0.13.0 to run the pinned
-  [Python 3.14.7](https://www.python.org/downloads/release/python-3147/) environment under
-  `build/.venv` (coverage 7.16.2, filelock 4.1.1, psutil 7.2.2, pywin32 312). `build.ps1` invokes
+  [Python 3.14.8](https://www.python.org/downloads/release/python-3148/) environment under
+  `build/.venv` (coverage 7.16.2, filelock 4.2.1, psutil 7.2.2, pywin32 312). `build.ps1` invokes
   `uv run --frozen --no-sync --no-python-downloads`, so the environment must already exist: it never
   creates the venv, syncs the dependencies or downloads an interpreter;
 - an already installed [LibMaker](https://github.com/Chuyu-Team/LibMaker/releases) executable on
@@ -49,17 +49,17 @@ A Windows 11 host with:
 - `vcpkg` reachable through `VCPKG_ROOT`, used in manifest mode over the pinned dependency set, with
   the executable pinned to the
   [2026-09-26 vcpkg-tool release](https://github.com/microsoft/vcpkg-tool/releases/tag/2026-09-26);
-- [clang-tidy and clang-format from LLVM 23.1.3](https://github.com/llvm/llvm-project/releases/tag/llvmorg-23.1.3)
+- [clang-tidy and clang-format from LLVM 23.1.6](https://github.com/llvm/llvm-project/releases/tag/llvmorg-23.1.6)
   for the Release analysis and the format check, resolved from the standard `PATH` or selected by the
   `UNPACKRAT_CLANG_TIDY` and `UNPACKRAT_CLANG_FORMAT` executable paths. The driver verifies each
   tool's version and never installs it; there is no private `%LOCALAPPDATA%` tool cache.
 
-The native build and the vcpkg overlay triplets share one v145 14.51 compiler family: the driver
+The native build and the vcpkg overlay triplets share one v145 14.52 compiler family: the driver
 forwards the full installed `VCToolsVersion` instead of hard-coding a toolset folder, the triplets
-pin v145 at 14.51, and `VCPKG_VISUAL_STUDIO_PATH` names the same selected Visual Studio so the
+pin v145 at 14.52, and `VCPKG_VISUAL_STUDIO_PATH` names the same selected Visual Studio so the
 compiler and the STL agree with the dependency builds.
 
-Release uses VS2026 MSBuild, v145 14.51 and SDK 26100, the ordinary static Spectre CRT and one
+Release uses VS2026 MSBuild, v145 14.52 and SDK 26100, the ordinary static Spectre CRT and one
 architecture-specific `YY_Thunks_for_WinXP.obj` from
 [YY-Thunks v1.2.3](https://github.com/Chuyu-Team/YY-Thunks/releases/tag/v1.2.3), source-port revision 1.
 VC-LTL is not a dependency. The source port verifies the upstream archive SHA-512, applies the
@@ -86,14 +86,14 @@ startup and all default analysis gates. The legacy internal filename `unpackrat-
 property `unpackratVistaCompatibility` now select this XP recipe.
 Every local compiler, SDK and analyzer must already be installed; missing prerequisites fail closed.
 
-The coverage, UBSan and fuzz variants compile, profile and link against one matched LLVM 21.1.8
+The coverage, UBSan and fuzz variants compile, profile and link against one matched LLVM 23.1.6
 family: the `clang-cl` compiler, the `llvm-cov`/`llvm-profdata` tools, the headers and the
 per-architecture `compiler-rt` (profile, fuzzer, dynamic ASan import library with its static runtime
 thunk, and UBSan) libraries. The driver selects
 that family from the explicit, absolute `UNPACKRAT_LLVM_INSTRUMENTATION` root; it validates every
 tool version, the headers and every required runtime library before it forwards the toolchain to
-MSBuild and never borrows a global LLVM from `PATH`. The separately pinned clang-tidy and
-clang-format (LLVM 23.1.3) analyze and format Release code. The Release analysis marks the restored
+MSBuild and never borrows a global LLVM from `PATH`. The clang-tidy and clang-format tools from
+the same LLVM 23.1.6 release analyze and format Release code. The Release analysis marks the restored
 vcpkg include paths as system headers through
 `/imsvc` while the ordinary `/I` form of the same path stays a first-party include, and repository
 `src` headers are always first-party. That is a real AST-matcher scope decision, not a diagnostics
@@ -108,16 +108,16 @@ Cppcheck 2.22.0 (the
 SHA-256), PSScriptAnalyzer 1.25.0 and BinSkim 4.4.9.11 round out the source and native analysis
 tools.
 
-`ci-source` requires `clang-cl` 23.1.3 from the same pinned LLVM tree as `clang-format`; set
+`ci-source` requires `clang-cl` 23.1.6 from the same pinned LLVM tree as `clang-format`; set
 `UNPACKRAT_CLANG_CL` to override the compiler path.
 
 Only the tools the stage you run actually needs must be present: `ci-source` needs clang-format,
 Cppcheck and PSScriptAnalyzer; the `native-debug`, `native-release` and `msvc-analysis` stages need
-the MSVC v145 14.51 toolset (`native-release` also needs dumpbin and
+the MSVC v145 14.52 toolset (`native-release` also needs dumpbin and
 BinSkim); compile-only `msvc-analysis` retains `/Qspectre` without selecting Spectre libraries.
 The `clang-tidy` stage needs the standalone
-LLVM 23.1.3 clang-tidy and its parallel runner on top of MSVC; the
-coverage, UBSan and fuzz stages need the LLVM 21.1.8 instrumentation family; and the x64 `leaks`
+LLVM 23.1.6 clang-tidy and its parallel runner on top of MSVC; the
+coverage, UBSan and fuzz stages need the LLVM 23.1.6 instrumentation family; and the x64 `leaks`
 stage needs UMDH over an already-built x64 Release tree. A missing tool fails the run with a plain
 message rather than being skipped.
 
@@ -276,7 +276,7 @@ Editing one translation unit or its included header invalidates that unit while 
 remain reusable across commits; configuration, flags and NOLINT changes also invalidate affected
 results. Findings still reach the real analyzer. Local runs without an explicit cache path keep the
 standard runner unchanged. The `native-debug`, `native-release` and `msvc-analysis` stages never provision or resolve
-the standalone LLVM 23.1.3 tools, which only the `clang-tidy` and `source` stages need. The `ubsan`
+the standalone LLVM 23.1.6 tools, which only the `clang-tidy` and `source` stages need. The `ubsan`
 and `leaks` stages are the x64 specialists and refuse any other selection
 up front. The flag exists so CI can run each slice in an independent job; the local default is
 unchanged.
@@ -295,10 +295,10 @@ checks above, and the `-Stage` selection still exposes each of the four `native-
 `native-release`, `msvc-analysis` and `clang-tidy` slices on its own. Every
 stage/architecture slice calls one maintained reusable workflow, `.github/workflows/ci-check.yml`,
 with its `arch` and `stage`, and that workflow provisions only what the stage needs: the source tools
-only for `source`, the standalone LLVM 23.1.3 analyzer/formatter only for `clang-tidy` and `source`,
-BinSkim only for `native-release`, UMDH only for `leaks`, the LLVM 21.1.8 instrumentation family
+only for `source`, the standalone LLVM 23.1.6 analyzer/formatter only for `clang-tidy` and `source`,
+BinSkim only for `native-release`, UMDH only for `leaks`, the LLVM 23.1.6 instrumentation family
 only for `coverage`, `ubsan` and `fuzz`, the pinned Python/uv environment for every stage, and the
-MSVC v145 14.51 toolset plus vcpkg for every MSVC-driven stage (`source`, `native-debug`,
+MSVC v145 14.52 toolset plus vcpkg for every MSVC-driven stage (`source`, `native-debug`,
 `native-release`, `msvc-analysis`, `clang-tidy`, `coverage`, `asan`, `ubsan`, `fuzz`), with `/Qspectre` for Release compilation. The `source-checks` row runs `ci-source`;
 the rest run `ci-arch -Stage …` for one
 architecture. `leaks-x64` depends only on `native-release-x64` and downloads that job's `release-x64`
@@ -311,30 +311,32 @@ The required `instrumentation-tools` preparation check joins these seventeen sta
 exit code determines whether the pinned LLVM toolchain is ready for the five jobs that consume it.
 
 All seventeen checks run on the GitHub-hosted `windows-2025-vs2026` image, whose Visual Studio 2026
-(VS18) install carries the same v145 14.51 toolset and standalone LLVM tooling the prerequisites
-name. The matched LLVM 21.1.8 instrumentation family is built once by one real `instrumentation-tools`
-provisioning job (`./.github/workflows/ci-instrumentation.yml`), which downloads the two official
-LLVM release payloads, hash- and size-verifies them, extracts the compiler, coverage/profile tools,
-headers and per-architecture runtimes, verifies the 21.1.8 versions and runtime libraries for both
-architectures, rebuilds only the x64 C++ UBSan runtime archive from hash-verified official source
-with the DLL CRT our `/MD` executables need and records its provenance. The verification step
-re-binds that provenance to the runner's selected toolset and compiler, re-hashes both UBSan
-archives, inspects the rebuilt archive's CRT directives and links and runs a real `/MD` UBSan probe
-through the paired lld-link on every run, a restored cache hit included, before the job caches the
-verified tree and publishes it as a same-run artifact ahead of the instrumentation gates. That job
-is a provisioning step, not a verdict that re-scores other jobs:
-the three LLVM 21.1.8 instrumentation stages (`coverage`, `ubsan`, `fuzz`) depend on it and select
-the artifact through `UNPACKRAT_LLVM_INSTRUMENTATION`, while the two ASan stages are the MSVC 14.51
+(VS18) install carries the same v145 14.52 toolset and standalone LLVM tooling the prerequisites
+name. The matched LLVM 23.1.6 instrumentation family is prepared once by one real
+`instrumentation-tools` job (`./.github/workflows/ci-instrumentation.yml`). It verifies the official
+x64 archive and source archive by hash and size. The x64 archive supplies host tools, headers and
+x64 runtimes. LLVM no longer publishes Windows x86 runtimes, so the job builds the five required
+i386 profile, fuzzer and dynamic ASan files from the same release's source, using the selected
+MSVC 14.52 x86 environment. Both fuzzer libraries are rebuilt with the supported `_ANNOTATE_STL`
+setting so their STL annotations match instrumented application code, while retaining the static
+CRT. A separate build changes only the x64 C++ UBSan runtime to the DLL CRT our `/MD` executables need.
+
+The job records source, compiler, toolset and runtime hashes, verifies COFF architecture and CRT
+directives, and runs real x86 profile and ASan probes, x86/x64 fuzzer replays and an x64 UBSan probe. These checks
+also run on cache hits before the verified tree is published as a same-run artifact. This is a
+provisioning step, not a verdict that re-scores other jobs:
+the three LLVM 23.1.6 instrumentation stages (`coverage`, `ubsan`, `fuzz`) depend on it and select
+the artifact through `UNPACKRAT_LLVM_INSTRUMENTATION`, while the two ASan stages are the MSVC 14.52
 dynamic AddressSanitizer build and never wait on it, and the native, analysis, source and leak stages
-never wait on it either. Provisioning for the standalone LLVM 23.1.3 tool tree uses the split
+never wait on it either. Provisioning for the standalone LLVM 23.1.6 tool tree uses the split
 `actions/cache/restore`
 and `actions/cache/save` steps so the tool tree is saved directly once its version is verified and
 before the `clang-tidy` build, rather than waiting behind a build gate that may fail; a restored tool
 cache is re-checked for completeness, for the exact pinned version and for the include-scope proof
 before it is trusted.
 
-Triggers: `pull_request` on `master`, `push` on `master` and the module tag prefixes; no
-`workflow_dispatch` and no schedule. Every mandatory check stays runnable from a local console through
+Triggers: `pull_request` on `master`, `push` on `master` and the module tag prefixes, and
+`workflow_dispatch`. Every mandatory check stays runnable from a local console through
 the same public entry points. The `native-release` slices upload their verified Release binaries as
 Actions artifacts; `packaging` (needing all seventeen required checks) consumes them without
 rebuilding and writes the module archives; the tag-only `release` job selects exactly the three
@@ -350,6 +352,15 @@ only real check findings. All three analyzers publish
 to [Code Scanning](https://github.com/refaim/unpackrat/security/code-scanning) under distinct source
 or architecture categories. The tools' exit codes remain the required check verdicts; the logs and
 SARIF files also stay available as Actions artifacts when a gate fails.
+
+CodeQL uses advanced setup in the `native-debug-x64` slice. It traces the real MSVC build,
+then the maintained Unity Release build and its managed tests, so C++ and C# analysis sees the
+pinned dependencies and prepared AssetRipper project references. Python and Actions use the
+`source-checks` slice with no build, since Python does not support manual build mode. The hosted
+runner must already provide a .NET 10 SDK. The small `codeql-schedule.yml` caller repeats these
+two slices every Tuesday at 14:12 UTC and supports manual
+runs without scheduling the full CI matrix. GitHub default setup must be disabled when activating
+this workflow; GitHub rejects advanced CodeQL uploads while default setup remains enabled.
 
 ## Coverage reports and Codecov
 
@@ -508,12 +519,3 @@ that states the observable requirement comes first.
 **№1 — the memory-budget stress gate does not exist.** The UMDH gate compares allocation growth across
 windows, which a parser buffering a whole entry and releasing it every round passes. Needed: a gate
 failing when peak private bytes scale with archive or entry size instead of the streaming buffer.
-
-**№6 — the instrumentation and standalone tools sit on two deliberate LLVM pins.** The Release
-analysis and the format check run on the standalone LLVM 23.1.3 clang-tidy/clang-format, while the
-coverage, sanitizer and fuzz variants stay on the matched LLVM 21.1.8 instrumentation family CI
-publishes. The split is deliberate, not a claim that every tool tracks the newest LLVM: no single
-release that ships a complete static ASan/UBSan/fuzz `compiler-rt` for both x86 and x64 has been
-validated as a full replacement yet, so `clang-cl` and `llvm-cov` are not moved onto the standalone
-LLVM 23.1.3 archive. Migrate the instrumentation and the standalone tools onto one pinned LLVM
-release once that runtime compatibility is verified.

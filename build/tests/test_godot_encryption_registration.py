@@ -16,7 +16,7 @@ class EncryptionRegistration(unittest.TestCase):
         manifest = json.loads((ROOT / "vcpkg.json").read_text(encoding="utf-8"))
         deps = {item["name"]: item.get("version>=") for item in manifest["dependencies"]}
         self.assertEqual(deps.get("zydis"), "4.1.1")
-        self.assertEqual(deps.get("mbedtls"), "4.1.1")
+        self.assertEqual(deps.get("mbedtls"), "4.1.2")
 
     def test_production_and_tests_link_only_crypto_and_static_decoder(self):
         for name in ("godot", "tests"):

@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -125,7 +126,7 @@ def _keycreate_subject() -> tuple[str, bool]:
 
 
 def _vcvars_environment() -> tuple[dict[str, str], Path]:
-    """Return the MSVC x64 environment and the absolute ``cl.exe`` for the pinned 14.44 toolset.
+    """Return the MSVC x64 environment and ``cl.exe`` for the driver-selected v145 toolset.
 
     ``CreateProcess`` resolves the program image from the *parent* environment, never the
     child environment handed to ``subprocess``, so ``cl`` has to be looked up explicitly on
@@ -151,7 +152,7 @@ def _vcvars_environment() -> tuple[dict[str, str], Path]:
     for line in result.stdout.splitlines():
         if "=" in line:
             name, value = line.rstrip("\r").split("=", 1)
-            environment[name] = value
+            environment[name.upper()] = value
     compiler = shutil.which("cl.exe", path=environment.get("PATH", ""))
     if compiler is None:
         raise RuntimeError("vcvars64 PATH did not expose cl.exe")
@@ -320,6 +321,44 @@ def _run(executable: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(executable), *arguments], capture_output=True, text=True,
     )
+
+
+class VcvarsEnvironmentTests(unittest.TestCase):
+    def test_mixed_case_captured_path_replaces_the_parent_path_for_compiler_lookup(self) -> None:
+        captured_path = r"C:\VS\VC\Tools\MSVC\14.52.37025\bin\Hostx64\x64"
+        compiler = str(Path(captured_path) / "cl.exe")
+        captured = subprocess.CompletedProcess([], 0, f"capture banner\r\nPath={captured_path}\r\n", "")
+        with mock.patch.object(os, "environ", {**os.environ, "PATH": r"C:\stale-parent-bin"}), \
+             mock.patch.object(main, "_vs_installation", return_value=Path(r"C:\VS")), \
+             mock.patch.object(main, "_msvc_toolset_version", return_value="14.52.37025"), \
+             mock.patch.object(subprocess, "run", return_value=captured), \
+             mock.patch.object(shutil, "which", side_effect=lambda name, *, path:
+                               compiler if path == captured_path else None) as lookup:
+            environment, selected = _vcvars_environment()
+
+        lookup.assert_called_once_with("cl.exe", path=captured_path)
+        self.assertEqual(environment["PATH"], captured_path)
+        self.assertNotIn("Path", environment)
+        self.assertEqual(selected, Path(compiler))
+
+    def test_a_failed_vcvars_capture_is_reported_before_compiler_lookup(self) -> None:
+        captured = subprocess.CompletedProcess([], 1, "", "fixture capture failed")
+        with mock.patch.object(main, "_vs_installation", return_value=Path(r"C:\VS")), \
+             mock.patch.object(main, "_msvc_toolset_version", return_value="14.52.37025"), \
+             mock.patch.object(subprocess, "run", return_value=captured), \
+             mock.patch.object(shutil, "which") as lookup:
+            with self.assertRaisesRegex(RuntimeError, "vcvars64 failed.*fixture capture failed"):
+                _vcvars_environment()
+        lookup.assert_not_called()
+
+    def test_a_capture_without_a_reachable_compiler_is_rejected(self) -> None:
+        captured = subprocess.CompletedProcess([], 0, "Path=C:\\empty-bin\r\n", "")
+        with mock.patch.object(main, "_vs_installation", return_value=Path(r"C:\VS")), \
+             mock.patch.object(main, "_msvc_toolset_version", return_value="14.52.37025"), \
+             mock.patch.object(subprocess, "run", return_value=captured), \
+             mock.patch.object(shutil, "which", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "vcvars64 PATH did not expose cl.exe"):
+                _vcvars_environment()
 
 
 class KeyCreateScratchPatchTests(unittest.TestCase):

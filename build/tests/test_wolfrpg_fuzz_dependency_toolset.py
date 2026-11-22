@@ -36,7 +36,7 @@ X64_FUZZ_TRIPLET = "unpackrat-x64-windows-static-fuzz.cmake"
 FUZZ_PORT = "uberwolf"
 OTHER_PORTS = ("zlib", "nlohmann-json")
 INSTRUMENTATION_ENV = "UNPACKRAT_LLVM_INSTRUMENTATION"
-TARGET_RUNTIME_PREFIX = "lib/clang/21/lib/windows"
+TARGET_RUNTIME_PREFIX = "lib/clang/23/lib/windows"
 LLVM_TOOLSET = "v145"
 # A real environment variable used as the sentinel: vcpkg keeps passthrough entries that
 # exist in the process environment, so this survives verbatim unless a triplet clobbers
